@@ -1,17 +1,17 @@
-
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getFirestore, Firestore, enableIndexedDbPersistence } from "firebase/firestore";
 import { getStorage, FirebaseStorage } from "firebase/storage";
 import { getAuth, Auth } from "firebase/auth";
 
-// Ces variables seront configurées dans Vercel (Settings > Environment Variables)
+// Configuration pour Vite (Les variables doivent commencer par VITE_)
+// Utilisation de l'opérateur optionnel ?. pour éviter le crash si env est indéfini
 const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
-  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.REACT_APP_FIREBASE_APP_ID
+  apiKey: (import.meta as any).env?.VITE_FIREBASE_API_KEY,
+  authDomain: (import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: (import.meta as any).env?.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: (import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: (import.meta as any).env?.VITE_FIREBASE_APP_ID
 };
 
 let app: FirebaseApp | undefined;
@@ -28,7 +28,7 @@ if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "undefined") {
     auth = getAuth(app);
 
     // ACTIVATION DU MODE HORS LIGNE (Persistance)
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && db) {
         enableIndexedDbPersistence(db).catch((err) => {
             if (err.code == 'failed-precondition') {
                 console.warn("Persistance échouée : Plusieurs onglets ouverts.");
@@ -42,7 +42,7 @@ if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "undefined") {
     console.error("Erreur d'initialisation Firebase:", error);
   }
 } else {
-  console.warn("Configuration Firebase manquante. L'application fonctionne en mode HORS LIGNE (Démo).");
+  console.warn("Configuration Firebase manquante ou incomplète. L'application fonctionne en mode HORS LIGNE (Démo).");
 }
 
 export { db, storage, auth };

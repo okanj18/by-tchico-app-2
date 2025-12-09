@@ -1,13 +1,19 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { COMPANY_CONFIG } from "../config";
 
-// Initialize Gemini
-// Note: In a real deployment, ensure process.env.API_KEY is set in Vercel/Netlify dashboard
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// Initialize Gemini with Vite env variable
+// Fix: cast import.meta to any and use optional chaining to avoid runtime error
+const apiKey = (import.meta as any).env?.VITE_API_KEY || '';
+let ai: GoogleGenAI | null = null;
+
+if (apiKey) {
+    ai = new GoogleGenAI({ apiKey });
+}
 
 export const getAIAnalysis = async (contextData: string, userPrompt: string): Promise<string> => {
     try {
+        if (!ai) return "Clé API non configurée (Mode Démo)";
+
         const model = 'gemini-2.5-flash';
         
         const systemInstruction = `
@@ -44,6 +50,8 @@ export const getAIAnalysis = async (contextData: string, userPrompt: string): Pr
 
 export const draftClientMessage = async (clientName: string, orderDescription: string, status: string): Promise<string> => {
      try {
+        if (!ai) return `Bonjour ${clientName}, votre commande est au statut : ${status}.`;
+
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: `Rédige un message WhatsApp court et poli pour le client ${clientName}.
@@ -59,6 +67,8 @@ export const draftClientMessage = async (clientName: string, orderDescription: s
 
 export const parseMeasurementsFromText = async (text: string): Promise<Record<string, number>> => {
     try {
+        if (!ai) return {};
+
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: `
