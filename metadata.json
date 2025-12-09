@@ -1,0 +1,8 @@
+{
+  "name": "BY TCHICO Manager",
+  "description": "Système de gestion intégré pour BY TCHICO (Production, Boutiques, Clients, Finance) avec assistance IA.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}
