@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Employe, Boutique, Depense, RoleEmploye, Pointage, SessionUser, TransactionPaie, Absence, CompteFinancier } from '../types';
-import { Users, UserPlus, Clock, Calendar, Save, X, Edit2, Trash2, CheckCircle, XCircle, Search, Filter, Briefcase, DollarSign, Banknote, UserMinus, History, ArrowUpCircle, ArrowDownCircle, AlertCircle, Plus, TrendingUp, AlertTriangle, Archive, RotateCcw, AlertOctagon, Lock } from 'lucide-react';
+import { Users, UserPlus, Clock, Calendar, Save, X, Edit2, Trash2, CheckCircle, XCircle, Search, Filter, Briefcase, DollarSign, Banknote, UserMinus, History, ArrowUpCircle, ArrowDownCircle, AlertCircle, Plus, TrendingUp, AlertTriangle, Archive, RotateCcw, AlertOctagon, Lock, Mail } from 'lucide-react';
 
 interface HRViewProps {
     employes: Employe[];
@@ -14,7 +14,7 @@ interface HRViewProps {
     onAddPointage: (p: Pointage) => void;
     onUpdatePointage: (p: Pointage) => void;
     currentUser: SessionUser | null;
-    comptes: CompteFinancier[]; // Nouvelle prop
+    comptes: CompteFinancier[]; 
 }
 
 const HRView: React.FC<HRViewProps> = ({ 
@@ -41,6 +41,7 @@ const HRView: React.FC<HRViewProps> = ({
     const [formData, setFormData] = useState<Partial<Employe>>({
         nom: '',
         telephone: '',
+        email: '',
         role: RoleEmploye.TAILLEUR,
         salaireBase: 0,
         typeContrat: 'CDI'
@@ -50,7 +51,7 @@ const HRView: React.FC<HRViewProps> = ({
     const [payModalOpen, setPayModalOpen] = useState(false);
     const [selectedEmployeeForPay, setSelectedEmployeeForPay] = useState<Employe | null>(null);
     const [payTab, setPayTab] = useState<'TRANSACTION' | 'SALAIRE'>('TRANSACTION');
-    const [paymentAccountId, setPaymentAccountId] = useState<string>(''); // Compte sélectionné pour le paiement
+    const [paymentAccountId, setPaymentAccountId] = useState<string>('');
     
     // Transaction Form (Acompte/Prime)
     const [transactionData, setTransactionData] = useState({
@@ -240,7 +241,6 @@ const HRView: React.FC<HRViewProps> = ({
     const handleSaveTransaction = () => {
         if (!selectedEmployeeForPay || transactionData.montant <= 0) return;
         
-        // Si c'est un acompte, on exige un compte de paiement pour impacter la trésorerie
         if (transactionData.type === 'ACOMPTE' && !paymentAccountId) {
             alert("Veuillez sélectionner un compte de paiement (Caisse ou Banque) pour sortir l'argent.");
             return;
@@ -257,7 +257,6 @@ const HRView: React.FC<HRViewProps> = ({
         const updatedEmp = { ...selectedEmployeeForPay, historiquePaie: [transaction, ...(selectedEmployeeForPay.historiquePaie || [])] };
         onUpdateEmploye(updatedEmp);
         
-        // Créer une dépense correspondante liée au compte
         if (transactionData.type === 'ACOMPTE') {
             const depense: Depense = { 
                 id: `D_ACOMPTE_${Date.now()}`, 
@@ -266,7 +265,7 @@ const HRView: React.FC<HRViewProps> = ({
                 categorie: 'SALAIRE', 
                 description: `Acompte (${selectedEmployeeForPay.nom}): ${transactionData.note}`, 
                 boutiqueId: selectedEmployeeForPay.boutiqueId || 'ATELIER',
-                compteId: paymentAccountId // LIAISON AVEC LA TRÉSORERIE
+                compteId: paymentAccountId
             };
             onAddDepense(depense);
         }
@@ -279,7 +278,6 @@ const HRView: React.FC<HRViewProps> = ({
     const handleConfirmSalaire = () => {
         if (!selectedEmployeeForPay) return;
         
-        // VÉRIFICATION DOUBLE PAIEMENT
         if (isSalaryAlreadyPaid(selectedEmployeeForPay)) {
             alert(`Attention : Le salaire de ce mois pour ${selectedEmployeeForPay.nom} a DÉJÀ été payé !`);
             return;
@@ -293,7 +291,6 @@ const HRView: React.FC<HRViewProps> = ({
         const currentDate = new Date(); 
         const base = selectedEmployeeForPay.salaireBase || 0;
         
-        // Calculs
         const acomptesMonth = (selectedEmployeeForPay.historiquePaie || [])
             .filter(t => t.type === 'ACOMPTE' && new Date(t.date).getMonth() === new Date().getMonth() && new Date(t.date).getFullYear() === currentDate.getFullYear())
             .reduce((acc, t) => acc + t.montant, 0);
@@ -328,7 +325,6 @@ const HRView: React.FC<HRViewProps> = ({
             description: desc
         };
 
-        // Marquer absences comme réglées
         const updatedAbsences = (selectedEmployeeForPay.absences || []).map(a => { 
             if (!a.reglee && new Date(a.date).getMonth() === currentDate.getMonth()) { return { ...a, reglee: true }; } 
             return a; 
@@ -337,7 +333,6 @@ const HRView: React.FC<HRViewProps> = ({
         const updatedEmp = { ...selectedEmployeeForPay, historiquePaie: [transactionSalaire, ...(selectedEmployeeForPay.historiquePaie || [])], absences: updatedAbsences };
         onUpdateEmploye(updatedEmp);
         
-        // Créer Dépense Salaire LIÉE AU COMPTE
         const depense: Depense = { 
             id: `D_SALAIRE_${Date.now()}`, 
             date: dateIso.split('T')[0], 
@@ -345,7 +340,7 @@ const HRView: React.FC<HRViewProps> = ({
             categorie: 'SALAIRE', 
             description: `Salaire ${salaryData.period} - ${selectedEmployeeForPay.nom}`, 
             boutiqueId: selectedEmployeeForPay.boutiqueId || 'ATELIER',
-            compteId: paymentAccountId // IMPACTE LA CAISSE/BANQUE
+            compteId: paymentAccountId
         };
         onAddDepense(depense);
         setPayModalOpen(false);
@@ -401,7 +396,7 @@ const HRView: React.FC<HRViewProps> = ({
 
     const openAddModal = () => {
         setEditingEmployee(null);
-        setFormData({ nom: '', telephone: '', role: RoleEmploye.TAILLEUR, salaireBase: 0, typeContrat: 'CDI' });
+        setFormData({ nom: '', telephone: '', email: '', role: RoleEmploye.TAILLEUR, salaireBase: 0, typeContrat: 'CDI' });
         setIsModalOpen(true);
     };
 
@@ -412,20 +407,20 @@ const HRView: React.FC<HRViewProps> = ({
         onUpdateEmploye({ ...emp, actif: true });
     };
 
-    // --- ARCHIVE LOGIC (Trigger Modal) ---
     const triggerArchive = (e: React.MouseEvent, id: string) => {
         e.preventDefault();
         e.stopPropagation();
         setArchiveConfirmId(id);
     };
 
-    // --- EXECUTE ARCHIVE ---
     const confirmArchive = () => {
         if (archiveConfirmId) {
             onDeleteEmploye(archiveConfirmId);
             setArchiveConfirmId(null);
         }
     };
+
+    // ... (Reste du render inchangé jusqu'au modal employée) ...
 
     return (
         <div className="h-[calc(100vh-8rem)] flex flex-col space-y-6">
@@ -460,6 +455,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             </div>
 
+            {/* LISTE DES EMPLOYES */}
             {activeTab === 'EMPLOYEES' && !isPointageOnly && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
                     <div className={`p-4 border-b border-gray-100 flex gap-4 ${showArchived ? 'bg-gray-50' : ''}`}>
@@ -475,7 +471,7 @@ const HRView: React.FC<HRViewProps> = ({
                                 <tr>
                                     <th className="py-3 px-4">Nom</th>
                                     <th className="py-3 px-4">Rôle</th>
-                                    <th className="py-3 px-4">Téléphone</th>
+                                    <th className="py-3 px-4">Téléphone / Email</th>
                                     <th className="py-3 px-4">Contrat</th>
                                     <th className="py-3 px-4 text-right">Salaire Base</th>
                                     <th className="py-3 px-4 text-center">Actions</th>
@@ -486,7 +482,10 @@ const HRView: React.FC<HRViewProps> = ({
                                     <tr key={emp.id} className={`hover:bg-gray-50 ${showArchived ? 'opacity-70 bg-gray-50' : ''}`}>
                                         <td className="py-3 px-4 font-bold text-gray-800">{emp.nom}</td>
                                         <td className="py-3 px-4"><span className="bg-brand-50 text-brand-800 px-2 py-1 rounded text-xs border border-brand-100">{emp.role}</span></td>
-                                        <td className="py-3 px-4 text-gray-600">{emp.telephone}</td>
+                                        <td className="py-3 px-4 text-gray-600">
+                                            <div>{emp.telephone}</div>
+                                            {emp.email && <div className="text-xs text-blue-500">{emp.email}</div>}
+                                        </td>
                                         <td className="py-3 px-4 text-gray-600">{emp.typeContrat}</td>
                                         <td className="py-3 px-4 text-right font-medium">{emp.salaireBase.toLocaleString()} F</td>
                                         <td className="py-3 px-4 text-center">
@@ -738,10 +737,11 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* Modal Gestion Paie - Mise à jour pour sécurisation et comptes */}
+            {/* ... Modal Paie et Autres (inchangés) ... */}
             {payModalOpen && selectedEmployeeForPay && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+                        {/* Content identical to previous, handled above */}
                         <div className="bg-gray-800 p-4 text-white flex justify-between items-center">
                             <div><h3 className="text-lg font-bold flex items-center gap-2"><Banknote size={20} className="text-green-400" /> Gestion Paie</h3><p className="text-sm text-gray-400">{selectedEmployeeForPay.nom} • Base: {selectedEmployeeForPay.salaireBase?.toLocaleString()} F</p></div>
                             <button onClick={() => setPayModalOpen(false)} className="text-gray-400 hover:text-white"><X size={24} /></button>
@@ -859,8 +859,6 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* ... Autres Modals (Absence, Historique, Add/Edit) inchangés ... */}
-            {/* Modal Absence */}
             {absenceModalOpen && selectedEmployeeForAbsence && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in duration-200">
@@ -877,7 +875,6 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* Modal Historique */}
             {historyModalOpen && selectedEmployeeForHistory && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
@@ -908,7 +905,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* Modal Add/Edit Employee */}
+            {/* Modal Add/Edit Employee with Email */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in fade-in zoom-in duration-200">
@@ -927,6 +924,17 @@ const HRView: React.FC<HRViewProps> = ({
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Téléphone</label>
                                 <input type="text" className="w-full p-2 border border-gray-300 rounded" value={formData.telephone} onChange={e => setFormData({...formData, telephone: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1"><Mail size={12}/> Email (Compte Connexion)</label>
+                                <input 
+                                    type="email" 
+                                    className="w-full p-2 border border-gray-300 rounded bg-blue-50 focus:ring-2 focus:ring-blue-500" 
+                                    value={formData.email || ''} 
+                                    onChange={e => setFormData({...formData, email: e.target.value})}
+                                    placeholder="ex: gerant@by-tchico.com"
+                                />
+                                <p className="text-xs text-blue-600 mt-1">L'utilisateur pourra se connecter avec cet email et le rôle défini ici.</p>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>

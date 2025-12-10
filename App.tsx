@@ -43,45 +43,7 @@ const App: React.FC = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [authLoading, setAuthLoading] = useState(true);
 
-    // --- GESTION AUTHENTIFICATION PERSISTANTE ---
-    useEffect(() => {
-        // Si Firebase n'est pas configuré (Mode Démo), on arrête le chargement
-        if (!app) {
-            console.log("App running in demo/offline mode (No Firebase config detected)");
-            setAuthLoading(false);
-            return;
-        }
-
-        const auth = getAuth(app);
-        const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-            if (firebaseUser) {
-                // Restauration de la session (Mapping simplifié comme dans LoginView)
-                const email = firebaseUser.email || '';
-                let role = RoleEmploye.STAGIAIRE;
-                let boutiqueId = undefined;
-                let nom = firebaseUser.displayName || "Utilisateur";
-
-                if (email.includes('admin')) { role = RoleEmploye.ADMIN; nom = "Administrateur"; }
-                else if (email.includes('gerant')) { role = RoleEmploye.GERANT; nom = "Gérant"; }
-                else if (email.includes('atelier')) { role = RoleEmploye.CHEF_ATELIER; nom = "Chef Atelier"; boutiqueId = 'ATELIER'; }
-                else if (email.includes('vendeur')) { role = RoleEmploye.VENDEUR; nom = "Vendeur Boutique"; boutiqueId = 'B1'; }
-                
-                setUser({
-                    id: firebaseUser.uid,
-                    nom: nom,
-                    role: role,
-                    boutiqueId: boutiqueId
-                });
-            } else {
-                setUser(null);
-            }
-            setAuthLoading(false);
-        });
-        return () => unsubscribe();
-    }, []);
-
     // --- DATA STATES (CLOUD SYNCED) ---
-    // On remplace useStickyState par useSyncState pour que les données aillent dans Firestore
     const [articles, setArticles] = useSyncState<Article[]>(mockArticles, 'articles');
     const [boutiques, setBoutiques] = useSyncState<Boutique[]>(mockBoutiques, 'boutiques');
     const [clients, setClients] = useSyncState<Client[]>(mockClients, 'clients');
@@ -96,6 +58,62 @@ const App: React.FC = () => {
     const [pointages, setPointages] = useSyncState<Pointage[]>(mockPointages, 'pointages');
     const [transactions, setTransactions] = useSyncState<TransactionTresorerie[]>(mockTransactionsTresorerie, 'transactions');
 
+    // --- GESTION AUTHENTIFICATION PERSISTANTE ---
+    useEffect(() => {
+        if (!app) {
+            setAuthLoading(false);
+            return;
+        }
+
+        const auth = getAuth(app);
+        const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+            if (firebaseUser) {
+                // Par défaut, Stagiaire ou basé sur l'email
+                const email = firebaseUser.email || '';
+                let role = RoleEmploye.STAGIAIRE;
+                let boutiqueId = undefined;
+                let nom = firebaseUser.displayName || "Utilisateur";
+
+                // Logique statique fallback
+                if (email.includes('admin')) { role = RoleEmploye.ADMIN; nom = "Administrateur"; }
+                else if (email.includes('gerant')) { role = RoleEmploye.GERANT; nom = "Gérant"; }
+                else if (email.includes('atelier')) { role = RoleEmploye.CHEF_ATELIER; nom = "Chef Atelier"; boutiqueId = 'ATELIER'; }
+                else if (email.includes('vendeur')) { role = RoleEmploye.VENDEUR; nom = "Vendeur Boutique"; boutiqueId = 'B1'; }
+                
+                setUser({
+                    id: firebaseUser.uid,
+                    nom: nom,
+                    role: role,
+                    boutiqueId: boutiqueId,
+                    email: email
+                });
+            } else {
+                setUser(null);
+            }
+            setAuthLoading(false);
+        });
+        return () => unsubscribe();
+    }, []);
+
+    // EFFET DE SYNCHRONISATION DU ROLE (Dès que la liste employés change)
+    useEffect(() => {
+        if (user && user.email && employes.length > 0) {
+            const dbEmployee = employes.find(e => e.email && e.email.toLowerCase() === user.email?.toLowerCase());
+            if (dbEmployee) {
+                // Si l'utilisateur actuel ne correspond pas aux données de la DB (rôle ou boutique)
+                if (dbEmployee.role !== user.role || dbEmployee.boutiqueId !== user.boutiqueId) {
+                    console.log("Mise à jour automatique du rôle utilisateur depuis la base employés");
+                    setUser(prev => prev ? {
+                        ...prev,
+                        role: dbEmployee.role,
+                        nom: dbEmployee.nom,
+                        boutiqueId: dbEmployee.boutiqueId
+                    } : null);
+                }
+            }
+        }
+    }, [employes, user?.email]); // Dépendance sur employes et user.email
+
     const handleLogin = (u: SessionUser) => {
         setUser(u);
         setCurrentView('dashboard');
@@ -109,13 +127,12 @@ const App: React.FC = () => {
                 setCurrentView('dashboard');
             });
         } else {
-            // Mode Démo
             setUser(null);
             setCurrentView('dashboard');
         }
     };
 
-    // --- SALES HANDLERS ---
+    // ... (Reste des handlers inchangés: handleMakeSale, handleAddPayment, etc.)
     const handleMakeSale = (saleData: any) => {
         const newOrder: Commande = {
             id: `CMD_VTE_${Date.now()}`,
@@ -151,7 +168,6 @@ const App: React.FC = () => {
 
         setCommandes(prev => [newOrder, ...prev]);
 
-        // Update Stock
         const updatedArticles = [...articles];
         const newMouvements = [...mouvements];
 
@@ -178,7 +194,6 @@ const App: React.FC = () => {
         setArticles(updatedArticles);
         setMouvements(newMouvements);
 
-        // Update Finance
         if (saleData.montantRecu > 0 && saleData.accountId) {
             const transaction: TransactionTresorerie = {
                 id: `TR_${Date.now()}`,
@@ -610,7 +625,7 @@ const App: React.FC = () => {
     if (!user && currentView !== 'catalogue-public') {
         return (
             <Suspense fallback={<div className="flex items-center justify-center h-screen bg-gray-50"><Loader className="animate-spin text-brand-600" size={32} /></div>}>
-                <LoginView employes={[]} onLogin={handleLogin} />
+                <LoginView employes={employes} onLogin={handleLogin} />
                 <div className="fixed bottom-4 right-4">
                     <button 
                         onClick={() => setCurrentView('catalogue-public')} 

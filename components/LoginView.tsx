@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { SessionUser, RoleEmploye } from '../types';
-import { Lock, Mail, ArrowRight, AlertCircle, Loader, CheckCircle, XCircle, HelpCircle } from 'lucide-react';
+import { Lock, Mail, ArrowRight, AlertCircle, Loader, CheckCircle, XCircle, HelpCircle, ShieldCheck } from 'lucide-react';
 import { COMPANY_CONFIG } from '../config';
 import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 import app from '../services/firebase'; // Assure l'init
@@ -10,12 +10,19 @@ interface LoginViewProps {
     onLogin: (user: SessionUser) => void;
 }
 
-const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
+const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [showHelp, setShowHelp] = useState(false);
+
+    // Détection immédiate si l'email saisi est dans la liste blanche
+    const isAdminDetected = useMemo(() => {
+        // @ts-ignore
+        const whitelist = COMPANY_CONFIG.adminEmails || [];
+        return whitelist.some((adminEmail: string) => adminEmail.toLowerCase() === email.toLowerCase());
+    }, [email]);
 
     // Helper pour vérifier les variables (avec ou sans FIREBASE_)
     const getEnvCheck = (key: string) => {
@@ -45,7 +52,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                 let boutiqueId = undefined;
 
                 // Logique de rôle simulée basée sur l'email
-                if (email.includes('admin')) { role = RoleEmploye.ADMIN; nom = "Administrateur"; }
+                if (email.includes('admin') || isAdminDetected) { role = RoleEmploye.ADMIN; nom = "Administrateur"; }
                 else if (email.includes('gerant')) { role = RoleEmploye.GERANT; nom = "Gérant"; }
                 else if (email.includes('atelier')) { role = RoleEmploye.CHEF_ATELIER; nom = "Chef Atelier"; boutiqueId = 'ATELIER'; }
                 else if (email.includes('vendeur')) { role = RoleEmploye.VENDEUR; nom = "Vendeur Boutique"; boutiqueId = 'B1'; }
@@ -56,7 +63,8 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                     id: "demo_user_" + Date.now(),
                     nom: nom,
                     role: role,
-                    boutiqueId: boutiqueId
+                    boutiqueId: boutiqueId,
+                    email: email
                 });
                 setLoading(false);
             }, 800);
@@ -74,18 +82,34 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
             let nom = "Utilisateur";
             let boutiqueId = undefined;
 
-            if (email.includes('admin')) { role = RoleEmploye.ADMIN; nom = "Administrateur"; }
-            else if (email.includes('gerant')) { role = RoleEmploye.GERANT; nom = "Gérant"; }
-            else if (email.includes('atelier')) { role = RoleEmploye.CHEF_ATELIER; nom = "Chef Atelier"; boutiqueId = 'ATELIER'; }
-            else if (email.includes('vendeur')) { role = RoleEmploye.VENDEUR; nom = "Vendeur Boutique"; boutiqueId = 'B1'; }
-            else if (email.includes('tailleur')) { role = RoleEmploye.TAILLEUR; nom = "Tailleur"; }
-            else if (email.includes('gardien')) { role = RoleEmploye.GARDIEN; nom = "Sécurité"; }
+            // 1. Vérification dans la base employées (Prioritaire)
+            // On cherche un employé dont l'email correspond à celui connecté
+            const employeeRecord = employes.find(e => e.email && e.email.toLowerCase() === email.toLowerCase());
+
+            // 0. Vérification Liste Blanche ADMIN (Priorité absolue pour le setup)
+            if (isAdminDetected) {
+                role = RoleEmploye.ADMIN;
+                nom = "Administrateur (Config)";
+            } else if (employeeRecord) {
+                role = employeeRecord.role;
+                nom = employeeRecord.nom;
+                boutiqueId = employeeRecord.boutiqueId;
+            } else {
+                // 2. Fallback sur la logique email statique (Pour le bootstrap)
+                if (email.includes('admin')) { role = RoleEmploye.ADMIN; nom = "Administrateur"; }
+                else if (email.includes('gerant')) { role = RoleEmploye.GERANT; nom = "Gérant"; }
+                else if (email.includes('atelier')) { role = RoleEmploye.CHEF_ATELIER; nom = "Chef Atelier"; boutiqueId = 'ATELIER'; }
+                else if (email.includes('vendeur')) { role = RoleEmploye.VENDEUR; nom = "Vendeur Boutique"; boutiqueId = 'B1'; }
+                else if (email.includes('tailleur')) { role = RoleEmploye.TAILLEUR; nom = "Tailleur"; }
+                else if (email.includes('gardien')) { role = RoleEmploye.GARDIEN; nom = "Sécurité"; }
+            }
 
             onLogin({
                 id: user.uid,
                 nom: user.displayName || nom,
                 role: role,
-                boutiqueId: boutiqueId
+                boutiqueId: boutiqueId,
+                email: user.email || ''
             });
 
         } catch (err: any) {
@@ -176,6 +200,11 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                             />
+                            {isAdminDetected && (
+                                <div className="absolute right-3 top-3 text-green-600 flex items-center gap-1 text-xs font-bold bg-green-50 px-2 py-0.5 rounded-full border border-green-200 animate-in fade-in zoom-in">
+                                    <ShieldCheck size={14} /> Admin Reconnu
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -208,7 +237,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
 
                     <div className="text-center text-xs text-gray-400 mt-4">
                         <p>Problème d'accès ? Contactez l'administrateur système.</p>
-                        <p className="mt-2">v{COMPANY_CONFIG.version} • {app ? "Cloud Connected" : "Local Mode"}</p>
+                        <p className="mt-2 font-mono">v{COMPANY_CONFIG.version} • {app ? "Cloud Connected" : "Local Mode"}</p>
                     </div>
                 </form>
             </div>

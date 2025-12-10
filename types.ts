@@ -50,6 +50,7 @@ export interface SessionUser {
     nom: string;
     role: RoleEmploye;
     boutiqueId?: string;
+    email?: string;
 }
 
 export interface Boutique {
@@ -80,6 +81,7 @@ export interface Employe {
     nom: string;
     role: RoleEmploye;
     telephone: string;
+    email?: string;
     salaireBase: number;
     typeContrat: string;
     boutiqueId?: string;

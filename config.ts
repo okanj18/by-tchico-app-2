@@ -11,6 +11,14 @@ export const COMPANY_CONFIG = {
     currency: "FCFA",
     tvaRate: 0.18, // 18%
     
+    // Sécurité / Accès
+    // Ajoutez ici les emails qui doivent être ADMIN par défaut (ex: votre email personnel)
+    adminEmails: [
+        "admin@by-tchico.com",
+        "moussa@by-tchico.com", 
+        "okanji18@by-tchico.com" // Votre email personnel
+    ],
+
     // Ressources
     logoUrl: "/logo.png",
     
@@ -18,5 +26,5 @@ export const COMPANY_CONFIG = {
     aiContext: "une entreprise de mode et de couture au Sénégal, spécialisée dans le Bazin, la soie et le prêt-à-porter local.",
     
     // Version
-    version: "1.5.0"
+    version: "1.6.0"
 };
