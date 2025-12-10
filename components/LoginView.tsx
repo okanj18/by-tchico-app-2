@@ -149,7 +149,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                                 </button>
                                 {showHelp && (
                                     <div className="mt-2 p-2 bg-white rounded border border-orange-200">
-                                        1. Allez sur Vercel > Settings > Env Variables.<br/>
+                                        1. Allez sur Vercel &gt; Settings &gt; Env Variables.<br/>
                                         2. Vérifiez l'orthographe EXACTE des noms.<br/>
                                         3. Le système accepte aussi les noms courts (ex: VITE_PROJECT_ID).<br/>
                                         4. Redéployez l'application après modification.
