@@ -1,7 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Employe, Boutique, Depense, RoleEmploye, Pointage, SessionUser, TransactionPaie, Absence, CompteFinancier } from '../types';
-import { Users, UserPlus, Clock, Calendar, Save, X, Edit2, Trash2, CheckCircle, XCircle, Search, Filter, Briefcase, DollarSign, Banknote, UserMinus, History, ArrowUpCircle, ArrowDownCircle, AlertCircle, Plus, TrendingUp, AlertTriangle, Archive, RotateCcw, AlertOctagon, Lock, Mail } from 'lucide-react';
+import { Users, UserPlus, Clock, Calendar, Save, X, Edit2, Trash2, CheckCircle, XCircle, Search, Filter, Briefcase, DollarSign, Banknote, UserMinus, History, ArrowUpCircle, ArrowDownCircle, AlertCircle, Plus, TrendingUp, AlertTriangle, Archive, RotateCcw, AlertOctagon, Lock, Mail, Key } from 'lucide-react';
+import { createAuthUser } from '../services/firebase';
 
 interface HRViewProps {
     employes: Employe[];
@@ -46,6 +47,12 @@ const HRView: React.FC<HRViewProps> = ({
         salaireBase: 0,
         typeContrat: 'CDI'
     });
+
+    // --- STATES GESTION ACCES ---
+    const [accessModalOpen, setAccessModalOpen] = useState(false);
+    const [accessEmployee, setAccessEmployee] = useState<Employe | null>(null);
+    const [newPassword, setNewPassword] = useState('');
+    const [isCreatingAccess, setIsCreatingAccess] = useState(false);
 
     // --- STATES GESTION PAIE & ABSENCE ---
     const [payModalOpen, setPayModalOpen] = useState(false);
@@ -420,6 +427,40 @@ const HRView: React.FC<HRViewProps> = ({
         }
     };
 
+    // --- ACCES GESTION ---
+    const openAccessModal = (e: Employe) => {
+        setAccessEmployee(e);
+        setNewPassword('');
+        setAccessModalOpen(true);
+    };
+
+    const handleCreateAccess = async () => {
+        if (!accessEmployee || !accessEmployee.email || !newPassword) {
+            alert("Email et mot de passe requis.");
+            return;
+        }
+        if (newPassword.length < 6) {
+            alert("Le mot de passe doit contenir au moins 6 caractères.");
+            return;
+        }
+
+        setIsCreatingAccess(true);
+        try {
+            await createAuthUser(accessEmployee.email, newPassword);
+            alert(`Compte de connexion créé avec succès pour ${accessEmployee.email}.\nMot de passe défini.`);
+            setAccessModalOpen(false);
+        } catch (error: any) {
+            console.error(error);
+            if (error.code === 'auth/email-already-in-use') {
+                alert("Cet email est déjà associé à un compte utilisateur.");
+            } else {
+                alert("Erreur lors de la création du compte : " + error.message);
+            }
+        } finally {
+            setIsCreatingAccess(false);
+        }
+    };
+
     // ... (Reste du render inchangé jusqu'au modal employée) ...
 
     return (
@@ -492,6 +533,15 @@ const HRView: React.FC<HRViewProps> = ({
                                             <div className="flex justify-center gap-1">
                                                 {!showArchived ? (
                                                     <>
+                                                        {emp.email && (
+                                                            <button 
+                                                                onClick={() => openAccessModal(emp)} 
+                                                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" 
+                                                                title="Gérer Accès Connexion"
+                                                            >
+                                                                <Lock size={16}/>
+                                                            </button>
+                                                        )}
                                                         <button onClick={() => openAbsenceModal(emp)} className="p-1.5 text-red-500 hover:bg-red-50 rounded" title="Absence"><UserMinus size={16}/></button>
                                                         <button onClick={() => openHistoryModal(emp)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded" title="Historique"><History size={16}/></button>
                                                         <button onClick={() => openPayModal(emp)} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Payer"><Banknote size={16}/></button>
@@ -521,6 +571,57 @@ const HRView: React.FC<HRViewProps> = ({
                                 )}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+
+            {/* ACCESS MODAL */}
+            {accessModalOpen && accessEmployee && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
+                        <div className="flex items-center gap-3 text-brand-600 mb-4 border-b border-gray-100 pb-3">
+                            <Key size={24} />
+                            <h3 className="text-lg font-bold text-gray-800">Créer Compte Connexion</h3>
+                        </div>
+                        
+                        <div className="mb-4">
+                            <p className="text-sm text-gray-600 mb-2">Employé : <strong>{accessEmployee.nom}</strong></p>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Email (Identifiant)</label>
+                            <input 
+                                type="text" 
+                                disabled 
+                                value={accessEmployee.email} 
+                                className="w-full p-2 border border-gray-200 rounded bg-gray-50 text-gray-600"
+                            />
+                        </div>
+
+                        <div className="mb-6">
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nouveau Mot de Passe</label>
+                            <input 
+                                type="text" 
+                                value={newPassword}
+                                onChange={e => setNewPassword(e.target.value)}
+                                className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-brand-500"
+                                placeholder="Min. 6 caractères"
+                            />
+                            <p className="text-[10px] text-gray-400 mt-1">L'utilisateur utilisera cet email et ce mot de passe pour se connecter.</p>
+                        </div>
+
+                        <div className="flex justify-end gap-3">
+                            <button 
+                                onClick={() => setAccessModalOpen(false)} 
+                                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg font-medium"
+                            >
+                                Annuler
+                            </button>
+                            <button 
+                                onClick={handleCreateAccess} 
+                                disabled={isCreatingAccess || !newPassword}
+                                className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-bold shadow-md disabled:opacity-50"
+                            >
+                                {isCreatingAccess ? 'Création...' : 'Créer Accès'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

@@ -1,18 +1,16 @@
 
-import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
+import { initializeApp, getApps, getApp, deleteApp, FirebaseApp } from "firebase/app";
 import { getFirestore, Firestore, enableIndexedDbPersistence } from "firebase/firestore";
 import { getStorage, FirebaseStorage } from "firebase/storage";
-import { getAuth, Auth } from "firebase/auth";
+import { getAuth, Auth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 
 // --- CONFIGURATION FIREBASE ---
 // 1. Essai de lecture depuis les variables d'environnement (Vercel)
 const env = (import.meta as any).env || {};
 
 // Fonction utilitaire pour lire les variables avec ou sans "FIREBASE_"
-// Exemple : cherche VITE_FIREBASE_PROJECT_ID, sinon essaie VITE_PROJECT_ID
 const getEnv = (key: string) => {
     if (env[key]) return env[key];
-    // Tentative de fallback sur le nom court (ex: VITE_PROJECT_ID au lieu de VITE_FIREBASE_PROJECT_ID)
     const shortKey = key.replace('_FIREBASE_', '_');
     if (env[shortKey]) return env[shortKey];
     return undefined;
@@ -26,24 +24,6 @@ const firebaseConfig = {
   messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID'),
   appId: getEnv('VITE_FIREBASE_APP_ID')
 };
-
-// 2. SOLUTION DE SECOURS (Si Vercel échoue, décommentez et remplissez ceci)
-// Si vous décommentez ceci, remplacez les valeurs par celles de votre console Firebase
-/*
-const hardcodedConfig = {
-  apiKey: "AIzaSy...", 
-  authDomain: "votre-projet.firebaseapp.com",
-  projectId: "votre-projet",
-  storageBucket: "votre-projet.appspot.com",
-  messagingSenderId: "...",
-  appId: "..."
-};
-// Si la clé API est manquante via env, on utilise la version hardcodée
-if (!firebaseConfig.apiKey && hardcodedConfig.apiKey && hardcodedConfig.apiKey !== "AIzaSy...") {
-    console.log("Using hardcoded Firebase config");
-    Object.assign(firebaseConfig, hardcodedConfig);
-}
-*/
 
 let app: FirebaseApp | undefined;
 let db: Firestore | undefined;
@@ -75,8 +55,43 @@ if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "undefined") {
   }
 } else {
   console.warn("Configuration Firebase manquante ou incomplète. L'application fonctionne en mode HORS LIGNE (Démo).");
-  console.warn("Check your environment variables in Vercel: VITE_FIREBASE_API_KEY, etc.");
 }
+
+/**
+ * Crée un utilisateur Firebase Auth sans déconnecter l'utilisateur courant.
+ * Utilise une instance d'application secondaire temporaire.
+ */
+export const createAuthUser = async (email: string, password: string) => {
+    if (!firebaseConfig.apiKey) throw new Error("Firebase non configuré.");
+
+    // Créer une app secondaire pour ne pas écraser l'auth de l'app principale
+    const secondaryAppName = "SecondaryAppForUserCreation";
+    let secondaryApp: FirebaseApp;
+    
+    // Vérifier si l'app existe déjà (nettoyage précédent échoué)
+    const existingApps = getApps();
+    const existingSecondary = existingApps.find(a => a.name === secondaryAppName);
+    if (existingSecondary) {
+        secondaryApp = existingSecondary;
+    } else {
+        secondaryApp = initializeApp(firebaseConfig, secondaryAppName);
+    }
+
+    const secondaryAuth = getAuth(secondaryApp);
+
+    try {
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+        // On déconnecte immédiatement l'instance secondaire pour éviter tout conflit
+        await signOut(secondaryAuth);
+        return userCredential.user;
+    } catch (error: any) {
+        console.error("Erreur création utilisateur:", error);
+        throw error;
+    } finally {
+        // Nettoyage de l'app secondaire
+        await deleteApp(secondaryApp);
+    }
+};
 
 export { db, storage, auth };
 export default app;
