@@ -594,12 +594,27 @@ const App: React.FC = () => {
         }
     };
 
-    const handleFactoryReset = () => {
-        if (window.confirm("Êtes-vous sûr de vouloir tout réinitialiser aux données de démonstration ? Toutes vos données seront perdues.")) {
-            localStorage.clear();
-            window.location.reload();
+    // --- NOUVELLE FONCTION POUR EFFACER TOUTES LES DONNÉES ---
+    const handleClearAllData = () => {
+        if (window.confirm("⚠️ ATTENTION : Vous allez effacer TOUTES les données (Clients, Commandes, Stocks...) pour repartir à zéro.\n\nCette action est irréversible et effacera les données de démonstration sur le Cloud.\n\nVoulez-vous continuer ?")) {
+            setArticles([]);
+            // On garde l'atelier par défaut pour la logique interne
+            setBoutiques([{ id: 'ATELIER', nom: 'Atelier Central', lieu: 'Siège' }]);
+            setClients([]);
+            setCommandes([]);
+            setCommandesFournisseurs([]);
+            setComptes([]);
+            setDepenses([]);
+            setEmployes([]);
+            setFournisseurs([]);
+            setGalleryItems([]);
+            setMouvements([]);
+            setPointages([]);
+            setTransactions([]);
+            
+            alert("Données réinitialisées avec succès ! Vous pouvez commencer votre saisie.");
         }
-    }
+    };
 
     const handleImport = (type: 'CLIENTS' | 'ARTICLES', data: any[]) => {
         if (type === 'CLIENTS') setClients(prev => [...prev, ...data]);
@@ -707,7 +722,7 @@ const App: React.FC = () => {
                         {currentView === 'fournisseurs' && <SuppliersView fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} onAddFournisseur={f => setFournisseurs(prev => [f, ...prev])} onUpdateFournisseur={f => setFournisseurs(prev => prev.map(fr => fr.id === f.id ? f : fr))} onAddPayment={handleAddSupplierPayment} comptes={comptes} />}
                         {currentView === 'approvisionnement' && <ProcurementView commandesFournisseurs={commandesFournisseurs} fournisseurs={fournisseurs} articles={articles} boutiques={boutiques} onAddOrder={handleAddSupplierOrder} onUpdateOrder={handleUpdateSupplierOrder} onReceiveOrder={handleReceiveOrder} onAddPayment={handleAddSupplierPayment} onUpdateArticle={handleUpdateArticle} onArchiveOrder={handleArchiveSupplierOrder} onDeletePayment={handleDeleteSupplierPayment} onUpdatePayment={handleUpdateSupplierPayment} comptes={comptes} />}
                         {currentView === 'galerie' && <GalleryView items={galleryItems} onAddItem={handleAddGalleryItem} onDeleteItem={handleDeleteGalleryItem} />}
-                        {currentView === 'settings' && <SettingsView fullData={fullData} onRestore={handleRestore} onImport={handleImport} onFactoryReset={handleFactoryReset} />}
+                        {currentView === 'settings' && <SettingsView fullData={fullData} onRestore={handleRestore} onImport={handleImport} onClearData={handleClearAllData} />}
                     </Suspense>
                 </main>
             </div>

@@ -8,10 +8,10 @@ interface SettingsViewProps {
     fullData: any; // L'objet contenant tout l'état de l'application
     onRestore: (data: any) => void;
     onImport: (type: 'CLIENTS' | 'ARTICLES', data: any[]) => void;
-    onFactoryReset?: () => void; // Nouvelle prop
+    onClearData?: () => void; // Nouvelle prop pour effacer les données
 }
 
-const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImport, onFactoryReset }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImport, onClearData }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const csvInputRef = useRef<HTMLInputElement>(null);
     const [importType, setImportType] = useState<'CLIENTS' | 'ARTICLES'>('CLIENTS');
@@ -336,7 +336,7 @@ service cloud.firestore {
             </div>
 
             {/* SECTION 4: DANGER ZONE */}
-            {onFactoryReset && (
+            {onClearData && (
                 <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden">
                     <div className="bg-red-50 p-4 border-b border-red-100">
                         <h3 className="font-bold text-red-900 flex items-center gap-2">
@@ -345,11 +345,11 @@ service cloud.firestore {
                     </div>
                     <div className="p-6 flex items-center justify-between">
                         <div>
-                            <h4 className="font-bold text-gray-800">Réinitialisation d'usine</h4>
-                            <p className="text-xs text-gray-500 mt-1">Efface toutes les données locales et remet les données de démonstration.</p>
+                            <h4 className="font-bold text-gray-800">Effacer toutes les données</h4>
+                            <p className="text-xs text-gray-500 mt-1">Supprime toutes les données de démonstration pour commencer à zéro (Clients, Articles, etc.).</p>
                         </div>
-                        <button onClick={onFactoryReset} className="px-4 py-2 bg-white border border-red-300 text-red-600 hover:bg-red-50 rounded-lg font-bold flex items-center gap-2">
-                            <Trash2 size={16} /> Réinitialiser Tout
+                        <button onClick={onClearData} className="px-4 py-2 bg-white border border-red-300 text-red-600 hover:bg-red-50 rounded-lg font-bold flex items-center gap-2">
+                            <Trash2 size={16} /> Tout Effacer
                         </button>
                     </div>
                 </div>
