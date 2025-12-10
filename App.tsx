@@ -576,6 +576,55 @@ const App: React.FC = () => {
     const handleAddGalleryItem = (i: GalleryItem) => setGalleryItems(prev => [i, ...prev]);
     const handleDeleteGalleryItem = (id: string) => setGalleryItems(prev => prev.filter(i => i.id !== id));
 
+    // --- GESTION SUPPRESSION/MODIFICATION TRANSACTION ---
+    const handleDeleteTransaction = (id: string) => {
+        const transaction = transactions.find(t => t.id === id);
+        if (!transaction) return;
+
+        // On annule l'effet sur le compte
+        const updatedComptes = comptes.map(c => {
+            if (c.id === transaction.compteId) {
+                // Si c'était un encaissement (dépôt), on le retire.
+                // Si c'était un décaissement (retrait), on le remet.
+                const newSolde = transaction.type === 'ENCAISSEMENT' 
+                    ? c.solde - transaction.montant 
+                    : transaction.type === 'DECAISSEMENT' 
+                        ? c.solde + transaction.montant 
+                        : c.solde; // On ne touche pas aux virements complexes pour l'instant
+                return { ...c, solde: newSolde };
+            }
+            return c;
+        });
+
+        setComptes(updatedComptes);
+        setTransactions(prev => prev.filter(t => t.id !== id));
+    };
+
+    const handleUpdateTransaction = (updatedTransaction: TransactionTresorerie) => {
+        const oldTransaction = transactions.find(t => t.id === updatedTransaction.id);
+        if (!oldTransaction) return;
+
+        // On annule l'effet de l'ancienne transaction, puis on applique la nouvelle
+        let tempComptes = [...comptes];
+        
+        // 1. Revert Old
+        const oldAccountIndex = tempComptes.findIndex(c => c.id === oldTransaction.compteId);
+        if (oldAccountIndex > -1) {
+            if (oldTransaction.type === 'ENCAISSEMENT') tempComptes[oldAccountIndex].solde -= oldTransaction.montant;
+            else if (oldTransaction.type === 'DECAISSEMENT') tempComptes[oldAccountIndex].solde += oldTransaction.montant;
+        }
+
+        // 2. Apply New
+        const newAccountIndex = tempComptes.findIndex(c => c.id === updatedTransaction.compteId);
+        if (newAccountIndex > -1) {
+            if (updatedTransaction.type === 'ENCAISSEMENT') tempComptes[newAccountIndex].solde += updatedTransaction.montant;
+            else if (updatedTransaction.type === 'DECAISSEMENT') tempComptes[newAccountIndex].solde -= updatedTransaction.montant;
+        }
+
+        setComptes(tempComptes);
+        setTransactions(prev => prev.map(t => t.id === updatedTransaction.id ? updatedTransaction : t));
+    };
+
     const handleRestore = (data: any) => {
         if (window.confirm("Restaurer ces données écrasera vos données actuelles. Continuer ?")) {
             if (data.articles) setArticles(data.articles);
@@ -598,12 +647,17 @@ const App: React.FC = () => {
     const handleClearAllData = () => {
         if (window.confirm("⚠️ ATTENTION : Vous allez effacer TOUTES les données (Clients, Commandes, Stocks...) pour repartir à zéro.\n\nCette action est irréversible et effacera les données de démonstration sur le Cloud.\n\nVoulez-vous continuer ?")) {
             setArticles([]);
-            // On garde l'atelier par défaut pour la logique interne
             setBoutiques([{ id: 'ATELIER', nom: 'Atelier Central', lieu: 'Siège' }]);
             setClients([]);
             setCommandes([]);
             setCommandesFournisseurs([]);
-            setComptes([]);
+            setComptes([{
+                id: 'CPT_CAISSE_CENTRALE',
+                nom: 'Caisse Centrale',
+                type: 'CAISSE',
+                solde: 0,
+                boutiqueId: 'ATELIER'
+            }]);
             setDepenses([]);
             setEmployes([]);
             setFournisseurs([]);
@@ -715,7 +769,7 @@ const App: React.FC = () => {
                         {currentView === 'ventes' && <SalesView articles={articles} boutiques={boutiques} clients={clients} commandes={commandes} onMakeSale={handleMakeSale} onAddPayment={handleAddPayment} comptes={comptes} onCancelSale={handleCancelSale} />}
                         {currentView === 'production' && <ProductionView commandes={commandes} employes={employes} clients={clients} articles={articles} userRole={user?.role || RoleEmploye.STAGIAIRE} onUpdateStatus={handleUpdateStatus} onCreateOrder={handleCreateOrder} onUpdateOrder={handleUpdateOrder} onAddPayment={handleAddPayment} onArchiveOrder={handleArchiveOrder} comptes={comptes} />}
                         {currentView === 'clients' && <ClientsView clients={clients} commandes={commandes} onAddClient={handleAddClient} onUpdateClient={handleUpdateClient} />}
-                        {currentView === 'finance' && <FinanceView depenses={depenses} commandes={commandes} boutiques={boutiques} onAddDepense={handleAddDepense} onDeleteDepense={handleDeleteDepense} onUpdateDepense={handleUpdateDepense} userRole={user?.role || RoleEmploye.STAGIAIRE} userBoutiqueId={user?.boutiqueId} fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} clients={clients} comptes={comptes} transactions={transactions} onUpdateComptes={setComptes} onAddTransaction={t => setTransactions(prev => [t, ...prev])} />}
+                        {currentView === 'finance' && <FinanceView depenses={depenses} commandes={commandes} boutiques={boutiques} onAddDepense={handleAddDepense} onDeleteDepense={handleDeleteDepense} onUpdateDepense={handleUpdateDepense} userRole={user?.role || RoleEmploye.STAGIAIRE} userBoutiqueId={user?.boutiqueId} fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} clients={clients} comptes={comptes} transactions={transactions} onUpdateComptes={setComptes} onAddTransaction={t => setTransactions(prev => [t, ...prev])} onUpdateTransaction={handleUpdateTransaction} onDeleteTransaction={handleDeleteTransaction} />}
                         {currentView === 'stock' && <StockView articles={articles} boutiques={boutiques} mouvements={mouvements} userRole={user?.role || RoleEmploye.STAGIAIRE} onAddMouvement={handleAddMouvement} onAddBoutique={handleAddBoutique} />}
                         {currentView === 'catalogue' && <ArticlesView articles={articles} onAddArticle={handleAddArticle} onUpdateArticle={handleUpdateArticle} />}
                         {currentView === 'rh' && <HRView employes={employes} boutiques={boutiques} onAddEmploye={handleAddEmploye} onUpdateEmploye={handleUpdateEmploye} onDeleteEmploye={handleDeleteEmploye} onAddDepense={handleAddDepense} pointages={pointages} onAddPointage={handleAddPointage} onUpdatePointage={handleUpdatePointage} currentUser={user} comptes={comptes} />}

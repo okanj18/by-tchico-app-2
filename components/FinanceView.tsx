@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Depense, Commande, Boutique, RoleEmploye, Fournisseur, CommandeFournisseur, Client, CompteFinancier, TransactionTresorerie, TypeCompte, StatutCommande, StatutCommandeFournisseur } from '../types';
 import { Wallet, TrendingUp, TrendingDown, DollarSign, Plus, Trash2, Building, Store, Scissors, BarChart2, FileText, Calendar, X, Printer, AlertOctagon, ArrowUpCircle, ArrowDownCircle, Landmark, Banknote, Smartphone, ArrowRightLeft, ArrowRight, Edit2 } from 'lucide-react';
@@ -19,6 +20,8 @@ interface FinanceViewProps {
     transactions: TransactionTresorerie[];
     onUpdateComptes: (comptes: CompteFinancier[]) => void;
     onAddTransaction: (t: TransactionTresorerie) => void;
+    onUpdateTransaction?: (t: TransactionTresorerie) => void;
+    onDeleteTransaction?: (id: string) => void;
 }
 
 const FinanceView: React.FC<FinanceViewProps> = ({ 
@@ -36,7 +39,9 @@ const FinanceView: React.FC<FinanceViewProps> = ({
     comptes,
     transactions,
     onUpdateComptes,
-    onAddTransaction
+    onAddTransaction,
+    onUpdateTransaction,
+    onDeleteTransaction
 }) => {
     // Si c'est un vendeur, on force l'onglet TREASURY par défaut
     const initialTab = userRole === RoleEmploye.VENDEUR ? 'TREASURY' : 'OVERVIEW';
@@ -67,6 +72,9 @@ const FinanceView: React.FC<FinanceViewProps> = ({
     const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [isOperationModalOpen, setIsOperationModalOpen] = useState(false); // Deposit/Withdraw
+    // EDIT TRANSACTION MODAL
+    const [isEditTransactionModalOpen, setIsEditTransactionModalOpen] = useState(false);
+    const [editingTransaction, setEditingTransaction] = useState<TransactionTresorerie | null>(null);
     
     const [newAccount, setNewAccount] = useState<Partial<CompteFinancier>>({ type: 'CAISSE', solde: 0, nom: '' });
     const [transferData, setTransferData] = useState({ sourceId: '', destId: '', montant: 0, description: '' });
@@ -343,6 +351,29 @@ const FinanceView: React.FC<FinanceViewProps> = ({
         setIsOperationModalOpen(false);
         setOperationData({ compteId: '', type: 'ENCAISSEMENT', montant: 0, description: '' });
     };
+
+    // --- TRANSACTION EDIT/DELETE ---
+    const handleEditClick = (t: TransactionTresorerie) => {
+        if (t.type.includes('VIREMENT')) {
+            alert("Les virements ne peuvent pas être modifiés directement. Veuillez annuler l'opération manuellement.");
+            return;
+        }
+        setEditingTransaction({...t});
+        setIsEditTransactionModalOpen(true);
+    }
+
+    const handleDeleteClickTransaction = (tId: string) => {
+        if(window.confirm("Supprimer cette transaction va annuler son impact sur le solde du compte. Continuer ?")) {
+            if (onDeleteTransaction) onDeleteTransaction(tId);
+        }
+    }
+
+    const handleSaveTransactionEdit = () => {
+        if (!editingTransaction) return;
+        if (onUpdateTransaction) onUpdateTransaction(editingTransaction);
+        setIsEditTransactionModalOpen(false);
+        setEditingTransaction(null);
+    }
 
     const openAddExpenseModal = () => {
         setNewExpense({
@@ -680,6 +711,7 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                                         <th className="px-4 py-3">Compte</th>
                                         <th className="px-4 py-3">Description</th>
                                         <th className="px-4 py-3 text-right">Montant</th>
+                                        <th className="px-4 py-3 text-center">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
@@ -702,12 +734,30 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                                                 <td className={`px-4 py-3 text-right font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
                                                     {isPositive ? '+' : '-'}{t.montant.toLocaleString()}
                                                 </td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <div className="flex justify-center gap-2">
+                                                        <button 
+                                                            onClick={() => handleEditClick(t)} 
+                                                            className="p-1 text-gray-400 hover:text-brand-600 rounded" 
+                                                            title="Modifier"
+                                                        >
+                                                            <Edit2 size={14} />
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => handleDeleteClickTransaction(t.id)} 
+                                                            className="p-1 text-gray-400 hover:text-red-600 rounded" 
+                                                            title="Supprimer (Annuler impact)"
+                                                        >
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </div>
+                                                </td>
                                             </tr>
                                         );
                                     })}
                                     {filteredTransactions.length === 0 && (
                                         <tr>
-                                            <td colSpan={5} className="text-center py-8 text-gray-400">Aucune transaction enregistrée dans cette période.</td>
+                                            <td colSpan={6} className="text-center py-8 text-gray-400">Aucune transaction enregistrée dans cette période.</td>
                                         </tr>
                                     )}
                                 </tbody>
@@ -1203,6 +1253,62 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                         <div className="flex justify-end gap-3 mt-6">
                             <button onClick={() => setIsOperationModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Annuler</button>
                             <button onClick={handleOperation} className={`px-4 py-2 text-white rounded font-bold ${operationData.type === 'ENCAISSEMENT' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}>Valider</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* --- MODAL MODIFICATION TRANSACTION --- */}
+            {isEditTransactionModalOpen && editingTransaction && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-xl font-bold flex items-center gap-2 text-gray-800">
+                                <Edit2 className="text-blue-600" /> Modifier Transaction
+                            </h3>
+                            <button onClick={() => setIsEditTransactionModalOpen(false)}><X size={20} className="text-gray-400"/></button>
+                        </div>
+                        <div className="bg-blue-50 text-blue-800 p-2 rounded text-xs mb-4">
+                            Le solde du compte <strong>{comptes.find(c => c.id === editingTransaction.compteId)?.nom}</strong> sera automatiquement recalculé.
+                        </div>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                                <input 
+                                    type="date" 
+                                    className="w-full p-2 border border-gray-300 rounded" 
+                                    value={editingTransaction.date ? new Date(editingTransaction.date).toISOString().split('T')[0] : ''} 
+                                    onChange={e => setEditingTransaction({...editingTransaction, date: new Date(e.target.value).toISOString()})}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Montant</label>
+                                <input 
+                                    type="number" 
+                                    className="w-full p-2 border border-gray-300 rounded font-bold" 
+                                    value={editingTransaction.montant} 
+                                    onChange={e => setEditingTransaction({...editingTransaction, montant: parseInt(e.target.value) || 0})} 
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full p-2 border border-gray-300 rounded" 
+                                    value={editingTransaction.description} 
+                                    onChange={e => setEditingTransaction({...editingTransaction, description: e.target.value})} 
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Type (Fixe)</label>
+                                <div className="p-2 bg-gray-100 rounded text-gray-500 text-sm font-bold">
+                                    {editingTransaction.type}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-3 mt-6">
+                            <button onClick={() => setIsEditTransactionModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Annuler</button>
+                            <button onClick={handleSaveTransactionEdit} className="px-4 py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700">Enregistrer</button>
                         </div>
                     </div>
                 </div>
