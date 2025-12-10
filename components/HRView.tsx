@@ -11,11 +11,9 @@ interface HRViewProps {
     onUpdateEmploye: (e: Employe) => void;
     onDeleteEmploye: (id: string) => void;
     onAddDepense: (d: Depense) => void;
-    // NOUVELLES PROPS
     depenses?: Depense[];
     onDeleteDepense?: (id: string) => void;
     onUpdateDepense?: (d: Depense) => void;
-    // ---
     pointages: Pointage[];
     onAddPointage: (p: Pointage) => void;
     onUpdatePointage: (p: Pointage) => void;
@@ -43,7 +41,6 @@ const HRView: React.FC<HRViewProps> = ({
     onUpdateComptes,
     onAddTransaction
 }) => {
-    // ... (State declarations same as before) ...
     const isPointageOnly = currentUser?.role === RoleEmploye.GARDIEN;
     const [activeTab, setActiveTab] = useState<'EMPLOYEES' | 'POINTAGE'>(isPointageOnly ? 'POINTAGE' : 'EMPLOYEES');
     const [searchTerm, setSearchTerm] = useState('');
@@ -119,7 +116,7 @@ const HRView: React.FC<HRViewProps> = ({
         id: string | null,
         employeId: string,
         employeNom: string,
-        date: string, // Ajout de la date pour l'édition historique
+        date: string,
         heureArrivee: string,
         heureDepart: string,
         statut: 'PRESENT' | 'RETARD' | 'ABSENT' | 'CONGE'
@@ -157,7 +154,7 @@ const HRView: React.FC<HRViewProps> = ({
         }
     };
 
-    // --- ACTIONS POINTAGE --- (Unchanged)
+    // --- ACTIONS POINTAGE ---
     const handleClockIn = (employeId: string) => {
         const now = new Date();
         const timeString = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -185,11 +182,6 @@ const HRView: React.FC<HRViewProps> = ({
             statut: 'ABSENT' 
         };
         onAddPointage(newPointage);
-    };
-
-    const handleManualTimeChange = (pt: Pointage, field: 'heureArrivee' | 'heureDepart', value: string) => {
-        if (isPointageOnly) return; 
-        onUpdatePointage({ ...pt, [field]: value });
     };
 
     const openCorrectionModal = (emp: Employe, existingPt?: Pointage) => {
@@ -250,12 +242,10 @@ const HRView: React.FC<HRViewProps> = ({
         setActionTransactionModalOpen(true);
     };
 
-    // --- NOUVELLE FONCTION DE GESTION TRANSACTION CORRIGÉE ---
     const handleProcessTransactionAction = () => {
         try {
             if (!currentActionTransaction || !selectedEmployeeForHistory) return;
             
-            // Validation Compte
             if (!refundAccountId) {
                 alert("Veuillez sélectionner un compte pour l'impact financier.");
                 return;
@@ -264,11 +254,9 @@ const HRView: React.FC<HRViewProps> = ({
             const account = comptes.find(c => c.id === refundAccountId);
             if (!account) return;
 
-            let amountDiff = 0; // Positif = Ajouter au compte (Remboursement), Négatif = Retirer (Correction hausse)
+            let amountDiff = 0;
             let descLog = '';
 
-            // --- 1. IDENTIFICATION DE LA DÉPENSE ASSOCIÉE ---
-            // On essaie de trouver une dépense qui correspond à l'acompte
             const txDateShort = new Date(currentActionTransaction.date).toISOString().split('T')[0];
             const relatedExpense = depenses.find(d => 
                 d.montant === currentActionTransaction.montant &&
@@ -279,21 +267,17 @@ const HRView: React.FC<HRViewProps> = ({
             );
 
             if (actionType === 'DELETE') {
-                // Annulation complète : On remet l'argent dans la caisse
                 amountDiff = currentActionTransaction.montant; 
                 descLog = `Annulation ${currentActionTransaction.type} - ${selectedEmployeeForHistory.nom}`;
                 
-                // Update Employee: Remove Transaction
                 const newHistory = selectedEmployeeForHistory.historiquePaie?.filter(t => t.id !== currentActionTransaction.id) || [];
                 const updatedEmp = { ...selectedEmployeeForHistory, historiquePaie: newHistory };
                 onUpdateEmploye(updatedEmp);
                 setSelectedEmployeeForHistory(updatedEmp);
 
-                // Update Expense: DELETE if found, otherwise ADD negative expense (Credit)
                 if (relatedExpense && onDeleteDepense) {
                     onDeleteDepense(relatedExpense.id);
                 } else if (onAddDepense) {
-                    // Si on ne trouve pas l'original, on crée une dépense négative (Remboursement) pour équilibrer
                     onAddDepense({
                         id: `D_REFUND_${Date.now()}`,
                         date: new Date().toISOString().split('T')[0],
@@ -309,7 +293,7 @@ const HRView: React.FC<HRViewProps> = ({
                 const oldAmount = currentActionTransaction.montant;
                 const newAmount = newEditAmount;
                 
-                amountDiff = oldAmount - newAmount; // ex: 1000 -> 800. Diff = +200 (Retour Caisse). 1000 -> 1200. Diff = -200 (Sortie Caisse).
+                amountDiff = oldAmount - newAmount; 
                 
                 if (amountDiff < 0 && account.solde < Math.abs(amountDiff)) {
                     alert(`Solde insuffisant sur ${account.nom} pour ajouter ${(Math.abs(amountDiff)).toLocaleString()} F.`);
@@ -318,7 +302,6 @@ const HRView: React.FC<HRViewProps> = ({
 
                 descLog = `Correction ${currentActionTransaction.type} (${oldAmount} -> ${newAmount}) - ${selectedEmployeeForHistory.nom}`;
 
-                // Update Employee
                 const newHistory = selectedEmployeeForHistory.historiquePaie?.map(t => 
                     t.id === currentActionTransaction!.id ? { ...t, montant: newAmount, description: t.description + ' (Modifié)' } : t
                 ) || [];
@@ -326,15 +309,13 @@ const HRView: React.FC<HRViewProps> = ({
                 onUpdateEmploye(updatedEmp);
                 setSelectedEmployeeForHistory(updatedEmp);
 
-                // Update Expense: EDIT if found, otherwise ADD adj expense
                 if (relatedExpense && onUpdateDepense) {
                     onUpdateDepense({ ...relatedExpense, montant: newAmount });
                 } else if (onAddDepense) {
-                    // Ajout dépense d'ajustement (peut être négative ou positive)
                     onAddDepense({
                         id: `D_ADJ_${Date.now()}`,
                         date: new Date().toISOString().split('T')[0],
-                        montant: -amountDiff, // Si diff +200, on ajoute une dépense de -200.
+                        montant: -amountDiff, 
                         categorie: 'SALAIRE',
                         description: `Ajustement Acompte ${selectedEmployeeForHistory.nom}`,
                         boutiqueId: 'ATELIER',
@@ -343,11 +324,9 @@ const HRView: React.FC<HRViewProps> = ({
                 }
             }
 
-            // Update Finance Account Balance
             const updatedComptes = comptes.map(c => c.id === refundAccountId ? { ...c, solde: c.solde + amountDiff } : c);
             onUpdateComptes(updatedComptes);
 
-            // Log Financial Transaction Trace
             if (amountDiff !== 0) {
                 const transac: TransactionTresorerie = {
                     id: `TR_CORRECT_${Date.now()}`,
@@ -366,7 +345,6 @@ const HRView: React.FC<HRViewProps> = ({
             console.error(error);
             alert("Une erreur est survenue lors du traitement.");
         } finally {
-            // Force modal close in all cases
             setActionTransactionModalOpen(false);
             setCurrentActionTransaction(null);
         }
@@ -434,11 +412,9 @@ const HRView: React.FC<HRViewProps> = ({
             };
             onAddDepense(depense);
             
-            // Update Account Balance
             const updatedComptes = comptes.map(c => c.id === paymentAccountId ? { ...c, solde: c.solde - transactionData.montant } : c);
             onUpdateComptes(updatedComptes);
             
-            // Transaction Log
             onAddTransaction({
                 id: `TR_OUT_${Date.now()}`,
                 date: new Date().toISOString(),
@@ -530,11 +506,9 @@ const HRView: React.FC<HRViewProps> = ({
         };
         onAddDepense(depense);
 
-        // Update Account Balance
         const updatedComptes = comptes.map(c => c.id === paymentAccountId ? { ...c, solde: c.solde - net } : c);
         onUpdateComptes(updatedComptes);
         
-        // Transaction Log
         onAddTransaction({
             id: `TR_SAL_OUT_${Date.now()}`,
             date: new Date().toISOString(),
@@ -585,7 +559,6 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             </div>
 
-            {/* LISTE DES EMPLOYES (Same as before) */}
             {activeTab === 'EMPLOYEES' && !isPointageOnly && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
                     <div className={`p-4 border-b border-gray-100 flex gap-4 ${showArchived ? 'bg-gray-50' : ''}`}>
@@ -614,11 +587,59 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* Modals from previous code re-integrated to ensure full functionality */}
-            {/* ... Pointage View, Correction Modal, Attendance Modal, Access Modal, Archive Modal, Absence Modal, Employee Modal ... */}
-            {/* ... Use the exact same JSX as before for these ... */}
-            {/* Including only the UPDATED Transaction Action Modal below as requested */}
+            {/* Modal de Gestion de Paie avec Navigation Corrigée */}
+            {payModalOpen && selectedEmployeeForPay && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+                        <div className="bg-gray-800 p-4 text-white flex justify-between items-center">
+                            <div>
+                                <h3 className="text-lg font-bold flex items-center gap-2"><Banknote size={20} className="text-green-400" /> Gestion Paie</h3>
+                                <p className="text-sm text-gray-400">{selectedEmployeeForPay.nom}</p>
+                            </div>
+                            <button onClick={() => setPayModalOpen(false)}><X size={24} /></button>
+                        </div>
+                        
+                        {/* ONGLETS DE NAVIGATION */}
+                        <div className="flex border-b border-gray-200">
+                            <button 
+                                onClick={() => setPayTab('TRANSACTION')}
+                                className={`flex-1 py-3 text-sm font-bold transition-colors ${payTab === 'TRANSACTION' ? 'text-brand-600 border-b-2 border-brand-600 bg-brand-50' : 'text-gray-500 hover:bg-gray-50'}`}
+                            >
+                                Acompte / Prime
+                            </button>
+                            <button 
+                                onClick={() => setPayTab('SALAIRE')}
+                                className={`flex-1 py-3 text-sm font-bold transition-colors ${payTab === 'SALAIRE' ? 'text-green-600 border-b-2 border-green-600 bg-green-50' : 'text-gray-500 hover:bg-gray-50'}`}
+                            >
+                                Paiement Salaire
+                            </button>
+                        </div>
 
+                        <div className="p-6">
+                            {payTab === 'TRANSACTION' ? (
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="block text-sm">Date</label><input type="date" value={transactionData.date} onChange={e=>setTransactionData({...transactionData,date:e.target.value})} className="w-full border p-2 rounded"/></div>
+                                        <div><label className="block text-sm">Type</label><select value={transactionData.type} onChange={e=>setTransactionData({...transactionData,type:e.target.value as any})} className="w-full border p-2 rounded"><option value="ACOMPTE">Acompte</option><option value="PRIME">Prime</option></select></div>
+                                    </div>
+                                    {transactionData.type === 'ACOMPTE' && (<div><label className="block text-sm">Compte Source</label><select value={paymentAccountId} onChange={e=>setPaymentAccountId(e.target.value)} className="w-full border p-2 rounded"><option value="">-- Choisir --</option>{comptes.map(c=><option key={c.id} value={c.id}>{c.nom} ({c.solde} F)</option>)}</select></div>)}
+                                    <div><label className="block text-sm">Montant</label><input type="number" value={transactionData.montant} onChange={e=>setTransactionData({...transactionData,montant:parseInt(e.target.value)||0})} className="w-full border p-2 rounded font-bold"/></div>
+                                    <div><label className="block text-sm">Motif</label><input type="text" value={transactionData.note} onChange={e=>setTransactionData({...transactionData,note:e.target.value})} className="w-full border p-2 rounded"/></div>
+                                    <button onClick={handleSaveTransaction} className="w-full bg-brand-600 text-white p-2 rounded font-bold mt-2">Enregistrer</button>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div><label className="block text-sm">Période</label><input type="text" value={salaryData.period} className="w-full border p-2 rounded bg-gray-100" readOnly/></div>
+                                    <div><label className="block text-sm">Compte Paiement</label><select value={paymentAccountId} onChange={e=>setPaymentAccountId(e.target.value)} className="w-full border p-2 rounded"><option value="">-- Choisir --</option>{comptes.map(c=><option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                                    <button onClick={handleConfirmSalaire} className="w-full bg-green-600 text-white p-2 rounded font-bold">Payer Salaire</button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Other Modals */}
             {actionTransactionModalOpen && currentActionTransaction && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
@@ -634,18 +655,6 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* Re-integration of PayModal for full file validity */}
-            {payModalOpen && selectedEmployeeForPay && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
-                        <div className="bg-gray-800 p-4 text-white flex justify-between items-center"><div><h3 className="text-lg font-bold flex items-center gap-2"><Banknote size={20} className="text-green-400" /> Gestion Paie</h3><p className="text-sm text-gray-400">{selectedEmployeeForPay.nom}</p></div><button onClick={() => setPayModalOpen(false)}><X size={24} /></button></div>
-                        {/* ... PayModal Content (same as before) ... */}
-                        <div className="p-6">{payTab === 'TRANSACTION' ? (<div className="space-y-4"><div className="grid grid-cols-2 gap-4"><div><label className="block text-sm">Date</label><input type="date" value={transactionData.date} onChange={e=>setTransactionData({...transactionData,date:e.target.value})} className="w-full border p-2 rounded"/></div><div><label className="block text-sm">Type</label><select value={transactionData.type} onChange={e=>setTransactionData({...transactionData,type:e.target.value as any})} className="w-full border p-2 rounded"><option value="ACOMPTE">Acompte</option><option value="PRIME">Prime</option></select></div></div>{transactionData.type === 'ACOMPTE' && (<div><label className="block text-sm">Compte Source</label><select value={paymentAccountId} onChange={e=>setPaymentAccountId(e.target.value)} className="w-full border p-2 rounded"><option value="">-- Choisir --</option>{comptes.map(c=><option key={c.id} value={c.id}>{c.nom} ({c.solde} F)</option>)}</select></div>)}<div><label className="block text-sm">Montant</label><input type="number" value={transactionData.montant} onChange={e=>setTransactionData({...transactionData,montant:parseInt(e.target.value)||0})} className="w-full border p-2 rounded font-bold"/></div><div><label className="block text-sm">Motif</label><input type="text" value={transactionData.note} onChange={e=>setTransactionData({...transactionData,note:e.target.value})} className="w-full border p-2 rounded"/></div><button onClick={handleSaveTransaction} className="w-full bg-brand-600 text-white p-2 rounded font-bold mt-2">Enregistrer</button></div>) : (<div className="space-y-4"><div><label className="block text-sm">Période</label><input type="text" value={salaryData.period} className="w-full border p-2 rounded bg-gray-100" readOnly/></div><div><label className="block text-sm">Compte Paiement</label><select value={paymentAccountId} onChange={e=>setPaymentAccountId(e.target.value)} className="w-full border p-2 rounded"><option value="">-- Choisir --</option>{comptes.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}</select></div><button onClick={handleConfirmSalaire} className="w-full bg-green-600 text-white p-2 rounded font-bold">Payer Salaire</button></div>)}</div>
-                    </div>
-                </div>
-            )}
-            
-            {/* Re-integration of HistoryModal */}
             {historyModalOpen && selectedEmployeeForHistory && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
@@ -655,7 +664,6 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
             
-            {/* Re-integration of AbsenceModal */}
             {absenceModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
@@ -671,7 +679,6 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* Re-integration of EmployeeModal */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in zoom-in duration-200">
@@ -694,7 +701,6 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* Re-integration of AccessModal */}
             {accessModalOpen && accessEmployee && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[90] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
@@ -706,7 +712,6 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* Re-integration of Pointage View */}
             {activeTab === 'POINTAGE' && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
                     <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
@@ -744,7 +749,6 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* Re-integration of Correction Modal */}
             {correctionModalOpen && editingPointage && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
@@ -759,7 +763,6 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* Re-integration of Attendance History Modal */}
             {attendanceHistoryModalOpen && selectedEmployeeForAttendance && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh] animate-in zoom-in duration-200">
@@ -784,7 +787,6 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* Re-integration of Archive Confirm Modal */}
             {archiveConfirmId && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[90] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
