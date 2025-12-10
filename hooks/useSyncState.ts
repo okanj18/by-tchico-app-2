@@ -56,7 +56,7 @@ export function useSyncState<T>(defaultValue: T, key: string): [T, React.Dispatc
         setValue((prev) => {
             const newValue = newValueOrFn instanceof Function ? (newValueOrFn as Function)(prev) : newValueOrFn;
             
-            // Debounce : On attend 500ms (au lieu de 1s) pour être plus réactif
+            // Debounce : On attend 500ms pour éviter de spammer la base
             if (timeoutRef.current) clearTimeout(timeoutRef.current);
             
             timeoutRef.current = setTimeout(async () => {
@@ -65,16 +65,19 @@ export function useSyncState<T>(defaultValue: T, key: string): [T, React.Dispatc
                     return;
                 }
                 try {
+                    // NETTOYAGE CRITIQUE : Firebase rejette les objets contenant 'undefined'.
+                    // On utilise JSON stringify/parse pour supprimer toutes les clés undefined.
+                    const cleanContent = JSON.parse(JSON.stringify(newValue));
+
                     await setDoc(doc(db, "app_data", key), { 
-                        content: newValue, 
+                        content: cleanContent, 
                         lastUpdated: new Date().toISOString() 
                     });
                     console.log(`☁️ Synced [${key}]`);
                 } catch (e) {
                     console.error(`Erreur sync écriture [${key}]:`, e);
                 } finally {
-                    // Une fois sauvegardé, on relâche le verrou pour accepter les futures mises à jour cloud
-                    // On ajoute un petit délai pour laisser le temps à Firebase de propager l'event local
+                    // Une fois sauvegardé (ou échoué), on relâche le verrou pour accepter les futures mises à jour cloud
                     setTimeout(() => {
                         isLocalUpdatePending.current = false;
                     }, 200);
