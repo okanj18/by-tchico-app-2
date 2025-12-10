@@ -8,13 +8,23 @@ import { getAuth, Auth } from "firebase/auth";
 // 1. Essai de lecture depuis les variables d'environnement (Vercel)
 const env = (import.meta as any).env || {};
 
+// Fonction utilitaire pour lire les variables avec ou sans "FIREBASE_"
+// Exemple : cherche VITE_FIREBASE_PROJECT_ID, sinon essaie VITE_PROJECT_ID
+const getEnv = (key: string) => {
+    if (env[key]) return env[key];
+    // Tentative de fallback sur le nom court (ex: VITE_PROJECT_ID au lieu de VITE_FIREBASE_PROJECT_ID)
+    const shortKey = key.replace('_FIREBASE_', '_');
+    if (env[shortKey]) return env[shortKey];
+    return undefined;
+};
+
 const firebaseConfig = {
-  apiKey: env.VITE_FIREBASE_API_KEY,
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: env.VITE_FIREBASE_APP_ID
+  apiKey: getEnv('VITE_FIREBASE_API_KEY'),
+  authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN'),
+  projectId: getEnv('VITE_FIREBASE_PROJECT_ID'),
+  storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: getEnv('VITE_FIREBASE_APP_ID')
 };
 
 // 2. SOLUTION DE SECOURS (Si Vercel échoue, décommentez et remplissez ceci)

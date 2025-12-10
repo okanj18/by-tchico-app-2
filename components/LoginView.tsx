@@ -18,11 +18,18 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
     const [loading, setLoading] = useState(false);
     const [showHelp, setShowHelp] = useState(false);
 
+    // Helper pour vérifier les variables (avec ou sans FIREBASE_)
+    const getEnvCheck = (key: string) => {
+        const env = (import.meta as any).env || {};
+        const shortKey = key.replace('_FIREBASE_', '_');
+        return !!(env[key] || env[shortKey]);
+    };
+
     // Vérification de la présence des clés pour le diagnostic
     const envCheck = {
-        apiKey: !!(import.meta as any).env?.VITE_FIREBASE_API_KEY,
-        authDomain: !!(import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN,
-        projectId: !!(import.meta as any).env?.VITE_FIREBASE_PROJECT_ID,
+        apiKey: getEnvCheck('VITE_FIREBASE_API_KEY'),
+        authDomain: getEnvCheck('VITE_FIREBASE_AUTH_DOMAIN'),
+        projectId: getEnvCheck('VITE_FIREBASE_PROJECT_ID'),
     };
 
     const handleLogin = async (e: React.FormEvent) => {
@@ -121,15 +128,15 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                             <div className="mt-2 pt-2 border-t border-orange-200">
                                 <ul className="space-y-1 font-mono text-[10px]">
                                     <li className="flex items-center justify-between">
-                                        <span>VITE_FIREBASE_API_KEY</span>
+                                        <span title="Ou VITE_API_KEY">VITE_FIREBASE_API_KEY</span>
                                         {envCheck.apiKey ? <span className="text-green-600 font-bold">OK</span> : <span className="text-red-600 font-bold">MANQUANT</span>}
                                     </li>
                                     <li className="flex items-center justify-between">
-                                        <span>VITE_FIREBASE_AUTH_DOMAIN</span>
+                                        <span title="Ou VITE_AUTH_DOMAIN">VITE_FIREBASE_AUTH_DOMAIN</span>
                                         {envCheck.authDomain ? <span className="text-green-600 font-bold">OK</span> : <span className="text-red-600 font-bold">MANQUANT</span>}
                                     </li>
                                     <li className="flex items-center justify-between">
-                                        <span>VITE_FIREBASE_PROJECT_ID</span>
+                                        <span title="Ou VITE_PROJECT_ID">VITE_FIREBASE_PROJECT_ID</span>
                                         {envCheck.projectId ? <span className="text-green-600 font-bold">OK</span> : <span className="text-red-600 font-bold">MANQUANT</span>}
                                     </li>
                                 </ul>
@@ -143,9 +150,9 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                                 {showHelp && (
                                     <div className="mt-2 p-2 bg-white rounded border border-orange-200">
                                         1. Allez sur Vercel > Settings > Env Variables.<br/>
-                                        2. Vérifiez l'orthographe EXACTE des noms à gauche (pas d'espace).<br/>
-                                        3. Si tout semble bon, supprimez et recréez la variable manquante.<br/>
-                                        4. Redéployez l'application.
+                                        2. Vérifiez l'orthographe EXACTE des noms.<br/>
+                                        3. Le système accepte aussi les noms courts (ex: VITE_PROJECT_ID).<br/>
+                                        4. Redéployez l'application après modification.
                                     </div>
                                 )}
                             </div>
