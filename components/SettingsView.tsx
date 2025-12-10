@@ -1,5 +1,8 @@
-import React, { useRef, useState } from 'react';
-import { Download, Upload, RefreshCw, AlertTriangle, FileText, Database, CheckCircle, Save, Trash2 } from 'lucide-react';
+
+import React, { useRef, useState, useEffect } from 'react';
+import { Download, Upload, RefreshCw, AlertTriangle, FileText, Database, CheckCircle, Save, Trash2, Wifi, WifiOff, Lock, Code } from 'lucide-react';
+import { doc, setDoc, getDoc } from "firebase/firestore";
+import { db } from "../services/firebase";
 
 interface SettingsViewProps {
     fullData: any; // L'objet contenant tout l'état de l'application
@@ -13,6 +16,42 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
     const csvInputRef = useRef<HTMLInputElement>(null);
     const [importType, setImportType] = useState<'CLIENTS' | 'ARTICLES'>('CLIENTS');
     const [statusMessage, setStatusMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
+
+    // --- DIAGNOSTIC CONNEXION ---
+    const [connectionStatus, setConnectionStatus] = useState<'CHECKING' | 'OK' | 'PERMISSION_DENIED' | 'OFFLINE' | 'ERROR'>('CHECKING');
+    const [diagnosticDetails, setDiagnosticDetails] = useState('');
+
+    useEffect(() => {
+        checkConnectivity();
+    }, []);
+
+    const checkConnectivity = async () => {
+        if (!db) {
+            setConnectionStatus('OFFLINE');
+            return;
+        }
+
+        setConnectionStatus('CHECKING');
+        try {
+            // Test d'écriture simple pour vérifier les règles de sécurité
+            const testRef = doc(db, "_diagnostics", "connection_test");
+            await setDoc(testRef, { 
+                lastCheck: new Date().toISOString(),
+                platform: navigator.userAgent
+            });
+            setConnectionStatus('OK');
+        } catch (error: any) {
+            console.error("Diagnostic Error:", error);
+            if (error.code === 'permission-denied') {
+                setConnectionStatus('PERMISSION_DENIED');
+            } else if (error.code === 'unavailable' || error.message.includes('offline')) {
+                setConnectionStatus('OFFLINE');
+            } else {
+                setConnectionStatus('ERROR');
+                setDiagnosticDetails(error.message);
+            }
+        }
+    };
 
     // --- BACKUP LOGIC (JSON) ---
     const handleBackup = () => {
@@ -200,6 +239,62 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
             <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                 <Database className="text-brand-600" /> Paramètres & Données
             </h2>
+
+            {/* --- DIAGNOSTIC PANEL --- */}
+            <div className={`rounded-xl shadow-sm border p-4 ${
+                connectionStatus === 'OK' ? 'bg-green-50 border-green-200' : 
+                connectionStatus === 'PERMISSION_DENIED' ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'
+            }`}>
+                <div className="flex items-start gap-3">
+                    <div className={`p-2 rounded-full ${
+                        connectionStatus === 'OK' ? 'bg-green-100 text-green-600' :
+                        connectionStatus === 'PERMISSION_DENIED' ? 'bg-red-100 text-red-600' : 'bg-gray-200 text-gray-600'
+                    }`}>
+                        {connectionStatus === 'OK' ? <Wifi size={24}/> : 
+                         connectionStatus === 'PERMISSION_DENIED' ? <Lock size={24}/> : 
+                         <WifiOff size={24}/>}
+                    </div>
+                    <div className="flex-1">
+                        <h3 className={`font-bold text-lg ${
+                            connectionStatus === 'OK' ? 'text-green-800' :
+                            connectionStatus === 'PERMISSION_DENIED' ? 'text-red-800' : 'text-gray-800'
+                        }`}>
+                            État de la Connexion Cloud
+                        </h3>
+                        <p className="text-sm mt-1 mb-2">
+                            {connectionStatus === 'CHECKING' && "Vérification de la connexion..."}
+                            {connectionStatus === 'OK' && "Tout fonctionne parfaitement ! Vos données sont synchronisées en temps réel."}
+                            {connectionStatus === 'OFFLINE' && "Mode Hors Ligne. Les variables d'environnement Firebase manquent dans Vercel."}
+                            {connectionStatus === 'PERMISSION_DENIED' && "Erreur de Permissions ! La base de données refuse l'accès."}
+                            {connectionStatus === 'ERROR' && `Erreur inattendue : ${diagnosticDetails}`}
+                        </p>
+
+                        {connectionStatus === 'PERMISSION_DENIED' && (
+                            <div className="mt-4 bg-white border border-red-200 rounded-lg p-3">
+                                <p className="text-xs text-red-700 font-bold mb-2 flex items-center gap-1"><AlertTriangle size={12}/> ACTION REQUISE SUR LA CONSOLE FIREBASE</p>
+                                <p className="text-xs text-gray-600 mb-2">
+                                    Allez dans <strong>Firestore Database &gt; Règles</strong>, effacez tout et collez ceci :
+                                </p>
+                                <div className="bg-gray-900 text-green-400 p-3 rounded font-mono text-xs overflow-x-auto relative group">
+                                    <pre>{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`}</pre>
+                                </div>
+                                <div className="mt-2 text-right">
+                                    <button onClick={checkConnectivity} className="text-xs bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200 font-bold">
+                                        Réessayer la connexion
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
 
             {statusMessage && (
                 <div className={`p-4 rounded-lg flex items-center gap-2 ${statusMessage.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
