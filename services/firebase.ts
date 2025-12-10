@@ -1,18 +1,39 @@
+
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getFirestore, Firestore, enableIndexedDbPersistence } from "firebase/firestore";
 import { getStorage, FirebaseStorage } from "firebase/storage";
 import { getAuth, Auth } from "firebase/auth";
 
-// Configuration pour Vite (Les variables doivent commencer par VITE_)
-// Utilisation de l'opérateur optionnel ?. pour éviter le crash si env est indéfini
+// --- CONFIGURATION FIREBASE ---
+// 1. Essai de lecture depuis les variables d'environnement (Vercel)
+const env = (import.meta as any).env || {};
+
 const firebaseConfig = {
-  apiKey: (import.meta as any).env?.VITE_FIREBASE_API_KEY,
-  authDomain: (import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: (import.meta as any).env?.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: (import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: (import.meta as any).env?.VITE_FIREBASE_APP_ID
+  apiKey: env.VITE_FIREBASE_API_KEY,
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: env.VITE_FIREBASE_APP_ID
 };
+
+// 2. SOLUTION DE SECOURS (Si Vercel échoue, décommentez et remplissez ceci)
+// Si vous décommentez ceci, remplacez les valeurs par celles de votre console Firebase
+/*
+const hardcodedConfig = {
+  apiKey: "AIzaSy...", 
+  authDomain: "votre-projet.firebaseapp.com",
+  projectId: "votre-projet",
+  storageBucket: "votre-projet.appspot.com",
+  messagingSenderId: "...",
+  appId: "..."
+};
+// Si la clé API est manquante via env, on utilise la version hardcodée
+if (!firebaseConfig.apiKey && hardcodedConfig.apiKey && hardcodedConfig.apiKey !== "AIzaSy...") {
+    console.log("Using hardcoded Firebase config");
+    Object.assign(firebaseConfig, hardcodedConfig);
+}
+*/
 
 let app: FirebaseApp | undefined;
 let db: Firestore | undefined;
@@ -37,12 +58,14 @@ if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "undefined") {
             }
         });
     }
+    console.log("Firebase initialized successfully");
 
   } catch (error) {
     console.error("Erreur d'initialisation Firebase:", error);
   }
 } else {
   console.warn("Configuration Firebase manquante ou incomplète. L'application fonctionne en mode HORS LIGNE (Démo).");
+  console.warn("Check your environment variables in Vercel: VITE_FIREBASE_API_KEY, etc.");
 }
 
 export { db, storage, auth };

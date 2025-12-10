@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { SessionUser, RoleEmploye } from '../types';
-import { Lock, Mail, ArrowRight, AlertCircle, Loader, CheckCircle, XCircle } from 'lucide-react';
+import { Lock, Mail, ArrowRight, AlertCircle, Loader, CheckCircle, XCircle, HelpCircle } from 'lucide-react';
 import { COMPANY_CONFIG } from '../config';
 import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 import app from '../services/firebase'; // Assure l'init
@@ -16,6 +16,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [showHelp, setShowHelp] = useState(false);
 
     // Vérification de la présence des clés pour le diagnostic
     const envCheck = {
@@ -113,27 +114,40 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                         <div className="bg-orange-50 border-l-4 border-orange-500 p-4 text-orange-800 text-xs space-y-2">
                             <div className="flex items-center gap-2 font-bold text-sm">
                                 <AlertCircle size={16} /> 
-                                <span>Connexion Cloud inactive</span>
+                                <span>Configuration Cloud incomplète</span>
                             </div>
-                            <p>Les données ne seront pas sauvegardées en ligne. Pour activer Firebase, vérifiez vos variables Vercel.</p>
+                            <p>Les données ne sont pas synchronisées. Vérifiez vos variables dans Vercel :</p>
                             
                             <div className="mt-2 pt-2 border-t border-orange-200">
-                                <p className="font-bold mb-1">État Configuration (Diagnostic) :</p>
-                                <ul className="space-y-1 font-mono">
-                                    <li className="flex items-center gap-2">
-                                        {envCheck.apiKey ? <CheckCircle size={12} className="text-green-600"/> : <XCircle size={12} className="text-red-600"/>}
-                                        API Key : {envCheck.apiKey ? 'OK' : 'MANQUANTE'}
+                                <ul className="space-y-1 font-mono text-[10px]">
+                                    <li className="flex items-center justify-between">
+                                        <span>VITE_FIREBASE_API_KEY</span>
+                                        {envCheck.apiKey ? <span className="text-green-600 font-bold">OK</span> : <span className="text-red-600 font-bold">MANQUANT</span>}
                                     </li>
-                                    <li className="flex items-center gap-2">
-                                        {envCheck.authDomain ? <CheckCircle size={12} className="text-green-600"/> : <XCircle size={12} className="text-red-600"/>}
-                                        Auth Domain : {envCheck.authDomain ? 'OK' : 'MANQUANTE'}
+                                    <li className="flex items-center justify-between">
+                                        <span>VITE_FIREBASE_AUTH_DOMAIN</span>
+                                        {envCheck.authDomain ? <span className="text-green-600 font-bold">OK</span> : <span className="text-red-600 font-bold">MANQUANT</span>}
                                     </li>
-                                    <li className="flex items-center gap-2">
-                                        {envCheck.projectId ? <CheckCircle size={12} className="text-green-600"/> : <XCircle size={12} className="text-red-600"/>}
-                                        Project ID : {envCheck.projectId ? 'OK' : 'MANQUANTE'}
+                                    <li className="flex items-center justify-between">
+                                        <span>VITE_FIREBASE_PROJECT_ID</span>
+                                        {envCheck.projectId ? <span className="text-green-600 font-bold">OK</span> : <span className="text-red-600 font-bold">MANQUANT</span>}
                                     </li>
                                 </ul>
-                                <p className="mt-2 text-[10px] italic">Si tout est "OK" mais que ça ne marche pas, redéployez sur Vercel.</p>
+                                <button 
+                                    type="button"
+                                    onClick={() => setShowHelp(!showHelp)}
+                                    className="mt-2 text-blue-600 underline flex items-center gap-1 cursor-pointer hover:text-blue-800"
+                                >
+                                    <HelpCircle size={12} /> Comment corriger ?
+                                </button>
+                                {showHelp && (
+                                    <div className="mt-2 p-2 bg-white rounded border border-orange-200">
+                                        1. Allez sur Vercel > Settings > Env Variables.<br/>
+                                        2. Vérifiez l'orthographe EXACTE des noms à gauche (pas d'espace).<br/>
+                                        3. Si tout semble bon, supprimez et recréez la variable manquante.<br/>
+                                        4. Redéployez l'application.
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
