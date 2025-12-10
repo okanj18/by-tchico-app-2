@@ -2,11 +2,11 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { Menu, Loader } from 'lucide-react';
 import Sidebar from './components/Sidebar';
-import { useSyncState } from './hooks/useSyncState'; // NOUVEAU HOOK
+import { useSyncState } from './hooks/useSyncState';
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import app from './services/firebase';
 
-// Lazy Loading des composants pour optimiser le démarrage
+// Lazy Loading des composants
 const Dashboard = React.lazy(() => import('./components/Dashboard'));
 const SalesView = React.lazy(() => import('./components/SalesView'));
 const ProductionView = React.lazy(() => import('./components/ProductionView'));
@@ -58,7 +58,7 @@ const App: React.FC = () => {
     const [pointages, setPointages] = useSyncState<Pointage[]>(mockPointages, 'pointages');
     const [transactions, setTransactions] = useSyncState<TransactionTresorerie[]>(mockTransactionsTresorerie, 'transactions');
 
-    // --- GESTION AUTHENTIFICATION PERSISTANTE ---
+    // --- GESTION AUTHENTIFICATION ---
     useEffect(() => {
         if (!app) {
             setAuthLoading(false);
@@ -68,13 +68,12 @@ const App: React.FC = () => {
         const auth = getAuth(app);
         const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
             if (firebaseUser) {
-                // Par défaut, Stagiaire ou basé sur l'email
                 const email = firebaseUser.email || '';
                 let role = RoleEmploye.STAGIAIRE;
                 let boutiqueId = undefined;
                 let nom = firebaseUser.displayName || "Utilisateur";
 
-                // Logique statique fallback
+                // Fallback roles based on email keywords if no employee record found
                 if (email.includes('admin')) { role = RoleEmploye.ADMIN; nom = "Administrateur"; }
                 else if (email.includes('gerant')) { role = RoleEmploye.GERANT; nom = "Gérant"; }
                 else if (email.includes('atelier')) { role = RoleEmploye.CHEF_ATELIER; nom = "Chef Atelier"; boutiqueId = 'ATELIER'; }
@@ -95,14 +94,12 @@ const App: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
-    // EFFET DE SYNCHRONISATION DU ROLE (Dès que la liste employés change)
+    // Sync User Role with Employee DB
     useEffect(() => {
         if (user && user.email && employes.length > 0) {
             const dbEmployee = employes.find(e => e.email && e.email.toLowerCase() === user.email?.toLowerCase());
             if (dbEmployee) {
-                // Si l'utilisateur actuel ne correspond pas aux données de la DB (rôle ou boutique)
                 if (dbEmployee.role !== user.role || dbEmployee.boutiqueId !== user.boutiqueId) {
-                    console.log("Mise à jour automatique du rôle utilisateur depuis la base employés");
                     setUser(prev => prev ? {
                         ...prev,
                         role: dbEmployee.role,
@@ -112,7 +109,7 @@ const App: React.FC = () => {
                 }
             }
         }
-    }, [employes, user?.email]); // Dépendance sur employes et user.email
+    }, [employes, user?.email]);
 
     const handleLogin = (u: SessionUser) => {
         setUser(u);
@@ -132,7 +129,8 @@ const App: React.FC = () => {
         }
     };
 
-    // ... (Reste des handlers inchangés: handleMakeSale, handleAddPayment, etc.)
+    // --- HANDLERS METIERS ---
+
     const handleMakeSale = (saleData: any) => {
         const newOrder: Commande = {
             id: `CMD_VTE_${Date.now()}`,
@@ -168,6 +166,7 @@ const App: React.FC = () => {
 
         setCommandes(prev => [newOrder, ...prev]);
 
+        // Mises à jour stocks
         const updatedArticles = [...articles];
         const newMouvements = [...mouvements];
 
@@ -194,6 +193,7 @@ const App: React.FC = () => {
         setArticles(updatedArticles);
         setMouvements(newMouvements);
 
+        // Transaction financière
         if (saleData.montantRecu > 0 && saleData.accountId) {
             const transaction: TransactionTresorerie = {
                 id: `TR_${Date.now()}`,
@@ -251,6 +251,7 @@ const App: React.FC = () => {
 
         setCommandes(prev => prev.map(c => c.id === orderId ? { ...c, statut: StatutCommande.ANNULE, cancelledBy: user?.nom, cancelledAt: new Date().toISOString() } : c));
 
+        // Re-stock
         if (order.type === 'PRET_A_PORTER' && order.detailsVente) {
             const updatedArticles = [...articles];
             const newMouvements = [...mouvements];
@@ -278,6 +279,7 @@ const App: React.FC = () => {
             setMouvements(newMouvements);
         }
 
+        // Remboursement
         if (order.avance > 0 && refundAccountId) {
             const transaction: TransactionTresorerie = {
                 id: `TR_REFUND_${Date.now()}`,
@@ -296,6 +298,7 @@ const App: React.FC = () => {
     const handleCreateOrder = (order: Commande, consommations: any[], paymentMethod?: ModePaiement, accountId?: string) => {
         setCommandes(prev => [order, ...prev]);
         
+        // Consommation Stocks
         if (consommations.length > 0) {
             const updatedArticles = [...articles];
             const newMouvements = [...mouvements];
@@ -324,6 +327,7 @@ const App: React.FC = () => {
             setMouvements(newMouvements);
         }
 
+        // Transaction Avance
         if (order.avance > 0 && accountId) {
             const transaction: TransactionTresorerie = {
                 id: `TR_${Date.now()}`,
@@ -341,6 +345,8 @@ const App: React.FC = () => {
 
     const handleUpdateOrder = (order: Commande, accountId?: string, paymentMethod?: ModePaiement) => {
         const oldOrder = commandes.find(c => c.id === order.id);
+        
+        // Gestion de la différence d'avance
         if (oldOrder && order.avance !== oldOrder.avance && accountId) {
             const diff = order.avance - oldOrder.avance;
             if (diff !== 0) {
@@ -576,21 +582,17 @@ const App: React.FC = () => {
     const handleAddGalleryItem = (i: GalleryItem) => setGalleryItems(prev => [i, ...prev]);
     const handleDeleteGalleryItem = (id: string) => setGalleryItems(prev => prev.filter(i => i.id !== id));
 
-    // --- GESTION SUPPRESSION/MODIFICATION TRANSACTION ---
     const handleDeleteTransaction = (id: string) => {
         const transaction = transactions.find(t => t.id === id);
         if (!transaction) return;
 
-        // On annule l'effet sur le compte
         const updatedComptes = comptes.map(c => {
             if (c.id === transaction.compteId) {
-                // Si c'était un encaissement (dépôt), on le retire.
-                // Si c'était un décaissement (retrait), on le remet.
                 const newSolde = transaction.type === 'ENCAISSEMENT' 
                     ? c.solde - transaction.montant 
                     : transaction.type === 'DECAISSEMENT' 
                         ? c.solde + transaction.montant 
-                        : c.solde; // On ne touche pas aux virements complexes pour l'instant
+                        : c.solde; 
                 return { ...c, solde: newSolde };
             }
             return c;
@@ -604,17 +606,16 @@ const App: React.FC = () => {
         const oldTransaction = transactions.find(t => t.id === updatedTransaction.id);
         if (!oldTransaction) return;
 
-        // On annule l'effet de l'ancienne transaction, puis on applique la nouvelle
         let tempComptes = [...comptes];
         
-        // 1. Revert Old
+        // Revert Old
         const oldAccountIndex = tempComptes.findIndex(c => c.id === oldTransaction.compteId);
         if (oldAccountIndex > -1) {
             if (oldTransaction.type === 'ENCAISSEMENT') tempComptes[oldAccountIndex].solde -= oldTransaction.montant;
             else if (oldTransaction.type === 'DECAISSEMENT') tempComptes[oldAccountIndex].solde += oldTransaction.montant;
         }
 
-        // 2. Apply New
+        // Apply New
         const newAccountIndex = tempComptes.findIndex(c => c.id === updatedTransaction.compteId);
         if (newAccountIndex > -1) {
             if (updatedTransaction.type === 'ENCAISSEMENT') tempComptes[newAccountIndex].solde += updatedTransaction.montant;
@@ -643,21 +644,14 @@ const App: React.FC = () => {
         }
     };
 
-    // --- NOUVELLE FONCTION POUR EFFACER TOUTES LES DONNÉES ---
     const handleClearAllData = () => {
-        if (window.confirm("⚠️ ATTENTION : Vous allez effacer TOUTES les données (Clients, Commandes, Stocks...) pour repartir à zéro.\n\nCette action est irréversible et effacera les données de démonstration sur le Cloud.\n\nVoulez-vous continuer ?")) {
+        if (window.confirm("⚠️ ATTENTION : Vous allez effacer TOUTES les données pour repartir à zéro. Cette action est irréversible. Continuer ?")) {
             setArticles([]);
             setBoutiques([{ id: 'ATELIER', nom: 'Atelier Central', lieu: 'Siège' }]);
             setClients([]);
             setCommandes([]);
             setCommandesFournisseurs([]);
-            setComptes([{
-                id: 'CPT_CAISSE_CENTRALE',
-                nom: 'Caisse Centrale',
-                type: 'CAISSE',
-                solde: 0,
-                boutiqueId: 'ATELIER'
-            }]);
+            setComptes([{ id: 'CPT_CAISSE_CENTRALE', nom: 'Caisse Centrale', type: 'CAISSE', solde: 0, boutiqueId: 'ATELIER' }]);
             setDepenses([]);
             setEmployes([]);
             setFournisseurs([]);
@@ -665,8 +659,7 @@ const App: React.FC = () => {
             setMouvements([]);
             setPointages([]);
             setTransactions([]);
-            
-            alert("Données réinitialisées avec succès ! Vous pouvez commencer votre saisie.");
+            alert("Données réinitialisées.");
         }
     };
 
@@ -772,7 +765,7 @@ const App: React.FC = () => {
                         {currentView === 'finance' && <FinanceView depenses={depenses} commandes={commandes} boutiques={boutiques} onAddDepense={handleAddDepense} onDeleteDepense={handleDeleteDepense} onUpdateDepense={handleUpdateDepense} userRole={user?.role || RoleEmploye.STAGIAIRE} userBoutiqueId={user?.boutiqueId} fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} clients={clients} comptes={comptes} transactions={transactions} onUpdateComptes={setComptes} onAddTransaction={t => setTransactions(prev => [t, ...prev])} onUpdateTransaction={handleUpdateTransaction} onDeleteTransaction={handleDeleteTransaction} />}
                         {currentView === 'stock' && <StockView articles={articles} boutiques={boutiques} mouvements={mouvements} userRole={user?.role || RoleEmploye.STAGIAIRE} onAddMouvement={handleAddMouvement} onAddBoutique={handleAddBoutique} />}
                         {currentView === 'catalogue' && <ArticlesView articles={articles} onAddArticle={handleAddArticle} onUpdateArticle={handleUpdateArticle} />}
-                        {currentView === 'rh' && <HRView employes={employes} boutiques={boutiques} onAddEmploye={handleAddEmploye} onUpdateEmploye={handleUpdateEmploye} onDeleteEmploye={handleDeleteEmploye} onAddDepense={handleAddDepense} pointages={pointages} onAddPointage={handleAddPointage} onUpdatePointage={handleUpdatePointage} currentUser={user} comptes={comptes} />}
+                        {currentView === 'rh' && <HRView employes={employes} boutiques={boutiques} onAddEmploye={handleAddEmploye} onUpdateEmploye={handleUpdateEmploye} onDeleteEmploye={handleDeleteEmploye} onAddDepense={handleAddDepense} depenses={depenses} onDeleteDepense={handleDeleteDepense} onUpdateDepense={handleUpdateDepense} pointages={pointages} onAddPointage={handleAddPointage} onUpdatePointage={handleUpdatePointage} currentUser={user} comptes={comptes} onUpdateComptes={setComptes} onAddTransaction={t => setTransactions(prev => [t, ...prev])} />}
                         {currentView === 'fournisseurs' && <SuppliersView fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} onAddFournisseur={f => setFournisseurs(prev => [f, ...prev])} onUpdateFournisseur={f => setFournisseurs(prev => prev.map(fr => fr.id === f.id ? f : fr))} onAddPayment={handleAddSupplierPayment} comptes={comptes} />}
                         {currentView === 'approvisionnement' && <ProcurementView commandesFournisseurs={commandesFournisseurs} fournisseurs={fournisseurs} articles={articles} boutiques={boutiques} onAddOrder={handleAddSupplierOrder} onUpdateOrder={handleUpdateSupplierOrder} onReceiveOrder={handleReceiveOrder} onAddPayment={handleAddSupplierPayment} onUpdateArticle={handleUpdateArticle} onArchiveOrder={handleArchiveSupplierOrder} onDeletePayment={handleDeleteSupplierPayment} onUpdatePayment={handleUpdateSupplierPayment} comptes={comptes} />}
                         {currentView === 'galerie' && <GalleryView items={galleryItems} onAddItem={handleAddGalleryItem} onDeleteItem={handleDeleteGalleryItem} />}
