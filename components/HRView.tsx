@@ -81,9 +81,13 @@ const HRView: React.FC<HRViewProps> = ({
     const [selectedEmployeeForAbsence, setSelectedEmployeeForAbsence] = useState<Employe | null>(null);
     const [absenceData, setAbsenceData] = useState({ date: '', motif: '', nombreJours: 1, montantRetenue: 0 });
 
-    // History Modal
+    // History Modal (Paie)
     const [historyModalOpen, setHistoryModalOpen] = useState(false);
     const [selectedEmployeeForHistory, setSelectedEmployeeForHistory] = useState<Employe | null>(null);
+
+    // History Modal (Attendance) - NOUVEAU
+    const [attendanceHistoryModalOpen, setAttendanceHistoryModalOpen] = useState(false);
+    const [selectedEmployeeForAttendance, setSelectedEmployeeForAttendance] = useState<Employe | null>(null);
 
     // --- CONFIRM ARCHIVE MODAL STATE ---
     const [archiveConfirmId, setArchiveConfirmId] = useState<string | null>(null);
@@ -95,6 +99,7 @@ const HRView: React.FC<HRViewProps> = ({
         id: string | null,
         employeId: string,
         employeNom: string,
+        date: string, // Ajout de la date pour l'édition historique
         heureArrivee: string,
         heureDepart: string,
         statut: 'PRESENT' | 'RETARD' | 'ABSENT' | 'CONGE'
@@ -169,10 +174,14 @@ const HRView: React.FC<HRViewProps> = ({
 
     // --- LOGIQUE CORRECTION POINTAGE ---
     const openCorrectionModal = (emp: Employe, existingPt?: Pointage) => {
+        // On utilise la date du pointage existant s'il y en a un, sinon la date globale sélectionnée
+        const dateToUse = existingPt ? existingPt.date : pointageDate;
+        
         setEditingPointage({
             id: existingPt ? existingPt.id : null,
             employeId: emp.id,
             employeNom: emp.nom,
+            date: dateToUse,
             heureArrivee: existingPt?.heureArrivee || '',
             heureDepart: existingPt?.heureDepart || '',
             statut: existingPt?.statut || 'PRESENT'
@@ -193,7 +202,7 @@ const HRView: React.FC<HRViewProps> = ({
         const pointageToSave: Pointage = {
             id: editingPointage.id || `PT_${Date.now()}`,
             employeId: editingPointage.employeId,
-            date: pointageDate,
+            date: editingPointage.date, // Utilise la date stockée dans l'édition (pour supporter l'historique)
             heureArrivee: editingPointage.heureArrivee,
             heureDepart: editingPointage.heureDepart,
             statut: editingPointage.statut
@@ -207,6 +216,11 @@ const HRView: React.FC<HRViewProps> = ({
         
         setCorrectionModalOpen(false);
         setEditingPointage(null);
+    };
+
+    const openAttendanceHistory = (e: Employe) => {
+        setSelectedEmployeeForAttendance(e);
+        setAttendanceHistoryModalOpen(true);
     };
 
     // --- ACTIONS PAIE & RH ---
@@ -533,6 +547,13 @@ const HRView: React.FC<HRViewProps> = ({
                                             <div className="flex justify-center gap-1">
                                                 {!showArchived ? (
                                                     <>
+                                                        <button 
+                                                            onClick={() => openAttendanceHistory(emp)} 
+                                                            className="p-1.5 text-purple-600 hover:bg-purple-50 rounded" 
+                                                            title="Historique Pointage"
+                                                        >
+                                                            <Calendar size={16}/>
+                                                        </button>
                                                         {emp.email && (
                                                             <button 
                                                                 onClick={() => openAccessModal(emp)} 
@@ -543,7 +564,7 @@ const HRView: React.FC<HRViewProps> = ({
                                                             </button>
                                                         )}
                                                         <button onClick={() => openAbsenceModal(emp)} className="p-1.5 text-red-500 hover:bg-red-50 rounded" title="Absence"><UserMinus size={16}/></button>
-                                                        <button onClick={() => openHistoryModal(emp)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded" title="Historique"><History size={16}/></button>
+                                                        <button onClick={() => openHistoryModal(emp)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded" title="Historique Paie"><History size={16}/></button>
                                                         <button onClick={() => openPayModal(emp)} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Payer"><Banknote size={16}/></button>
                                                         <button onClick={() => openEditModal(emp)} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded" title="Modifier"><Edit2 size={16}/></button>
                                                         <button 
@@ -768,7 +789,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* ... Modal Correction Pointage (inchangé) ... */}
+            {/* Modal Correction Pointage (Updated for history) */}
             {correctionModalOpen && editingPointage && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in duration-200">
@@ -781,7 +802,7 @@ const HRView: React.FC<HRViewProps> = ({
                         
                         <div className="mb-4 text-sm text-gray-600 bg-gray-50 p-3 rounded border border-gray-100">
                             <strong>Employé :</strong> {editingPointage.employeNom}<br/>
-                            <strong>Date :</strong> {new Date(pointageDate).toLocaleDateString()}
+                            <strong>Date :</strong> {new Date(editingPointage.date).toLocaleDateString()}
                         </div>
 
                         <div className="space-y-4">
@@ -833,6 +854,63 @@ const HRView: React.FC<HRViewProps> = ({
                         <div className="flex justify-end gap-3 mt-6">
                             <button onClick={() => setCorrectionModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Annuler</button>
                             <button onClick={handleSaveCorrection} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">Valider Correction</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Attendance History Modal (New) */}
+            {attendanceHistoryModalOpen && selectedEmployeeForAttendance && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+                        <div className="bg-gray-800 text-white p-4 flex justify-between items-center shrink-0">
+                            <h3 className="text-lg font-bold flex items-center gap-2">
+                                <Clock size={20} /> Historique Pointage : {selectedEmployeeForAttendance.nom}
+                            </h3>
+                            <button onClick={() => setAttendanceHistoryModalOpen(false)} className="text-gray-400 hover:text-white"><X size={24} /></button>
+                        </div>
+                        <div className="p-6 overflow-y-auto flex-1">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-200">
+                                    <tr>
+                                        <th className="py-2 px-3">Date</th>
+                                        <th className="py-2 px-3 text-center">Arrivée</th>
+                                        <th className="py-2 px-3 text-center">Départ</th>
+                                        <th className="py-2 px-3 text-center">Statut</th>
+                                        <th className="py-2 px-3 text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {pointages
+                                        .filter(p => p.employeId === selectedEmployeeForAttendance.id)
+                                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                                        .map(pt => (
+                                            <tr key={pt.id} className="hover:bg-gray-50">
+                                                <td className="py-2 px-3">{new Date(pt.date).toLocaleDateString()}</td>
+                                                <td className="py-2 px-3 text-center">{pt.heureArrivee || '-'}</td>
+                                                <td className="py-2 px-3 text-center">{pt.heureDepart || '-'}</td>
+                                                <td className="py-2 px-3 text-center">
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${getPointageStatusColor(pt.statut)}`}>
+                                                        {pt.statut}
+                                                    </span>
+                                                </td>
+                                                <td className="py-2 px-3 text-center">
+                                                    <button 
+                                                        onClick={() => openCorrectionModal(selectedEmployeeForAttendance, pt)}
+                                                        className="p-1 text-blue-500 hover:bg-blue-50 rounded"
+                                                        title="Modifier"
+                                                    >
+                                                        <Edit2 size={16} />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    }
+                                    {pointages.filter(p => p.employeId === selectedEmployeeForAttendance.id).length === 0 && (
+                                        <tr><td colSpan={5} className="text-center py-8 text-gray-400">Aucun historique de pointage.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
