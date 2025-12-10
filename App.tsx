@@ -73,7 +73,7 @@ const App: React.FC = () => {
                 let boutiqueId = undefined;
                 let nom = firebaseUser.displayName || "Utilisateur";
 
-                // Fallback roles based on email keywords if no employee record found
+                // Fallback roles
                 if (email.includes('admin')) { role = RoleEmploye.ADMIN; nom = "Administrateur"; }
                 else if (email.includes('gerant')) { role = RoleEmploye.GERANT; nom = "Gérant"; }
                 else if (email.includes('atelier')) { role = RoleEmploye.CHEF_ATELIER; nom = "Chef Atelier"; boutiqueId = 'ATELIER'; }
@@ -94,7 +94,7 @@ const App: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
-    // Sync User Role with Employee DB
+    // Sync User Role
     useEffect(() => {
         if (user && user.email && employes.length > 0) {
             const dbEmployee = employes.find(e => e.email && e.email.toLowerCase() === user.email?.toLowerCase());
@@ -251,7 +251,6 @@ const App: React.FC = () => {
 
         setCommandes(prev => prev.map(c => c.id === orderId ? { ...c, statut: StatutCommande.ANNULE, cancelledBy: user?.nom, cancelledAt: new Date().toISOString() } : c));
 
-        // Re-stock
         if (order.type === 'PRET_A_PORTER' && order.detailsVente) {
             const updatedArticles = [...articles];
             const newMouvements = [...mouvements];
@@ -279,7 +278,6 @@ const App: React.FC = () => {
             setMouvements(newMouvements);
         }
 
-        // Remboursement
         if (order.avance > 0 && refundAccountId) {
             const transaction: TransactionTresorerie = {
                 id: `TR_REFUND_${Date.now()}`,
@@ -298,7 +296,6 @@ const App: React.FC = () => {
     const handleCreateOrder = (order: Commande, consommations: any[], paymentMethod?: ModePaiement, accountId?: string) => {
         setCommandes(prev => [order, ...prev]);
         
-        // Consommation Stocks
         if (consommations.length > 0) {
             const updatedArticles = [...articles];
             const newMouvements = [...mouvements];
@@ -327,7 +324,6 @@ const App: React.FC = () => {
             setMouvements(newMouvements);
         }
 
-        // Transaction Avance
         if (order.avance > 0 && accountId) {
             const transaction: TransactionTresorerie = {
                 id: `TR_${Date.now()}`,
@@ -346,7 +342,6 @@ const App: React.FC = () => {
     const handleUpdateOrder = (order: Commande, accountId?: string, paymentMethod?: ModePaiement) => {
         const oldOrder = commandes.find(c => c.id === order.id);
         
-        // Gestion de la différence d'avance
         if (oldOrder && order.avance !== oldOrder.avance && accountId) {
             const diff = order.avance - oldOrder.avance;
             if (diff !== 0) {
@@ -608,14 +603,12 @@ const App: React.FC = () => {
 
         let tempComptes = [...comptes];
         
-        // Revert Old
         const oldAccountIndex = tempComptes.findIndex(c => c.id === oldTransaction.compteId);
         if (oldAccountIndex > -1) {
             if (oldTransaction.type === 'ENCAISSEMENT') tempComptes[oldAccountIndex].solde -= oldTransaction.montant;
             else if (oldTransaction.type === 'DECAISSEMENT') tempComptes[oldAccountIndex].solde += oldTransaction.montant;
         }
 
-        // Apply New
         const newAccountIndex = tempComptes.findIndex(c => c.id === updatedTransaction.compteId);
         if (newAccountIndex > -1) {
             if (updatedTransaction.type === 'ENCAISSEMENT') tempComptes[newAccountIndex].solde += updatedTransaction.montant;
@@ -765,7 +758,24 @@ const App: React.FC = () => {
                         {currentView === 'finance' && <FinanceView depenses={depenses} commandes={commandes} boutiques={boutiques} onAddDepense={handleAddDepense} onDeleteDepense={handleDeleteDepense} onUpdateDepense={handleUpdateDepense} userRole={user?.role || RoleEmploye.STAGIAIRE} userBoutiqueId={user?.boutiqueId} fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} clients={clients} comptes={comptes} transactions={transactions} onUpdateComptes={setComptes} onAddTransaction={t => setTransactions(prev => [t, ...prev])} onUpdateTransaction={handleUpdateTransaction} onDeleteTransaction={handleDeleteTransaction} />}
                         {currentView === 'stock' && <StockView articles={articles} boutiques={boutiques} mouvements={mouvements} userRole={user?.role || RoleEmploye.STAGIAIRE} onAddMouvement={handleAddMouvement} onAddBoutique={handleAddBoutique} />}
                         {currentView === 'catalogue' && <ArticlesView articles={articles} onAddArticle={handleAddArticle} onUpdateArticle={handleUpdateArticle} />}
-                        {currentView === 'rh' && <HRView employes={employes} boutiques={boutiques} onAddEmploye={handleAddEmploye} onUpdateEmploye={handleUpdateEmploye} onDeleteEmploye={handleDeleteEmploye} onAddDepense={handleAddDepense} depenses={depenses} onDeleteDepense={handleDeleteDepense} onUpdateDepense={handleUpdateDepense} pointages={pointages} onAddPointage={handleAddPointage} onUpdatePointage={handleUpdatePointage} currentUser={user} comptes={comptes} onUpdateComptes={setComptes} onAddTransaction={t => setTransactions(prev => [t, ...prev])} />}
+                        {currentView === 'rh' && <HRView 
+                            employes={employes} 
+                            boutiques={boutiques} 
+                            onAddEmploye={handleAddEmploye} 
+                            onUpdateEmploye={handleUpdateEmploye} 
+                            onDeleteEmploye={handleDeleteEmploye} 
+                            onAddDepense={handleAddDepense} 
+                            depenses={depenses}
+                            onDeleteDepense={handleDeleteDepense}
+                            onUpdateDepense={handleUpdateDepense}
+                            pointages={pointages} 
+                            onAddPointage={handleAddPointage} 
+                            onUpdatePointage={handleUpdatePointage} 
+                            currentUser={user} 
+                            comptes={comptes} 
+                            onUpdateComptes={setComptes} 
+                            onAddTransaction={t => setTransactions(prev => [t, ...prev])} 
+                        />}
                         {currentView === 'fournisseurs' && <SuppliersView fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} onAddFournisseur={f => setFournisseurs(prev => [f, ...prev])} onUpdateFournisseur={f => setFournisseurs(prev => prev.map(fr => fr.id === f.id ? f : fr))} onAddPayment={handleAddSupplierPayment} comptes={comptes} />}
                         {currentView === 'approvisionnement' && <ProcurementView commandesFournisseurs={commandesFournisseurs} fournisseurs={fournisseurs} articles={articles} boutiques={boutiques} onAddOrder={handleAddSupplierOrder} onUpdateOrder={handleUpdateSupplierOrder} onReceiveOrder={handleReceiveOrder} onAddPayment={handleAddSupplierPayment} onUpdateArticle={handleUpdateArticle} onArchiveOrder={handleArchiveSupplierOrder} onDeletePayment={handleDeleteSupplierPayment} onUpdatePayment={handleUpdateSupplierPayment} comptes={comptes} />}
                         {currentView === 'galerie' && <GalleryView items={galleryItems} onAddItem={handleAddGalleryItem} onDeleteItem={handleDeleteGalleryItem} />}

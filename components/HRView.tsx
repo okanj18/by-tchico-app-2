@@ -525,7 +525,7 @@ const HRView: React.FC<HRViewProps> = ({
             montant: net, 
             categorie: 'SALAIRE', 
             description: `Salaire ${salaryData.period} - ${selectedEmployeeForPay.nom}`, 
-            boutiqueId: selectedEmployeeForPay.boutiqueId || 'ATELIER',
+            boutiqueId: selectedEmployeeForPay.boutiqueId || 'ATELIER', 
             compteId: paymentAccountId
         };
         onAddDepense(depense);
