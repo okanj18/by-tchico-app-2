@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { SessionUser, RoleEmploye } from '../types';
-import { Lock, Mail, ArrowRight, AlertCircle, Loader } from 'lucide-react';
+import { Lock, Mail, ArrowRight, AlertCircle, Loader, CheckCircle, XCircle } from 'lucide-react';
 import { COMPANY_CONFIG } from '../config';
 import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 import app from '../services/firebase'; // Assure l'init
@@ -16,6 +16,13 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+
+    // Vérification de la présence des clés pour le diagnostic
+    const envCheck = {
+        apiKey: !!(import.meta as any).env?.VITE_FIREBASE_API_KEY,
+        authDomain: !!(import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN,
+        projectId: !!(import.meta as any).env?.VITE_FIREBASE_PROJECT_ID,
+    };
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -103,9 +110,31 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                 
                 <form onSubmit={handleLogin} className="p-8 space-y-5">
                     {!app && (
-                        <div className="bg-yellow-50 border-l-4 border-yellow-500 p-3 text-yellow-700 text-xs flex items-center gap-2">
-                            <AlertCircle size={16} /> 
-                            <span>Mode Démo : Entrez n'importe quel email contenant 'admin', 'gerant' ou 'vendeur' pour tester les rôles.</span>
+                        <div className="bg-orange-50 border-l-4 border-orange-500 p-4 text-orange-800 text-xs space-y-2">
+                            <div className="flex items-center gap-2 font-bold text-sm">
+                                <AlertCircle size={16} /> 
+                                <span>Connexion Cloud inactive</span>
+                            </div>
+                            <p>Les données ne seront pas sauvegardées en ligne. Pour activer Firebase, vérifiez vos variables Vercel.</p>
+                            
+                            <div className="mt-2 pt-2 border-t border-orange-200">
+                                <p className="font-bold mb-1">État Configuration (Diagnostic) :</p>
+                                <ul className="space-y-1 font-mono">
+                                    <li className="flex items-center gap-2">
+                                        {envCheck.apiKey ? <CheckCircle size={12} className="text-green-600"/> : <XCircle size={12} className="text-red-600"/>}
+                                        API Key : {envCheck.apiKey ? 'OK' : 'MANQUANTE'}
+                                    </li>
+                                    <li className="flex items-center gap-2">
+                                        {envCheck.authDomain ? <CheckCircle size={12} className="text-green-600"/> : <XCircle size={12} className="text-red-600"/>}
+                                        Auth Domain : {envCheck.authDomain ? 'OK' : 'MANQUANTE'}
+                                    </li>
+                                    <li className="flex items-center gap-2">
+                                        {envCheck.projectId ? <CheckCircle size={12} className="text-green-600"/> : <XCircle size={12} className="text-red-600"/>}
+                                        Project ID : {envCheck.projectId ? 'OK' : 'MANQUANTE'}
+                                    </li>
+                                </ul>
+                                <p className="mt-2 text-[10px] italic">Si tout est "OK" mais que ça ne marche pas, redéployez sur Vercel.</p>
+                            </div>
                         </div>
                     )}
 
