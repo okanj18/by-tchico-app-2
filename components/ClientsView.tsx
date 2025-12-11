@@ -57,7 +57,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
     const MEASUREMENT_FIELDS = [
         { key: 'tourCou', label: 'TOUR DE COU' },
         { key: 'epaule', label: 'ÉPAULE' },
-        { key: 'poitrine', label: 'POITRINE' }, // Champ inséré ici
+        { key: 'poitrine', label: 'TOUR POITRINE' }, // Mis à jour pour forcer l'affichage
         { key: 'longueurManche', label: 'LONG. MANCHE' },
         { key: 'tourBras', label: 'TOUR DE BRAS' },
         { key: 'tourPoignet', label: 'TOUR DE POIGNET' },
