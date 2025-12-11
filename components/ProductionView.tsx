@@ -95,7 +95,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const MEASUREMENT_FIELDS = [
         { key: 'tourCou', label: 'T. Cou' },
         { key: 'epaule', label: 'Épaule' },
-        { key: 'poitrine', label: 'TOUR POITRINE' }, // AJOUTÉ ICI POUR COHÉRENCE
+        { key: 'poitrine', label: 'TOUR POITRINE' },
         { key: 'longueurManche', label: 'L. Manche' },
         { key: 'tourBras', label: 'T. Bras' },
         { key: 'tourPoignet', label: 'T. Poignet' },
@@ -400,10 +400,12 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     .signatures { display: flex; justify-content: space-between; margin-top: 50px; margin-bottom: 20px; align-items: flex-start; page-break-inside: avoid; }
                     .sign-box { width: 45%; text-align: center; position: relative; min-height: 120px; }
                     .sign-title { font-weight: bold; text-decoration: underline; margin-bottom: 40px; display: block; }
-                    .stamp-container { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 150px; height: 100px; }
+                    .stamp-container { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 150px; height: 100px; display: flex; align-items: center; justify-content: center; }
                     /* Images Cachet & Signature */
-                    .stamp-img { position: absolute; bottom: 10px; left: 20px; width: 100px; opacity: 0.8; transform: rotate(-10deg); z-index: 1; }
-                    .sig-img { position: absolute; bottom: 30px; left: 30px; width: 80px; z-index: 2; }
+                    .stamp-img { position: absolute; width: 100px; opacity: 0.8; transform: rotate(-10deg); z-index: 1; }
+                    .sig-img { position: absolute; width: 80px; z-index: 2; margin-top: 10px; }
+                    /* Fallback si image manquante */
+                    .missing-img { border: 2px dashed #ccc; color: #ccc; width: 100px; height: 60px; display: flex; align-items: center; justify-content: center; font-size: 10px; }
                     
                     .footer { text-align:center; margin-top: 40px; font-size: 12px; border-top: 1px solid #eee; padding-top: 10px; }
                     .content { position: relative; z-index: 1; }
@@ -413,7 +415,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 <div class="content">
                     <div class="header">
                         <div class="logo">
-                            <img src="${logoUrl}" alt="${COMPANY_CONFIG.name}" onerror="this.style.display='none'" />
+                            <img src="${logoUrl}" alt="${COMPANY_CONFIG.name}" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
+                            <div style="display:none; font-size:24px; font-weight:bold; color:#bf602a;">${COMPANY_CONFIG.name}</div>
                         </div>
                         <h2>${COMPANY_CONFIG.name}</h2>
                         <p>${COMPANY_CONFIG.address} | ${COMPANY_CONFIG.phone}</p>
@@ -497,8 +500,13 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         <div class="sign-box">
                             <span class="sign-title">Direction</span>
                             <div class="stamp-container">
-                                <img src="${stampUrl}" class="stamp-img" onerror="this.style.display='none'" alt="Cachet" />
-                                <img src="${signatureUrl}" class="sig-img" onerror="this.style.display='none'" alt="Signature" />
+                                <!-- CACHET -->
+                                <img src="${stampUrl}" class="stamp-img" alt="Cachet" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+                                <div class="missing-img" style="display:none; border:3px double #16a34a; color:#16a34a; border-radius:50%; width:100px; height:100px; transform:rotate(-10deg);">CACHET</div>
+                                
+                                <!-- SIGNATURE -->
+                                <img src="${signatureUrl}" class="sig-img" alt="Signature" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
+                                <div class="missing-img" style="display:none; border:none; border-bottom:1px solid #000; width:100px; height:40px; margin-top:20px;">Signature</div>
                             </div>
                         </div>
                     </div>
@@ -512,7 +520,23 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 <script>
                     // Attendre le chargement des images avant d'imprimer
                     window.onload = function() {
-                        setTimeout(() => { window.print(); window.close(); }, 800);
+                        var imgs = document.getElementsByTagName('img');
+                        var loaded = 0;
+                        if (imgs.length === 0) { window.print(); return; }
+                        
+                        function check() {
+                            loaded++;
+                            if (loaded === imgs.length) { window.print(); }
+                        }
+                        
+                        for(var i=0; i<imgs.length; i++) {
+                            if(imgs[i].complete) loaded++;
+                            else {
+                                imgs[i].onload = check;
+                                imgs[i].onerror = check;
+                            }
+                        }
+                        if(loaded === imgs.length) window.print();
                     };
                 </script>
             </body>
