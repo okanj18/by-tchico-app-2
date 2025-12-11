@@ -1,19 +1,28 @@
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Download, Upload, RefreshCw, AlertTriangle, FileText, Database, CheckCircle, Save, Trash2, Wifi, WifiOff, Lock, Code } from 'lucide-react';
+import { Download, Upload, RefreshCw, AlertTriangle, FileText, Database, CheckCircle, Save, Trash2, Wifi, WifiOff, Lock, Code, Image as ImageIcon } from 'lucide-react';
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { db } from "../services/firebase";
+import { CompanyAssets } from '../types';
 
 interface SettingsViewProps {
     fullData: any; // L'objet contenant tout l'état de l'application
     onRestore: (data: any) => void;
     onImport: (type: 'CLIENTS' | 'ARTICLES', data: any[]) => void;
     onClearData?: () => void; // Nouvelle prop pour effacer les données
+    companyAssets?: CompanyAssets;
+    onUpdateAssets?: (assets: CompanyAssets) => void;
 }
 
-const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImport, onClearData }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImport, onClearData, companyAssets, onUpdateAssets }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const csvInputRef = useRef<HTMLInputElement>(null);
+    
+    // Refs pour les inputs images
+    const logoInputRef = useRef<HTMLInputElement>(null);
+    const stampInputRef = useRef<HTMLInputElement>(null);
+    const signatureInputRef = useRef<HTMLInputElement>(null);
+
     const [importType, setImportType] = useState<'CLIENTS' | 'ARTICLES'>('CLIENTS');
     const [statusMessage, setStatusMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
 
@@ -50,6 +59,29 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                 setConnectionStatus('ERROR');
                 setDiagnosticDetails(error.message);
             }
+        }
+    };
+
+    // --- ASSET UPLOAD LOGIC ---
+    const handleAssetUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'logo' | 'stamp' | 'signature') => {
+        const file = e.target.files?.[0];
+        if (!file || !onUpdateAssets) return;
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64 = reader.result as string;
+            const newAssets = { ...(companyAssets || {}), [`${type}Str`]: base64 };
+            onUpdateAssets(newAssets);
+            setStatusMessage({type: 'success', text: `Image ${type} mise à jour avec succès !`});
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleClearAsset = (type: 'logo' | 'stamp' | 'signature') => {
+        if (!onUpdateAssets) return;
+        if (window.confirm("Supprimer cette image personnalisée ?")) {
+            const newAssets = { ...(companyAssets || {}), [`${type}Str`]: '' };
+            onUpdateAssets(newAssets);
         }
     };
 
@@ -303,13 +335,79 @@ service cloud.firestore {
                 </div>
             )}
 
+            {/* SECTION 0: IDENTITÉ VISUELLE */}
+            {onUpdateAssets && companyAssets && (
+                <div className="bg-white rounded-xl shadow-sm border border-brand-200 overflow-hidden">
+                    <div className="bg-brand-50 p-4 border-b border-brand-100">
+                        <h3 className="font-bold text-brand-900 flex items-center gap-2">
+                            <ImageIcon size={20} /> Identité Visuelle (Impression)
+                        </h3>
+                        <p className="text-xs text-brand-700 mt-1">
+                            Personnalisez les factures avec vos propres images.
+                        </p>
+                    </div>
+                    <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {/* LOGO */}
+                        <div className="border border-gray-200 rounded-lg p-4 flex flex-col items-center text-center">
+                            <h4 className="font-bold text-gray-800 mb-2">Logo</h4>
+                            <div className="w-32 h-32 bg-gray-50 border border-gray-200 flex items-center justify-center mb-4 rounded overflow-hidden">
+                                {companyAssets.logoStr ? (
+                                    <img src={companyAssets.logoStr} alt="Logo" className="max-w-full max-h-full object-contain" />
+                                ) : (
+                                    <span className="text-xs text-gray-400">Aucun logo</span>
+                                )}
+                            </div>
+                            <input type="file" accept="image/*" className="hidden" ref={logoInputRef} onChange={(e) => handleAssetUpload(e, 'logo')} />
+                            <div className="flex gap-2 w-full">
+                                <button onClick={() => logoInputRef.current?.click()} className="flex-1 bg-gray-100 hover:bg-gray-200 py-2 rounded text-xs font-bold">Changer</button>
+                                {companyAssets.logoStr && <button onClick={() => handleClearAsset('logo')} className="bg-red-100 hover:bg-red-200 p-2 rounded text-red-600"><Trash2 size={14}/></button>}
+                            </div>
+                        </div>
+
+                        {/* CACHET */}
+                        <div className="border border-gray-200 rounded-lg p-4 flex flex-col items-center text-center">
+                            <h4 className="font-bold text-gray-800 mb-2">Cachet</h4>
+                            <div className="w-32 h-32 bg-gray-50 border border-gray-200 flex items-center justify-center mb-4 rounded overflow-hidden">
+                                {companyAssets.stampStr ? (
+                                    <img src={companyAssets.stampStr} alt="Cachet" className="max-w-full max-h-full object-contain" />
+                                ) : (
+                                    <span className="text-xs text-gray-400">Aucun cachet</span>
+                                )}
+                            </div>
+                            <input type="file" accept="image/*" className="hidden" ref={stampInputRef} onChange={(e) => handleAssetUpload(e, 'stamp')} />
+                            <div className="flex gap-2 w-full">
+                                <button onClick={() => stampInputRef.current?.click()} className="flex-1 bg-gray-100 hover:bg-gray-200 py-2 rounded text-xs font-bold">Changer</button>
+                                {companyAssets.stampStr && <button onClick={() => handleClearAsset('stamp')} className="bg-red-100 hover:bg-red-200 p-2 rounded text-red-600"><Trash2 size={14}/></button>}
+                            </div>
+                        </div>
+
+                        {/* SIGNATURE */}
+                        <div className="border border-gray-200 rounded-lg p-4 flex flex-col items-center text-center">
+                            <h4 className="font-bold text-gray-800 mb-2">Signature</h4>
+                            <div className="w-32 h-32 bg-gray-50 border border-gray-200 flex items-center justify-center mb-4 rounded overflow-hidden">
+                                {companyAssets.signatureStr ? (
+                                    <img src={companyAssets.signatureStr} alt="Signature" className="max-w-full max-h-full object-contain" />
+                                ) : (
+                                    <span className="text-xs text-gray-400">Aucune signature</span>
+                                )}
+                            </div>
+                            <input type="file" accept="image/*" className="hidden" ref={signatureInputRef} onChange={(e) => handleAssetUpload(e, 'signature')} />
+                            <div className="flex gap-2 w-full">
+                                <button onClick={() => signatureInputRef.current?.click()} className="flex-1 bg-gray-100 hover:bg-gray-200 py-2 rounded text-xs font-bold">Changer</button>
+                                {companyAssets.signatureStr && <button onClick={() => handleClearAsset('signature')} className="bg-red-100 hover:bg-red-200 p-2 rounded text-red-600"><Trash2 size={14}/></button>}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* SECTION 1: SYSTEM BACKUP */}
-            <div className="bg-white rounded-xl shadow-sm border border-brand-200 overflow-hidden">
-                <div className="bg-brand-50 p-4 border-b border-brand-100">
-                    <h3 className="font-bold text-brand-900 flex items-center gap-2">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="bg-gray-50 p-4 border-b border-gray-200">
+                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
                         <Save size={20} /> Sauvegarde & Restauration Système
                     </h3>
-                    <p className="text-xs text-brand-700 mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                         Vos données sont enregistrées automatiquement dans ce navigateur. Utilisez cette section pour les transférer ailleurs.
                     </p>
                 </div>

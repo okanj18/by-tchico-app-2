@@ -1,3 +1,4 @@
+
 export type RoleEmploye = 'ADMIN' | 'GERANT' | 'CHEF_ATELIER' | 'TAILLEUR' | 'VENDEUR' | 'STAGIAIRE' | 'GARDIEN';
 
 export const RoleEmploye = {
@@ -293,4 +294,10 @@ export interface GalleryItem {
     imageUrl: string;
     tags: string[];
     description: string;
+}
+
+export interface CompanyAssets {
+    logoStr?: string;
+    stampStr?: string;
+    signatureStr?: string;
 }

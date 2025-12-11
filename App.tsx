@@ -26,7 +26,8 @@ import {
     mockArticles, mockBoutiques, mockClients, mockCommandes, 
     mockCommandesFournisseurs, mockComptes, mockDepenses, 
     mockEmployes, mockFournisseurs, mockGalleryItems, 
-    mockMouvements, mockPointages, mockTransactionsTresorerie 
+    mockMouvements, mockPointages, mockTransactionsTresorerie,
+    mockCompanyAssets
 } from './services/mockData';
 
 import { 
@@ -34,7 +35,7 @@ import {
     CompteFinancier, Depense, Employe, Fournisseur, GalleryItem, 
     MouvementStock, Pointage, RoleEmploye, SessionUser, 
     StatutCommande, StatutCommandeFournisseur, TransactionTresorerie, ModePaiement,
-    TypeMouvement, StatutPaiement
+    TypeMouvement, StatutPaiement, CompanyAssets
 } from './types';
 
 const App: React.FC = () => {
@@ -57,6 +58,7 @@ const App: React.FC = () => {
     const [mouvements, setMouvements] = useSyncState<MouvementStock[]>(mockMouvements, 'mouvements');
     const [pointages, setPointages] = useSyncState<Pointage[]>(mockPointages, 'pointages');
     const [transactions, setTransactions] = useSyncState<TransactionTresorerie[]>(mockTransactionsTresorerie, 'transactions');
+    const [companyAssets, setCompanyAssets] = useSyncState<CompanyAssets>(mockCompanyAssets, 'companyAssets');
 
     // --- GESTION AUTHENTIFICATION ---
     useEffect(() => {
@@ -633,6 +635,7 @@ const App: React.FC = () => {
             if (data.fournisseurs) setFournisseurs(data.fournisseurs);
             if (data.commandesFournisseurs) setCommandesFournisseurs(data.commandesFournisseurs);
             if (data.galleryItems) setGalleryItems(data.galleryItems);
+            if (data.companyAssets) setCompanyAssets(data.companyAssets); // Restore assets
             alert('Données restaurées avec succès.');
         }
     };
@@ -652,6 +655,7 @@ const App: React.FC = () => {
             setMouvements([]);
             setPointages([]);
             setTransactions([]);
+            setCompanyAssets({ logoStr: '', stampStr: '', signatureStr: '' }); // Reset assets
             alert("Données réinitialisées.");
         }
     };
@@ -664,7 +668,7 @@ const App: React.FC = () => {
     const fullData = {
         articles, boutiques, clients, commandes, commandesFournisseurs, 
         comptes, depenses, employes, fournisseurs, galleryItems, 
-        mouvements, pointages, transactions
+        mouvements, pointages, transactions, companyAssets
     };
 
     // --- RENDER ---
@@ -752,8 +756,8 @@ const App: React.FC = () => {
                         </div>
                     }>
                         {currentView === 'dashboard' && <Dashboard commandes={commandes} employes={employes} depenses={depenses} clients={clients} />}
-                        {currentView === 'ventes' && <SalesView articles={articles} boutiques={boutiques} clients={clients} commandes={commandes} onMakeSale={handleMakeSale} onAddPayment={handleAddPayment} comptes={comptes} onCancelSale={handleCancelSale} />}
-                        {currentView === 'production' && <ProductionView commandes={commandes} employes={employes} clients={clients} articles={articles} userRole={user?.role || RoleEmploye.STAGIAIRE} onUpdateStatus={handleUpdateStatus} onCreateOrder={handleCreateOrder} onUpdateOrder={handleUpdateOrder} onAddPayment={handleAddPayment} onArchiveOrder={handleArchiveOrder} comptes={comptes} />}
+                        {currentView === 'ventes' && <SalesView articles={articles} boutiques={boutiques} clients={clients} commandes={commandes} onMakeSale={handleMakeSale} onAddPayment={handleAddPayment} comptes={comptes} onCancelSale={handleCancelSale} companyAssets={companyAssets} />}
+                        {currentView === 'production' && <ProductionView commandes={commandes} employes={employes} clients={clients} articles={articles} userRole={user?.role || RoleEmploye.STAGIAIRE} onUpdateStatus={handleUpdateStatus} onCreateOrder={handleCreateOrder} onUpdateOrder={handleUpdateOrder} onAddPayment={handleAddPayment} onArchiveOrder={handleArchiveOrder} comptes={comptes} companyAssets={companyAssets} />}
                         {currentView === 'clients' && <ClientsView clients={clients} commandes={commandes} onAddClient={handleAddClient} onUpdateClient={handleUpdateClient} />}
                         {currentView === 'finance' && <FinanceView depenses={depenses} commandes={commandes} boutiques={boutiques} onAddDepense={handleAddDepense} onDeleteDepense={handleDeleteDepense} onUpdateDepense={handleUpdateDepense} userRole={user?.role || RoleEmploye.STAGIAIRE} userBoutiqueId={user?.boutiqueId} fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} clients={clients} comptes={comptes} transactions={transactions} onUpdateComptes={setComptes} onAddTransaction={t => setTransactions(prev => [t, ...prev])} onUpdateTransaction={handleUpdateTransaction} onDeleteTransaction={handleDeleteTransaction} />}
                         {currentView === 'stock' && <StockView articles={articles} boutiques={boutiques} mouvements={mouvements} userRole={user?.role || RoleEmploye.STAGIAIRE} onAddMouvement={handleAddMouvement} onAddBoutique={handleAddBoutique} />}
@@ -779,7 +783,7 @@ const App: React.FC = () => {
                         {currentView === 'fournisseurs' && <SuppliersView fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} onAddFournisseur={f => setFournisseurs(prev => [f, ...prev])} onUpdateFournisseur={f => setFournisseurs(prev => prev.map(fr => fr.id === f.id ? f : fr))} onAddPayment={handleAddSupplierPayment} comptes={comptes} />}
                         {currentView === 'approvisionnement' && <ProcurementView commandesFournisseurs={commandesFournisseurs} fournisseurs={fournisseurs} articles={articles} boutiques={boutiques} onAddOrder={handleAddSupplierOrder} onUpdateOrder={handleUpdateSupplierOrder} onReceiveOrder={handleReceiveOrder} onAddPayment={handleAddSupplierPayment} onUpdateArticle={handleUpdateArticle} onArchiveOrder={handleArchiveSupplierOrder} onDeletePayment={handleDeleteSupplierPayment} onUpdatePayment={handleUpdateSupplierPayment} comptes={comptes} />}
                         {currentView === 'galerie' && <GalleryView items={galleryItems} onAddItem={handleAddGalleryItem} onDeleteItem={handleDeleteGalleryItem} />}
-                        {currentView === 'settings' && <SettingsView fullData={fullData} onRestore={handleRestore} onImport={handleImport} onClearData={handleClearAllData} />}
+                        {currentView === 'settings' && <SettingsView fullData={fullData} onRestore={handleRestore} onImport={handleImport} onClearData={handleClearAllData} companyAssets={companyAssets} onUpdateAssets={setCompanyAssets} />}
                     </Suspense>
                 </main>
             </div>
