@@ -256,6 +256,12 @@ const SalesView: React.FC<SalesViewProps> = ({
                         text-transform: uppercase;
                         font-family: sans-serif;
                     }
+                    .signatures { display: flex; justify-content: space-between; margin-top: 30px; margin-bottom: 10px; align-items: flex-start; }
+                    .sign-box { width: 45%; text-align: center; }
+                    .sign-title { font-weight: bold; text-decoration: underline; margin-bottom: 30px; display: block; }
+                    .stamp-container { position: relative; height: 60px; margin-top: -20px; }
+                    .stamp-img { position: absolute; top: 0; left: 50%; transform: translateX(-50%) rotate(-10deg); width: 80px; opacity: 0.7; }
+                    .sig-img { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 60px; z-index: 2; }
                     .content { position: relative; z-index: 1; }
                 </style>
             </head>
@@ -307,6 +313,20 @@ const SalesView: React.FC<SalesViewProps> = ({
                             <span>${order.reste.toLocaleString()}</span>
                         </div>
                         ` : ''}
+                    </div>
+
+                    <!-- SIGNATURES SECTION -->
+                    <div class="signatures">
+                        <div class="sign-box">
+                            <span class="sign-title">Client</span>
+                        </div>
+                        <div class="sign-box">
+                            <span class="sign-title">Direction</span>
+                            <div class="stamp-container">
+                                <img src="${COMPANY_CONFIG.stampUrl}" class="stamp-img" onerror="this.style.display='none'" />
+                                <img src="${COMPANY_CONFIG.signatureUrl}" class="sig-img" onerror="this.style.display='none'" />
+                            </div>
+                        </div>
                     </div>
                     
                     <div class="footer">

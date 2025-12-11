@@ -21,6 +21,8 @@ export const COMPANY_CONFIG = {
 
     // Ressources
     logoUrl: "/logo.png",
+    stampUrl: "/cachet.png", // Image du Cachet (PNG transparent conseillé)
+    signatureUrl: "/signature.png", // Image de la Signature (PNG transparent conseillé)
     
     // Contexte IA
     aiContext: "une entreprise de mode et de couture au Sénégal, spécialisée dans le Bazin, la soie et le prêt-à-porter local.",
