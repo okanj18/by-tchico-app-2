@@ -53,15 +53,15 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
     // Quick Orders Modal State
     const [quickOrdersClient, setQuickOrdersClient] = useState<Client | null>(null);
 
+    // DÉFINITION EXPLICITE DES CHAMPS DE MESURE
     const MEASUREMENT_FIELDS = [
         { key: 'tourCou', label: 'TOUR DE COU' },
         { key: 'epaule', label: 'ÉPAULE' },
-        { key: 'poitrine', label: 'POITRINE' },
+        { key: 'poitrine', label: 'POITRINE' }, // Champ inséré ici
         { key: 'longueurManche', label: 'LONG. MANCHE' },
         { key: 'tourBras', label: 'TOUR DE BRAS' },
         { key: 'tourPoignet', label: 'TOUR DE POIGNET' },
-        { key: 'longueurBoubou1', label: 'L. BOUBOU' }, // Fusionné visuellement
-        // longueurBoubou2 est géré manuellement avec le 1 via boubouString
+        { key: 'longueurBoubou1', label: 'L. BOUBOU' }, // Spécial
         { key: 'longueurChemise', label: 'L. CHEMISE' },
         { key: 'carrureDos', label: 'CARRURE DOS' },
         { key: 'carrureDevant', label: 'CARRURE DEVANT' },
@@ -72,8 +72,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         { key: 'tourCuisse', label: 'TOUR DE CUISSE' },
         { key: 'entreJambe', label: 'ENTRE JAMBE' },
         { key: 'longueurPantalon', label: 'L. PANTALON' },
-        { key: 'genou1', label: 'GENOU' }, // Fusionné visuellement
-        // genou2 est géré manuellement avec le 1 via genouString
+        { key: 'genou1', label: 'GENOU' }, // Spécial
         { key: 'bas', label: 'BAS' },
     ];
 
