@@ -32,6 +32,7 @@ export const mockClients: Client[] = [
         mesures: { 
             tourCou: 36,
             epaule: 38,
+            poitrine: 90,
             longueurManche: 58,
             tourBras: 28,
             tourPoignet: 16,
@@ -60,6 +61,7 @@ export const mockClients: Client[] = [
         mesures: { 
             tourCou: 42,
             epaule: 48,
+            poitrine: 100,
             longueurManche: 65,
             tourBras: 35,
             tourPoignet: 19,
@@ -348,11 +350,11 @@ export const mockMouvements: MouvementStock[] = [
 
 export const mockComptes: CompteFinancier[] = [
     {
-        id: 'CPT_CAISSE_1',
-        nom: 'Caisse Boutique Siège',
+        id: 'CPT_CAISSE_CENTRALE',
+        nom: 'Caisse Centrale',
         type: 'CAISSE',
         solde: 150000,
-        boutiqueId: 'B1'
+        boutiqueId: 'ATELIER'
     },
     {
         id: 'CPT_WAVE_PRO',
@@ -376,7 +378,7 @@ export const mockTransactionsTresorerie: TransactionTresorerie[] = [
         date: '2023-10-28',
         type: 'ENCAISSEMENT',
         montant: 50000,
-        compteId: 'CPT_CAISSE_1',
+        compteId: 'CPT_CAISSE_CENTRALE',
         description: 'Vente Boutique #CMD_VTE_233',
         categorie: 'VENTE'
     },
@@ -385,7 +387,7 @@ export const mockTransactionsTresorerie: TransactionTresorerie[] = [
         date: '2023-10-29',
         type: 'VIREMENT_SORTANT',
         montant: 100000,
-        compteId: 'CPT_CAISSE_1',
+        compteId: 'CPT_CAISSE_CENTRALE',
         compteDestinationId: 'CPT_BANQUE_1',
         description: 'Versement espèce en banque',
         categorie: 'VIREMENT'

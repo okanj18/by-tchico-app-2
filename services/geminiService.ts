@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { COMPANY_CONFIG } from "../config";
 
@@ -77,7 +78,7 @@ export const parseMeasurementsFromText = async (text: string): Promise<Record<st
                 
                 Extrais les valeurs numériques et associe-les aux clés JSON suivantes (si mentionnées).
                 Clés disponibles : 
-                - tourCou, epaule, longueurManche, tourBras, tourPoignet
+                - tourCou, epaule, poitrine, longueurManche, tourBras, tourPoignet
                 - longueurBoubou1, longueurBoubou2 (si on dit "longueur boubou 140 sur 145" par exemple)
                 - longueurChemise, carrureDos, carrureDevant, taille, blouse, ceinture
                 - tourFesse, tourCuisse, entreJambe, longueurPantalon
