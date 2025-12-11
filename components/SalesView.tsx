@@ -221,20 +221,23 @@ const SalesView: React.FC<SalesViewProps> = ({
         const totalTTC = order.prixTotal || 0;
         const tva = order.tva || 0;
         const remise = order.remise || 0;
-        // Reconstitution du HT : Net Commercial + TVA = TTC. Net Commercial = HT - Remise.
-        // Donc : TTC = (HT - Remise) + TVA
-        // => HT = TTC - TVA + Remise
         const totalHT = totalTTC - tva + remise;
+
+        // Récupération de l'URL de base pour les images (Important pour window.open)
+        const baseUrl = window.location.origin;
+        const logoUrl = `${baseUrl}${COMPANY_CONFIG.logoUrl}`;
+        const stampUrl = `${baseUrl}${COMPANY_CONFIG.stampUrl}`;
+        const signatureUrl = `${baseUrl}${COMPANY_CONFIG.signatureUrl}`;
 
         const html = `
             <html>
             <head>
                 <title>${docTitle}</title>
                 <style>
-                    body { font-family: monospace; padding: 20px; font-size: 12px; position: relative; }
+                    body { font-family: monospace; padding: 20px; font-size: 12px; position: relative; max-width: 400px; margin: auto; }
                     .header { text-align: center; margin-bottom: 20px; }
                     .logo { text-align: center; margin-bottom: 10px; }
-                    .logo img { max-width: 120px; height: auto; }
+                    .logo img { max-height: 70px; width: auto; }
                     .total { border-top: 1px dashed black; margin-top: 10px; padding-top: 5px; }
                     .footer { text-align:center; margin-top: 20px; font-size: 10px; }
                     .row { display: flex; justify-content: space-between; margin-bottom: 3px; }
@@ -256,12 +259,12 @@ const SalesView: React.FC<SalesViewProps> = ({
                         text-transform: uppercase;
                         font-family: sans-serif;
                     }
-                    .signatures { display: flex; justify-content: space-between; margin-top: 30px; margin-bottom: 10px; align-items: flex-start; }
-                    .sign-box { width: 45%; text-align: center; }
+                    .signatures { display: flex; justify-content: space-between; margin-top: 30px; margin-bottom: 10px; align-items: flex-start; page-break-inside: avoid; }
+                    .sign-box { width: 45%; text-align: center; position: relative; min-height: 80px; }
                     .sign-title { font-weight: bold; text-decoration: underline; margin-bottom: 30px; display: block; }
-                    .stamp-container { position: relative; height: 60px; margin-top: -20px; }
-                    .stamp-img { position: absolute; top: 0; left: 50%; transform: translateX(-50%) rotate(-10deg); width: 80px; opacity: 0.7; }
-                    .sig-img { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 60px; z-index: 2; }
+                    .stamp-container { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 100px; height: 70px; }
+                    .stamp-img { position: absolute; bottom: 5px; left: 10px; width: 80px; opacity: 0.7; transform: rotate(-10deg); z-index: 1; }
+                    .sig-img { position: absolute; bottom: 15px; left: 15px; width: 60px; z-index: 2; }
                     .content { position: relative; z-index: 1; }
                 </style>
             </head>
@@ -269,7 +272,7 @@ const SalesView: React.FC<SalesViewProps> = ({
                 <div class="content">
                     <div class="header">
                         <div class="logo">
-                            <img src="${COMPANY_CONFIG.logoUrl}" alt="${COMPANY_CONFIG.name}" onerror="this.style.display='none'" />
+                            <img src="${logoUrl}" alt="${COMPANY_CONFIG.name}" onerror="this.style.display='none'" />
                         </div>
                         <h3>${COMPANY_CONFIG.name}</h3>
                         <p>${COMPANY_CONFIG.address}<br/>${COMPANY_CONFIG.phone}</p>
@@ -323,8 +326,8 @@ const SalesView: React.FC<SalesViewProps> = ({
                         <div class="sign-box">
                             <span class="sign-title">Direction</span>
                             <div class="stamp-container">
-                                <img src="${COMPANY_CONFIG.stampUrl}" class="stamp-img" onerror="this.style.display='none'" />
-                                <img src="${COMPANY_CONFIG.signatureUrl}" class="sig-img" onerror="this.style.display='none'" />
+                                <img src="${stampUrl}" class="stamp-img" onerror="this.style.display='none'" alt="Cachet" />
+                                <img src="${signatureUrl}" class="sig-img" onerror="this.style.display='none'" alt="Signature" />
                             </div>
                         </div>
                     </div>
@@ -337,8 +340,9 @@ const SalesView: React.FC<SalesViewProps> = ({
                 ${showStamp ? `<div class="stamp">${stampText}</div>` : ''}
 
                 <script>
-                    window.print();
-                    setTimeout(() => window.close(), 1000);
+                    window.onload = function() {
+                        setTimeout(() => { window.print(); window.close(); }, 800);
+                    };
                 </script>
             </body>
             </html>
