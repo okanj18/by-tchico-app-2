@@ -95,7 +95,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const MEASUREMENT_FIELDS = [
         { key: 'tourCou', label: 'T. Cou' },
         { key: 'epaule', label: 'Épaule' },
-        { key: 'poitrine', label: 'POITRINE' }, // AJOUTÉ ICI
+        { key: 'poitrine', label: 'POITRINE' }, // AJOUTÉ ICI POUR COHÉRENCE
         { key: 'longueurManche', label: 'L. Manche' },
         { key: 'tourBras', label: 'T. Bras' },
         { key: 'tourPoignet', label: 'T. Poignet' },
