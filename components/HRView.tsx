@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Employe, Boutique, Depense, RoleEmploye, Pointage, SessionUser, TransactionPaie, Absence, CompteFinancier, TransactionTresorerie } from '../types';
-import { Users, UserPlus, Clock, Calendar, Save, X, Edit2, Trash2, CheckCircle, XCircle, Search, Filter, Briefcase, DollarSign, Banknote, UserMinus, History, ArrowUpCircle, ArrowDownCircle, AlertCircle, Plus, TrendingUp, AlertTriangle, Archive, RotateCcw, AlertOctagon, Lock, Mail, Key, QrCode, Camera, Printer } from 'lucide-react';
+import { Users, UserPlus, Clock, Calendar, Save, X, Edit2, Trash2, CheckCircle, XCircle, Search, Filter, Briefcase, DollarSign, Banknote, UserMinus, History, ArrowUpCircle, ArrowDownCircle, AlertCircle, Plus, TrendingUp, AlertTriangle, Archive, RotateCcw, AlertOctagon, Lock, Mail, Key, QrCode, Camera, Printer, Bus, CheckSquare, Square } from 'lucide-react';
 import { createAuthUser } from '../services/firebase';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -129,6 +129,12 @@ const HRView: React.FC<HRViewProps> = ({
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [showBatchBadges, setShowBatchBadges] = useState(false);
 
+    // --- TRANSPORT GROUPÉ STATE ---
+    const [transportModalOpen, setTransportModalOpen] = useState(false);
+    const [transportSelection, setTransportSelection] = useState<string[]>([]);
+    const [transportAmount, setTransportAmount] = useState(1000);
+    const [transportAccountId, setTransportAccountId] = useState('');
+
     // Derived Data
     const filteredEmployes = employes.filter(e => {
         const matchesSearch = e.nom.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -159,6 +165,92 @@ const HRView: React.FC<HRViewProps> = ({
             case 'CONGE': return 'bg-blue-100 text-blue-800';
             default: return 'bg-gray-100';
         }
+    };
+
+    // --- TRANSPORT GROUPÉ LOGIC ---
+    const openTransportModal = () => {
+        // Sélectionner par défaut tous les employés actifs
+        setTransportSelection(employes.filter(e => e.actif !== false).map(e => e.id));
+        setTransportAccountId('');
+        setTransportModalOpen(true);
+    };
+
+    const toggleTransportSelection = (empId: string) => {
+        setTransportSelection(prev => 
+            prev.includes(empId) ? prev.filter(id => id !== empId) : [...prev, empId]
+        );
+    };
+
+    const handleBulkTransport = () => {
+        if (!transportAccountId) {
+            alert("Veuillez choisir la caisse d'où sort l'argent.");
+            return;
+        }
+        if (transportSelection.length === 0) {
+            alert("Aucun employé sélectionné.");
+            return;
+        }
+
+        const totalAmount = transportAmount * transportSelection.length;
+        const account = comptes.find(c => c.id === transportAccountId);
+        
+        if (account && account.solde < totalAmount) {
+            alert(`Solde insuffisant sur ${account.nom}. Il faut ${totalAmount.toLocaleString()} F.`);
+            return;
+        }
+
+        const dateIso = new Date().toISOString();
+        const dateShort = dateIso.split('T')[0];
+
+        // 1. Mettre à jour le solde du compte (UNE SEULE FOIS)
+        const updatedComptes = comptes.map(c => c.id === transportAccountId ? { ...c, solde: c.solde - totalAmount } : c);
+        onUpdateComptes(updatedComptes);
+
+        // 2. Boucle sur les employés
+        transportSelection.forEach(empId => {
+            const emp = employes.find(e => e.id === empId);
+            if (emp) {
+                // Créer transaction Acompte
+                const transaction: TransactionPaie = { 
+                    id: `TR_TRANS_${Date.now()}_${empId}`, 
+                    date: dateIso, 
+                    type: 'ACOMPTE', 
+                    montant: transportAmount, 
+                    description: `Transport Quotidien` 
+                };
+                
+                const updatedEmp = { 
+                    ...emp, 
+                    historiquePaie: [transaction, ...(emp.historiquePaie || [])] 
+                };
+                onUpdateEmploye(updatedEmp);
+
+                // Créer dépense individuelle (pour traçabilité)
+                onAddDepense({
+                    id: `D_TRANS_${Date.now()}_${empId}`,
+                    date: dateShort,
+                    montant: transportAmount,
+                    categorie: 'SALAIRE', // ou AUTRE
+                    description: `Transport ${emp.nom}`,
+                    boutiqueId: emp.boutiqueId || 'ATELIER',
+                    compteId: transportAccountId
+                });
+
+                // Créer transaction trésorerie individuelle
+                onAddTransaction({
+                    id: `TR_OUT_TRANS_${Date.now()}_${empId}`,
+                    date: dateIso,
+                    type: 'DECAISSEMENT',
+                    montant: transportAmount,
+                    compteId: transportAccountId,
+                    description: `Transport ${emp.nom}`,
+                    categorie: 'SALAIRE'
+                });
+            }
+        });
+
+        setTransportModalOpen(false);
+        alert(`Transport distribué à ${transportSelection.length} employés.`);
     };
 
     // --- ACTIONS POINTAGE ---
@@ -593,6 +685,7 @@ const HRView: React.FC<HRViewProps> = ({
                     )}
                     {activeTab === 'EMPLOYEES' && !isPointageOnly && (
                         <div className="flex gap-2">
+                            <button onClick={openTransportModal} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors text-sm"><Bus size={16} /> Transport (1000 F)</button>
                             <button onClick={() => setShowBatchBadges(true)} className="bg-gray-800 text-white px-3 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors text-sm hover:bg-gray-900"><QrCode size={16} /> Imprimer Badges</button>
                             <button onClick={() => setShowArchived(!showArchived)} className={`px-3 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors text-sm border ${showArchived ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}><Archive size={16} />{showArchived ? 'Voir Actifs' : 'Archives'}</button>
                             {!showArchived && (<button onClick={openAddModal} className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors text-sm"><UserPlus size={16} /> Nouveau</button>)}
@@ -600,6 +693,54 @@ const HRView: React.FC<HRViewProps> = ({
                     )}
                 </div>
             </div>
+
+            {/* MODAL TRANSPORT GROUPÉ */}
+            {transportModalOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[75] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in zoom-in duration-200 flex flex-col max-h-[80vh]">
+                        <div className="flex justify-between items-center mb-4 border-b pb-2">
+                            <h3 className="text-xl font-bold flex items-center gap-2 text-blue-700"><Bus size={24}/> Distribution Transport</h3>
+                            <button onClick={() => setTransportModalOpen(false)}><X size={20} className="text-gray-500"/></button>
+                        </div>
+                        
+                        <div className="mb-4 space-y-3">
+                            <div className="flex gap-4">
+                                <div className="flex-1">
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Montant par personne</label>
+                                    <input type="number" className="w-full p-2 border rounded font-bold text-blue-700" value={transportAmount} onChange={e => setTransportAmount(parseInt(e.target.value)||0)}/>
+                                </div>
+                                <div className="flex-1">
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Caisse de sortie</label>
+                                    <select className="w-full p-2 border rounded" value={transportAccountId} onChange={e => setTransportAccountId(e.target.value)}>
+                                        <option value="">-- Choisir Caisse --</option>
+                                        {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="flex justify-between items-end">
+                                <span className="text-sm text-gray-600">{transportSelection.length} employés sélectionnés</span>
+                                <span className="font-bold text-lg text-blue-700">Total: {(transportSelection.length * transportAmount).toLocaleString()} F</span>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto border rounded bg-gray-50 p-2">
+                            {employes.filter(e => e.actif !== false).map(emp => (
+                                <div key={emp.id} className="flex items-center gap-3 p-2 hover:bg-white rounded cursor-pointer" onClick={() => toggleTransportSelection(emp.id)}>
+                                    {transportSelection.includes(emp.id) 
+                                        ? <CheckSquare className="text-blue-600" size={20}/> 
+                                        : <Square className="text-gray-400" size={20}/>}
+                                    <span className={transportSelection.includes(emp.id) ? "font-bold text-gray-800" : "text-gray-600"}>{emp.nom}</span>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="flex justify-end gap-3 mt-4 pt-2 border-t">
+                            <button onClick={() => setTransportModalOpen(false)} className="px-4 py-2 text-gray-600 bg-gray-100 rounded">Annuler</button>
+                            <button onClick={handleBulkTransport} className="px-4 py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700">Valider Sortie</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {activeTab === 'EMPLOYEES' && !isPointageOnly && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
@@ -625,62 +766,6 @@ const HRView: React.FC<HRViewProps> = ({
                                 ))}
                             </tbody>
                         </table>
-                    </div>
-                </div>
-            )}
-
-            {/* MODAL IMPRESSION DE MASSE BADGES */}
-            {showBatchBadges && (
-                <div className="fixed inset-0 z-[100] bg-white overflow-auto flex flex-col">
-                    {/* Non-printable toolbar */}
-                    <div className="bg-gray-900 text-white p-4 flex justify-between items-center shrink-0 print:hidden shadow-md sticky top-0 z-50">
-                        <div className="flex items-center gap-4">
-                            <h3 className="text-xl font-bold flex items-center gap-2"><QrCode size={24} /> Planche de Badges Employés</h3>
-                            <span className="text-sm bg-gray-800 px-3 py-1 rounded-full">{filteredEmployes.length} Badges</span>
-                        </div>
-                        <div className="flex gap-3">
-                            <button onClick={() => window.print()} className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg transition-transform hover:scale-105">
-                                <Printer size={20}/> Imprimer (A4)
-                            </button>
-                            <button onClick={() => setShowBatchBadges(false)} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg flex items-center gap-2">
-                                <X size={20}/> Fermer
-                            </button>
-                        </div>
-                    </div>
-                    
-                    {/* Printable Area */}
-                    <div className="p-8 bg-gray-100 min-h-screen print:p-0 print:bg-white">
-                        <style>{`
-                            @media print { 
-                                @page { margin: 0.5cm; } 
-                                body * { visibility: hidden; } 
-                                .printable-badges-container, .printable-badges-container * { visibility: visible; } 
-                                .printable-badges-container { position: absolute; left: 0; top: 0; width: 100%; background: white; } 
-                                .badge-card { break-inside: avoid; page-break-inside: avoid; border: 1px solid #000; }
-                            }
-                        `}</style>
-                        
-                        <div className="printable-badges-container grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto print:max-w-none print:gap-4 print:grid-cols-2">
-                            {filteredEmployes.map(emp => (
-                                <div key={emp.id} className="badge-card bg-white border border-gray-300 rounded-xl p-6 flex flex-col items-center text-center shadow-sm print:shadow-none print:rounded-none">
-                                    <h3 className="font-bold text-xl mb-4 text-gray-900 uppercase tracking-widest border-b-2 border-gray-900 pb-1 w-full">BY TCHICO</h3>
-                                    <div className="my-4">
-                                        <QRCodeCanvas value={emp.id} size={150} level="H" />
-                                    </div>
-                                    <div className="mt-2 w-full">
-                                        <p className="font-bold text-2xl text-gray-900 uppercase truncate">{emp.nom}</p>
-                                        <p className="text-sm text-gray-500 uppercase font-bold tracking-wider mt-1">{emp.role}</p>
-                                    </div>
-                                    <div className="mt-4 text-[10px] text-gray-400 font-mono">
-                                        ID: {emp.id}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                        
-                        {filteredEmployes.length === 0 && (
-                            <div className="text-center text-gray-500 py-20">Aucun employé à afficher.</div>
-                        )}
                     </div>
                 </div>
             )}
