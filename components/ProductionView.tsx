@@ -72,7 +72,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [initialAccountId, setInitialAccountId] = useState('');
 
     // --- DERIVED DATA ---
-    // Correction : Le Chef d'Atelier DOIT pouvoir encaisser
     const canSeeFinance = userRole === RoleEmploye.ADMIN || userRole === RoleEmploye.GERANT || userRole === RoleEmploye.CHEF_ATELIER;
     
     const tailleurs = employes.filter(e => e.role === RoleEmploye.TAILLEUR || e.role === RoleEmploye.CHEF_ATELIER || e.role === RoleEmploye.STAGIAIRE);
@@ -205,11 +204,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const handleScan = (decodedText: string) => {
         setIsScannerOpen(false);
         setSearchTerm(decodedText);
-        // Si le code correspond exactement à une commande, on pourrait l'ouvrir
-        const exactMatch = commandes.find(c => c.id === decodedText);
-        if (exactMatch) {
-            // Optionnel: Ouvrir directement le détail ou faire une action
-        }
     };
 
     // --- RENDER HELPERS ---
@@ -235,7 +229,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     <p className="text-sm text-gray-500">Gestion des commandes sur mesure et suivi atelier.</p>
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
-                    {/* BOUTON SCANNER RÉINTÉGRÉ */}
                     <button 
                         onClick={() => setIsScannerOpen(true)} 
                         className="bg-gray-800 text-white p-2 rounded-lg hover:bg-gray-900 transition-colors shadow-sm flex items-center gap-2"
@@ -278,15 +271,23 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             {viewMode === 'ORDERS' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {filteredCommandes.map(cmd => (
-                        <div key={cmd.id} className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all relative overflow-hidden flex flex-col">
-                            {/* Status Bar */}
-                            <div className={`h-1.5 w-full ${getStatusColor(cmd.statut).split(' ')[0].replace('bg', 'bg-gradient-to-r from-transparent to')}`}></div>
-                            
-                            <div className="p-5 flex-1">
-                                <div className="flex justify-between items-start mb-2">
-                                    <h3 className="font-bold text-lg text-gray-800 truncate pr-2">{cmd.clientNom}</h3>
-                                    <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wider ${getStatusColor(cmd.statut)}`}>{cmd.statut}</span>
+                        <div key={cmd.id} className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col h-full overflow-hidden">
+                            {/* Card Body - Clickable space reduced to specific areas to avoid conflicts */}
+                            <div className="p-5 flex-1 relative">
+                                {/* Absolute Actions */}
+                                <div className="absolute top-2 right-2 flex gap-1 z-10">
+                                    <button onClick={() => {setQrOrder(cmd); setQrModalOpen(true);}} className="p-1.5 text-gray-400 hover:text-brand-600 bg-white/80 rounded-full hover:bg-gray-100"><QrCode size={16}/></button>
+                                    {!showArchived && cmd.statut !== StatutCommande.LIVRE && cmd.statut !== StatutCommande.ANNULE && (
+                                        <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-gray-400 hover:text-blue-600 bg-white/80 rounded-full hover:bg-gray-100"><Edit2 size={16}/></button>
+                                    )}
+                                    <button onClick={() => generatePrintContent(cmd)} className="p-1.5 text-gray-400 hover:text-gray-800 bg-white/80 rounded-full hover:bg-gray-100"><Printer size={16}/></button>
                                 </div>
+
+                                <div className="flex justify-between items-start mb-2 pr-12">
+                                    <h3 className="font-bold text-lg text-gray-800 truncate">{cmd.clientNom}</h3>
+                                </div>
+                                
+                                <span className={`inline-block text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wider mb-2 ${getStatusColor(cmd.statut)}`}>{cmd.statut}</span>
                                 <p className="text-sm text-gray-600 mb-3 line-clamp-2">{cmd.description}</p>
                                 
                                 <div className="flex items-center gap-4 text-xs text-gray-500 mb-4">
@@ -294,39 +295,33 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                     <div className="flex items-center gap-1"><Shirt size={12}/> Qté: {cmd.quantite}</div>
                                 </div>
 
-                                <div className="flex flex-wrap gap-1 mb-4">
+                                <div className="flex flex-wrap gap-1">
                                     {cmd.tailleursIds.map(tid => {
                                         const t = tailleurs.find(emp => emp.id === tid);
                                         return t ? <span key={tid} className="text-[10px] bg-gray-100 px-2 py-0.5 rounded text-gray-600">{t.nom}</span> : null;
                                     })}
-                                    {cmd.tailleursIds.length === 0 && <span className="text-[10px] text-red-400 italic">Non assigné</span>}
                                 </div>
                             </div>
 
-                            <div className="p-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+                            {/* Card Footer - Explicitly separate stacking context */}
+                            <div className="p-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between z-20 relative">
                                 <div className="text-xs">
                                     {cmd.reste > 0 ? <span className="text-red-600 font-bold">Reste: {cmd.reste.toLocaleString()} F</span> : <span className="text-green-600 font-bold flex items-center gap-1"><CheckSquare size={10}/> Payé</span>}
                                 </div>
-                                <div className="flex gap-1 items-center">
-                                    <button onClick={() => {setQrOrder(cmd); setQrModalOpen(true);}} className="p-1.5 text-gray-500 hover:bg-white rounded hover:text-brand-600"><QrCode size={16}/></button>
-                                    {!showArchived && cmd.statut !== StatutCommande.LIVRE && cmd.statut !== StatutCommande.ANNULE && (
-                                        <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-gray-500 hover:bg-white rounded hover:text-blue-600"><Edit2 size={16}/></button>
-                                    )}
-                                    <button onClick={() => generatePrintContent(cmd)} className="p-1.5 text-gray-500 hover:bg-white rounded hover:text-gray-800"><Printer size={16}/></button>
-                                    
-                                    {canSeeFinance && cmd.reste > 0 && (
-                                        <button 
-                                            onClick={(e) => { 
-                                                e.preventDefault(); 
-                                                e.stopPropagation(); 
-                                                openPaymentModal(cmd); 
-                                            }}
-                                            className="px-3 py-1 bg-brand-600 text-white text-xs font-bold rounded hover:bg-brand-700 ml-2 relative z-[10]"
-                                        >
-                                            Encaisser
-                                        </button>
-                                    )}
-                                </div>
+                                
+                                {canSeeFinance && cmd.reste > 0 && (
+                                    <button 
+                                        onClick={(e) => { 
+                                            e.preventDefault(); 
+                                            e.stopPropagation(); 
+                                            openPaymentModal(cmd); 
+                                        }}
+                                        className="px-4 py-2 bg-brand-600 text-white text-xs font-bold rounded shadow hover:bg-brand-700 cursor-pointer active:scale-95 transition-transform"
+                                        style={{ zIndex: 50, position: 'relative' }} // FORCE Z-INDEX ON WINDOWS
+                                    >
+                                        ENCAISSER
+                                    </button>
+                                )}
                             </div>
                         </div>
                     ))}
@@ -464,7 +459,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL PAYMENT (FIXED Z-INDEX) */}
+            {/* MODAL PAYMENT (FIXED Z-INDEX FOR WINDOWS) */}
             {paymentModalOpen && selectedOrderForPayment && (
                 <div className="fixed inset-0 bg-black bg-opacity-70 z-[9999] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200 relative" onClick={e => e.stopPropagation()}>

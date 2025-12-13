@@ -4,85 +4,83 @@ import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "../services/firebase";
 
 /**
- * Hook personnalisé qui remplace useState/useStickyState.
- * Il synchronise automatiquement l'état avec un document Firestore.
- * 
- * @param key L'ID unique du document dans la collection 'app_data' (ex: 'articles', 'clients')
- * @param defaultValue La valeur par défaut si rien n'existe dans la base
+ * Hook de synchronisation robuste.
+ * Gère la priorité locale pour l'interface utilisateur tout en garantissant l'écriture Cloud.
  */
 export function useSyncState<T>(defaultValue: T, key: string): [T, React.Dispatch<React.SetStateAction<T>>] {
-    // État local pour la réactivité immédiate de l'UI
     const [value, setValue] = useState<T>(defaultValue);
-    const isFirstLoad = useRef(true);
-    const timeoutRef = useRef<any>(null);
     
-    // VERROU DE SÉCURITÉ : Empêche l'écrasement des données locales par une vieille version du cloud
-    // pendant qu'on est en train de taper ou de sauvegarder.
-    const isLocalUpdatePending = useRef(false);
+    // On utilise une ref pour stocker la valeur "la plus récente" connue localement
+    // Cela permet de ne pas écraser une saisie en cours avec une vieille valeur du serveur
+    const localValueRef = useRef<T>(defaultValue);
+    const isWritingRef = useRef(false);
+    const timeoutRef = useRef<any>(null);
 
     // 1. ÉCOUTE (READ): S'abonner aux changements dans Firestore
     useEffect(() => {
+        // Si pas de DB (mode démo), on ne fait rien
         if (!db) return;
 
         const docRef = doc(db, "app_data", key);
         
-        // onSnapshot écoute en temps réel. Si un autre appareil modifie, on reçoit la màj ici.
         const unsubscribe = onSnapshot(docRef, (docSnap) => {
-            // SI UNE MODIFICATION LOCALE EST EN COURS D'ENVOI, ON IGNORE L'ENTRÉE CLOUD
-            // Cela évite que l'interface "saute" en arrière pendant la saisie/création
-            if (isLocalUpdatePending.current) {
+            // Si on est en train d'écrire (debounce), on ignore temporairement l'update serveur
+            // pour éviter que le curseur ne saute ou que l'interface ne clignote.
+            if (isWritingRef.current) {
                 return;
             }
 
             if (docSnap.exists()) {
                 const data = docSnap.data().content as T;
-                setValue(data);
-            } else {
-                // Si le document n'existe pas encore, on ne fait rien pour garder la valeur par défaut locale.
+                // On met à jour seulement si les données sont différentes (évite re-render inutile)
+                if (JSON.stringify(data) !== JSON.stringify(localValueRef.current)) {
+                    setValue(data);
+                    localValueRef.current = data;
+                }
             }
-            isFirstLoad.current = false;
         }, (error) => {
-            console.error(`Erreur sync lecture [${key}]:`, error);
+            console.error(`🔥 Erreur Sync [${key}]:`, error);
         });
 
         return () => unsubscribe();
     }, [key]);
 
-    // 2. ÉCRITURE (WRITE): Sauvegarder dans Firestore quand la valeur change
+    // 2. ÉCRITURE (WRITE): Sauvegarder dans Firestore
     const setSyncedValue: React.Dispatch<React.SetStateAction<T>> = (newValueOrFn) => {
-        // On signale qu'une modification locale est en cours
-        isLocalUpdatePending.current = true;
-
+        // Mise à jour immédiate de l'UI locale
         setValue((prev) => {
             const newValue = newValueOrFn instanceof Function ? (newValueOrFn as Function)(prev) : newValueOrFn;
+            localValueRef.current = newValue;
             
-            // Debounce : On attend 500ms pour éviter de spammer la base
+            // Indiquer qu'une écriture est en attente/cours
+            isWritingRef.current = true;
+
+            // Debounce : On attend un peu que l'utilisateur finisse de taper/cliquer avant d'envoyer
             if (timeoutRef.current) clearTimeout(timeoutRef.current);
             
             timeoutRef.current = setTimeout(async () => {
                 if (!db) {
-                    isLocalUpdatePending.current = false;
+                    isWritingRef.current = false;
                     return;
                 }
+                
                 try {
-                    // NETTOYAGE CRITIQUE : Firebase rejette les objets contenant 'undefined'.
-                    // On utilise JSON stringify/parse pour supprimer toutes les clés undefined.
+                    // Nettoyage des undefined qui font planter Firebase
                     const cleanContent = JSON.parse(JSON.stringify(newValue));
 
                     await setDoc(doc(db, "app_data", key), { 
                         content: cleanContent, 
-                        lastUpdated: new Date().toISOString() 
-                    });
-                    console.log(`☁️ Synced [${key}]`);
+                        lastUpdated: new Date().toISOString(),
+                        deviceInfo: navigator.userAgent // Utile pour debug
+                    }, { merge: true }); // Merge true pour ne pas écraser d'autres champs métadonnées
+                    
                 } catch (e) {
-                    console.error(`Erreur sync écriture [${key}]:`, e);
+                    console.error(`❌ Échec écriture [${key}]:`, e);
                 } finally {
-                    // Une fois sauvegardé (ou échoué), on relâche le verrou pour accepter les futures mises à jour cloud
-                    setTimeout(() => {
-                        isLocalUpdatePending.current = false;
-                    }, 200);
+                    // On relâche le verrou immédiatement après la tentative
+                    isWritingRef.current = false;
                 }
-            }, 500);
+            }, 1000); // 1 seconde de délai pour grouper les mises à jour rapides
 
             return newValue;
         });

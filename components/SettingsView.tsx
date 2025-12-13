@@ -43,7 +43,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
         setConnectionStatus('CHECKING');
         try {
             // Test d'écriture simple pour vérifier les règles de sécurité
-            const testRef = doc(db, "_diagnostics", "connection_test");
+            // Utilise une collection de debug
+            const testRef = doc(db, "_diagnostics", "connection_test_" + Date.now());
             await setDoc(testRef, { 
                 lastCheck: new Date().toISOString(),
                 platform: navigator.userAgent
@@ -60,6 +61,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                 setDiagnosticDetails(error.message);
             }
         }
+    };
+
+    const handleForceRefresh = () => {
+        window.location.reload();
     };
 
     // --- ASSET UPLOAD LOGIC ---
@@ -296,10 +301,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                         <p className="text-sm mt-1 mb-2">
                             {connectionStatus === 'CHECKING' && "Vérification de la connexion..."}
                             {connectionStatus === 'OK' && "Tout fonctionne parfaitement ! Vos données sont synchronisées en temps réel."}
-                            {connectionStatus === 'OFFLINE' && "Mode Hors Ligne. Les variables d'environnement Firebase manquent dans Vercel."}
+                            {connectionStatus === 'OFFLINE' && "Mode Hors Ligne. Les variables d'environnement Firebase manquent ou internet est coupé."}
                             {connectionStatus === 'PERMISSION_DENIED' && "Erreur de Permissions ! La base de données refuse l'accès."}
                             {connectionStatus === 'ERROR' && `Erreur inattendue : ${diagnosticDetails}`}
                         </p>
+
+                        <div className="mt-2">
+                            <button onClick={handleForceRefresh} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                                <RefreshCw size={12}/> Rafraîchir l'application (peut corriger les bugs de sync)
+                            </button>
+                        </div>
 
                         {connectionStatus === 'PERMISSION_DENIED' && (
                             <div className="mt-4 bg-white border border-red-200 rounded-lg p-3">
@@ -335,6 +346,7 @@ service cloud.firestore {
                 </div>
             )}
 
+            {/* ... RESTE DES SECTIONS ... */}
             {/* SECTION 0: IDENTITÉ VISUELLE */}
             {onUpdateAssets && companyAssets && (
                 <div className="bg-white rounded-xl shadow-sm border border-brand-200 overflow-hidden">
@@ -452,69 +464,6 @@ service cloud.firestore {
                     </div>
                 </div>
             )}
-
-            {/* SECTION 2: EXPORT EXCEL/CSV */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 p-4 border-b border-gray-200">
-                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                        <FileText size={20} /> Exportation Excel (CSV)
-                    </h3>
-                    <p className="text-xs text-gray-500 mt-1">
-                        Exportez des listes spécifiques pour les utiliser dans Excel ou d'autres logiciels.
-                    </p>
-                </div>
-                <div className="p-6">
-                    <div className="flex flex-wrap gap-4">
-                        <button onClick={() => handleExportCSV('CLIENTS')} className="flex items-center gap-2 px-4 py-3 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 hover:border-brand-300 font-medium">
-                            <Download size={16} /> Liste des Clients
-                        </button>
-                        <button onClick={() => handleExportCSV('ARTICLES')} className="flex items-center gap-2 px-4 py-3 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 hover:border-brand-300 font-medium">
-                            <Download size={16} /> Catalogue Articles
-                        </button>
-                        <button onClick={() => handleExportCSV('VENTES')} className="flex items-center gap-2 px-4 py-3 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 hover:border-brand-300 font-medium">
-                            <Download size={16} /> Historique Ventes
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            {/* SECTION 3: IMPORT CSV */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 p-4 border-b border-gray-200">
-                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                        <RefreshCw size={20} /> Importation de Données (CSV)
-                    </h3>
-                    <p className="text-xs text-gray-500 mt-1">
-                        Ajoutez des données en masse (Clients ou Articles). Le fichier doit avoir des colonnes avec des en-têtes (Nom, Telephone...).
-                    </p>
-                </div>
-                <div className="p-6 flex flex-col md:flex-row items-end gap-4">
-                    <div className="flex-1 w-full">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Type de données à importer</label>
-                        <select 
-                            value={importType} 
-                            onChange={(e) => setImportType(e.target.value as any)}
-                            className="w-full p-2 border border-gray-300 rounded-lg"
-                        >
-                            <option value="CLIENTS">Clients</option>
-                            <option value="ARTICLES">Articles</option>
-                        </select>
-                    </div>
-                    
-                    <input type="file" accept=".csv" ref={csvInputRef} className="hidden" onChange={handleCSVFileChange} />
-                    
-                    <button 
-                        onClick={handleCSVImportClick}
-                        className="px-6 py-2 bg-gray-800 text-white rounded-lg font-bold hover:bg-gray-900 transition-colors flex items-center gap-2 w-full md:w-auto justify-center"
-                    >
-                        <Upload size={18} /> Sélectionner CSV
-                    </button>
-                </div>
-                <div className="px-6 pb-6 text-xs text-gray-400">
-                    * Format attendu pour Clients : Colonnes "Nom", "Telephone".<br/>
-                    * Format attendu pour Articles : Colonnes "Nom", "PrixAchat", "PrixVente".
-                </div>
-            </div>
         </div>
     );
 };
