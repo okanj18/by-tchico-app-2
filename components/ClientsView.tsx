@@ -40,6 +40,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
     // Special State for Combined Inputs (string "val1/val2")
     const [boubouString, setBoubouString] = useState('');
     const [genouString, setGenouString] = useState('');
+    const [poitrineString, setPoitrineString] = useState(''); // NOUVEAU: Pour gérer 3 mesures
 
     // Voice Input State
     const [isListening, setIsListening] = useState(false);
@@ -57,7 +58,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
     const MEASUREMENT_FIELDS = [
         { key: 'tourCou', label: 'TOUR DE COU' },
         { key: 'epaule', label: 'ÉPAULE' },
-        { key: 'poitrine', label: 'TOUR POITRINE' }, // Mis à jour pour forcer l'affichage
+        { key: 'poitrine', label: 'TOUR POITRINE' }, 
         { key: 'longueurManche', label: 'LONG. MANCHE' },
         { key: 'tourBras', label: 'TOUR DE BRAS' },
         { key: 'tourPoignet', label: 'TOUR DE POIGNET' },
@@ -180,6 +181,17 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                     text += `- ${field.label}: ${val1 || 0} / ${val2 || 0} cm\n`;
                     hasMesures = true;
                 }
+            } else if (field.key === 'poitrine') {
+                const val1 = client.mesures.poitrine1 || client.mesures.poitrine;
+                const val2 = client.mesures.poitrine2;
+                const val3 = client.mesures.poitrine3;
+                if ((val1 && val1 > 0) || (val2 && val2 > 0) || (val3 && val3 > 0)) {
+                    text += `- ${field.label}: ${val1 || 0}`;
+                    if(val2) text += ` / ${val2}`;
+                    if(val3) text += ` / ${val3}`;
+                    text += ` cm\n`;
+                    hasMesures = true;
+                }
             } else {
                 const val = client.mesures[field.key as keyof typeof client.mesures];
                 if (val && val > 0) {
@@ -210,6 +222,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         setClientFormData({ nom: '', telephone: '', notes: '', dateAnniversaire: '', mesures: {} });
         setBoubouString(''); // Init empty
         setGenouString(''); // Init empty
+        setPoitrineString(''); // Init empty
         setIsEditing(false);
         setIsModalOpen(true);
     };
@@ -241,6 +254,17 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
             setGenouString(g1 ? g1.toString() : '');
         }
 
+        // Init combined string for Poitrine (3 mesures possibles)
+        const p1 = client.mesures.poitrine1 || client.mesures.poitrine || 0;
+        const p2 = client.mesures.poitrine2 || 0;
+        const p3 = client.mesures.poitrine3 || 0;
+        
+        let pStr = '';
+        if (p1 > 0) pStr = `${p1}`;
+        if (p2 > 0) pStr += `/${p2}`;
+        if (p3 > 0) pStr += `/${p3}`;
+        setPoitrineString(pStr);
+
         setIsEditing(true);
         setIsModalOpen(true);
     };
@@ -248,8 +272,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
     // Handler for the combined input Boubou
     const handleBoubouStringChange = (val: string) => {
         setBoubouString(val);
-        // Logic to split "140/145" into 140 and 145
-        // Replace comma with dot to support decimal inputs like "49,5"
         const normalized = val.replace(',', '.');
         const parts = normalized.split('/');
         const v1 = parseFloat(parts[0].trim());
@@ -268,7 +290,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
     // Handler for the combined input Genou
     const handleGenouStringChange = (val: string) => {
         setGenouString(val);
-        // Logic to split "40/38" into 40 and 38
         const normalized = val.replace(',', '.');
         const parts = normalized.split('/');
         const v1 = parseFloat(parts[0].trim());
@@ -280,6 +301,28 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 ...prev.mesures,
                 genou1: isNaN(v1) ? 0 : v1,
                 genou2: isNaN(v2) ? 0 : v2
+            }
+        }));
+    };
+
+    // Handler for the combined input Poitrine (3 values)
+    const handlePoitrineStringChange = (val: string) => {
+        setPoitrineString(val);
+        const normalized = val.replace(',', '.');
+        const parts = normalized.split('/');
+        
+        const p1 = parseFloat(parts[0]?.trim());
+        const p2 = parts.length > 1 ? parseFloat(parts[1]?.trim()) : 0;
+        const p3 = parts.length > 2 ? parseFloat(parts[2]?.trim()) : 0;
+
+        setClientFormData(prev => ({
+            ...prev,
+            mesures: {
+                ...prev.mesures,
+                poitrine: isNaN(p1) ? 0 : p1, // Backward compatibility
+                poitrine1: isNaN(p1) ? 0 : p1,
+                poitrine2: isNaN(p2) ? 0 : p2,
+                poitrine3: isNaN(p3) ? 0 : p3
             }
         }));
     };
@@ -317,7 +360,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
             setClientFormData(prev => {
                 const updatedMesures = { ...prev.mesures, ...newMeasures };
                 
-                // Update specific strings for UI sync (Boubou/Genou) if they changed
+                // Update specific strings for UI sync (Boubou/Genou/Poitrine) if they changed
                 if (newMeasures.longueurBoubou1 || newMeasures.longueurBoubou2) {
                     const b1 = newMeasures.longueurBoubou1 || prev.mesures?.longueurBoubou1 || 0;
                     const b2 = newMeasures.longueurBoubou2 || prev.mesures?.longueurBoubou2 || 0;
@@ -327,6 +370,12 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                     const g1 = newMeasures.genou1 || prev.mesures?.genou1 || 0;
                     const g2 = newMeasures.genou2 || prev.mesures?.genou2 || 0;
                     setGenouString(g2 > 0 ? `${g1}/${g2}` : `${g1}`);
+                }
+                
+                // Si l'IA détecte plusieurs valeurs pour la poitrine (logique simplifiée ici, l'IA renvoie souvent "poitrine")
+                // On garde la logique simple pour l'instant, l'utilisateur ajustera les 3 valeurs manuellement si besoin.
+                if (newMeasures.poitrine) {
+                    setPoitrineString(`${newMeasures.poitrine}`);
                 }
 
                 return { ...prev, mesures: updatedMesures };
@@ -467,6 +516,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                     {/* Advanced Filters Panel */}
                     {showFilters && (
                         <div className="bg-white p-3 rounded-lg border border-gray-200 shadow-inner space-y-3 animate-in slide-in-from-top-2">
+                            {/* ... filters ... */}
                             <div>
                                 <label className="block text-[10px] font-bold text-gray-500 uppercase mb-2">Période Dernière Commande</label>
                                 <div className="flex gap-1 mb-2 overflow-x-auto pb-1">
@@ -637,6 +687,25 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                                                 <div className="flex justify-between items-center bg-gray-50 px-2 py-1 rounded">
                                                     <span className="text-lg font-bold text-gray-800 tracking-tight">
                                                         {selectedClient.mesures.genou1 || 0}<span className="mx-1 text-gray-400 font-light">/</span>{selectedClient.mesures.genou2 || 0}
+                                                    </span>
+                                                    <span className="text-xs text-gray-400">cm</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    } else if (field.key === 'poitrine') {
+                                        // DISPLAY POITRINE (3 valeurs possibles)
+                                        const p1 = selectedClient.mesures.poitrine1 || selectedClient.mesures.poitrine || 0;
+                                        const p2 = selectedClient.mesures.poitrine2 || 0;
+                                        const p3 = selectedClient.mesures.poitrine3 || 0;
+                                        
+                                        return (
+                                            <div key={field.key} className="bg-white p-2 rounded-lg border border-gray-200 shadow-sm">
+                                                <span className="block text-xs text-gray-500 font-bold uppercase mb-1 tracking-wide">{field.label}</span>
+                                                <div className="flex justify-between items-center bg-gray-50 px-2 py-1 rounded">
+                                                    <span className="text-lg font-bold text-gray-800 tracking-tight flex items-center">
+                                                        {p1}
+                                                        {p2 > 0 && <><span className="mx-1 text-gray-400 font-light">/</span>{p2}</>}
+                                                        {p3 > 0 && <><span className="mx-1 text-gray-400 font-light">/</span>{p3}</>}
                                                     </span>
                                                     <span className="text-xs text-gray-400">cm</span>
                                                 </div>
@@ -921,6 +990,23 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                                                             onChange={(e) => handleGenouStringChange(e.target.value)}
                                                             className="w-full p-2 pr-8 border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 focus:border-transparent font-medium"
                                                             placeholder="40/38"
+                                                        />
+                                                        <span className="absolute right-3 top-2.5 text-xs text-gray-400">cm</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        } else if (field.key === 'poitrine') {
+                                            // CAS SPECIAL: POITRINE (3 valeurs possibles)
+                                            return (
+                                                <div key={field.key}>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">{field.label}</label>
+                                                    <div className="relative">
+                                                        <input 
+                                                            type="text" 
+                                                            value={poitrineString}
+                                                            onChange={(e) => handlePoitrineStringChange(e.target.value)}
+                                                            className="w-full p-2 pr-8 border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 focus:border-transparent font-medium"
+                                                            placeholder="90/95/100"
                                                         />
                                                         <span className="absolute right-3 top-2.5 text-xs text-gray-400">cm</span>
                                                     </div>
