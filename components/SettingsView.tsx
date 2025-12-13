@@ -1,6 +1,6 @@
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Download, Upload, RefreshCw, AlertTriangle, FileText, Database, CheckCircle, Save, Trash2, Wifi, WifiOff, Lock, Code, Image as ImageIcon, Users, Truck, ShoppingBag, Scissors, Briefcase } from 'lucide-react';
+import { Download, Upload, RefreshCw, AlertTriangle, FileText, Database, CheckCircle, Save, Trash2, Wifi, WifiOff, Lock, Code, Image as ImageIcon, Users, Truck, ShoppingBag, Scissors, Briefcase, Clock } from 'lucide-react';
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { db } from "../services/firebase";
 import { CompanyAssets } from '../types';
@@ -163,7 +163,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
         return str;
     };
 
-    const handleExportCSV = (type: 'CLIENTS' | 'ARTICLES' | 'EMPLOYES' | 'FOURNISSEURS' | 'DEPENSES') => {
+    const handleExportCSV = (type: 'CLIENTS' | 'ARTICLES' | 'EMPLOYES' | 'FOURNISSEURS' | 'DEPENSES' | 'POINTAGE') => {
         let data: any[] = [];
         let filename = '';
 
@@ -229,6 +229,21 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                 Compte: fullData.comptes.find((c:any) => c.id === d.compteId)?.nom || ''
             }));
             filename = 'depenses_by_tchico.csv';
+        } else if (type === 'POINTAGE') {
+            data = fullData.pointages.map((p: any) => {
+                const emp = fullData.employes.find((e:any) => e.id === p.employeId);
+                return {
+                    Date: new Date(p.date).toLocaleDateString(),
+                    Employe: emp ? emp.nom : 'Inconnu',
+                    Role: emp ? emp.role : '',
+                    Statut: p.statut,
+                    Arrivee: p.heureArrivee || '',
+                    Depart: p.heureDepart || ''
+                };
+            });
+            // Trier par date
+            data.sort((a, b) => new Date(b.Date).getTime() - new Date(a.Date).getTime());
+            filename = 'pointage_presence_by_tchico.csv';
         }
 
         const csvStr = convertToCSV(data);
@@ -349,6 +364,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                     <button onClick={() => handleExportCSV('EMPLOYES')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-purple-50 hover:border-purple-200 transition-colors group">
                         <Briefcase className="text-purple-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
                         <span className="text-xs font-bold text-gray-700 text-center">Ressources Humaines</span>
+                    </button>
+
+                    <button onClick={() => handleExportCSV('POINTAGE')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-teal-50 hover:border-teal-200 transition-colors group">
+                        <Clock className="text-teal-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
+                        <span className="text-xs font-bold text-gray-700 text-center">Pointages</span>
                     </button>
 
                     <button onClick={() => handleExportCSV('FOURNISSEURS')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-orange-50 hover:border-orange-200 transition-colors group">
