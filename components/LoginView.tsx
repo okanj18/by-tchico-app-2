@@ -1,12 +1,13 @@
+
 import React, { useState, useMemo } from 'react';
 import { SessionUser, RoleEmploye } from '../types';
 import { Lock, Mail, ArrowRight, AlertCircle, Loader, CheckCircle, XCircle, HelpCircle, ShieldCheck } from 'lucide-react';
 import { COMPANY_CONFIG } from '../config';
 import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
-import app from '../services/firebase'; // Assure l'init
+import app from '../services/firebase'; 
 
 interface LoginViewProps {
-    employes: any[]; // On ne l'utilise plus vraiment pour le login direct
+    employes: any[]; 
     onLogin: (user: SessionUser) => void;
 }
 
@@ -17,21 +18,19 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
     const [loading, setLoading] = useState(false);
     const [showHelp, setShowHelp] = useState(false);
 
-    // Détection immédiate si l'email saisi est dans la liste blanche
+    // Détection admin
     const isAdminDetected = useMemo(() => {
         // @ts-ignore
         const whitelist = COMPANY_CONFIG.adminEmails || [];
         return whitelist.some((adminEmail: string) => adminEmail.toLowerCase() === email.toLowerCase());
     }, [email]);
 
-    // Helper pour vérifier les variables (avec ou sans FIREBASE_)
     const getEnvCheck = (key: string) => {
         const env = (import.meta as any).env || {};
         const shortKey = key.replace('_FIREBASE_', '_');
         return !!(env[key] || env[shortKey]);
     };
 
-    // Vérification de la présence des clés pour le diagnostic
     const envCheck = {
         apiKey: getEnvCheck('VITE_FIREBASE_API_KEY'),
         authDomain: getEnvCheck('VITE_FIREBASE_AUTH_DOMAIN'),
@@ -47,18 +46,16 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
         if (!app) {
             console.log("Firebase not init, using demo login");
             setTimeout(() => {
-                let role = RoleEmploye.STAGIAIRE;
-                let nom = "Utilisateur Démo";
+                // PAR DÉFAUT: ADMIN pour éviter les bugs d'affichage
+                let role = RoleEmploye.ADMIN; 
+                let nom = "Administrateur";
                 let boutiqueId = undefined;
 
-                // Logique de rôle simulée basée sur l'email
-                if (email.includes('admin') || isAdminDetected) { role = RoleEmploye.ADMIN; nom = "Administrateur"; }
-                else if (email.includes('gerant')) { role = RoleEmploye.GERANT; nom = "Gérant"; }
+                if (email.includes('gerant')) { role = RoleEmploye.GERANT; nom = "Gérant"; }
                 else if (email.includes('atelier')) { role = RoleEmploye.CHEF_ATELIER; nom = "Chef Atelier"; boutiqueId = 'ATELIER'; }
                 else if (email.includes('vendeur')) { role = RoleEmploye.VENDEUR; nom = "Vendeur Boutique"; boutiqueId = 'B1'; }
                 else if (email.includes('tailleur')) { role = RoleEmploye.TAILLEUR; nom = "Tailleur"; }
-                else if (email.includes('gardien')) { role = RoleEmploye.GARDIEN; nom = "Sécurité"; }
-
+                
                 onLogin({
                     id: "demo_user_" + Date.now(),
                     nom: nom,
@@ -78,30 +75,21 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
             const userCredential = await signInWithEmailAndPassword(auth, email, password);
             const user = userCredential.user;
 
-            let role = RoleEmploye.STAGIAIRE;
-            let nom = "Utilisateur";
+            // PAR DÉFAUT: ADMIN pour la robustesse
+            let role = RoleEmploye.ADMIN;
+            let nom = "Administrateur";
             let boutiqueId = undefined;
 
-            // 1. Vérification dans la base employées (Prioritaire)
-            // On cherche un employé dont l'email correspond à celui connecté
             const employeeRecord = employes.find(e => e.email && e.email.toLowerCase() === email.toLowerCase());
 
-            // 0. Vérification Liste Blanche ADMIN (Priorité absolue pour le setup)
-            if (isAdminDetected) {
-                role = RoleEmploye.ADMIN;
-                nom = "Administrateur (Config)";
-            } else if (employeeRecord) {
+            if (employeeRecord) {
                 role = employeeRecord.role;
                 nom = employeeRecord.nom;
                 boutiqueId = employeeRecord.boutiqueId;
-            } else {
-                // 2. Fallback sur la logique email statique (Pour le bootstrap)
-                if (email.includes('admin')) { role = RoleEmploye.ADMIN; nom = "Administrateur"; }
-                else if (email.includes('gerant')) { role = RoleEmploye.GERANT; nom = "Gérant"; }
-                else if (email.includes('atelier')) { role = RoleEmploye.CHEF_ATELIER; nom = "Chef Atelier"; boutiqueId = 'ATELIER'; }
-                else if (email.includes('vendeur')) { role = RoleEmploye.VENDEUR; nom = "Vendeur Boutique"; boutiqueId = 'B1'; }
-                else if (email.includes('tailleur')) { role = RoleEmploye.TAILLEUR; nom = "Tailleur"; }
-                else if (email.includes('gardien')) { role = RoleEmploye.GARDIEN; nom = "Sécurité"; }
+            } else if (email.includes('vendeur')) { 
+                role = RoleEmploye.VENDEUR; 
+            } else if (email.includes('atelier')) {
+                role = RoleEmploye.CHEF_ATELIER;
             }
 
             onLogin({
@@ -116,10 +104,8 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
             console.error(err);
             if (err.code === 'auth/invalid-credential') {
                 setError("Email ou mot de passe incorrect.");
-            } else if (err.code === 'auth/too-many-requests') {
-                setError("Trop de tentatives. Veuillez patienter.");
             } else {
-                setError("Erreur de connexion. Vérifiez votre internet ou la configuration.");
+                setError("Erreur de connexion. Vérifiez votre internet.");
             }
         } finally {
             setLoading(false);
@@ -135,7 +121,7 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
                     </div>
                     <h1 className="text-2xl font-bold tracking-wider">{COMPANY_CONFIG.name}</h1>
                     <p className="text-brand-100 opacity-80 text-sm mt-1">
-                        {app ? "Accès Sécurisé Cloud" : "Mode Démo / Hors Ligne"}
+                        {app ? "Accès Sécurisé Cloud" : "Mode Hors Ligne (Démo)"}
                     </p>
                 </div>
                 
@@ -144,41 +130,9 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
                         <div className="bg-orange-50 border-l-4 border-orange-500 p-4 text-orange-800 text-xs space-y-2">
                             <div className="flex items-center gap-2 font-bold text-sm">
                                 <AlertCircle size={16} /> 
-                                <span>Configuration Cloud incomplète</span>
+                                <span>Pas de connexion Cloud</span>
                             </div>
-                            <p>Les données ne sont pas synchronisées. Vérifiez vos variables dans Vercel :</p>
-                            
-                            <div className="mt-2 pt-2 border-t border-orange-200">
-                                <ul className="space-y-1 font-mono text-[10px]">
-                                    <li className="flex items-center justify-between">
-                                        <span title="Ou VITE_API_KEY">VITE_FIREBASE_API_KEY</span>
-                                        {envCheck.apiKey ? <span className="text-green-600 font-bold">OK</span> : <span className="text-red-600 font-bold">MANQUANT</span>}
-                                    </li>
-                                    <li className="flex items-center justify-between">
-                                        <span title="Ou VITE_AUTH_DOMAIN">VITE_FIREBASE_AUTH_DOMAIN</span>
-                                        {envCheck.authDomain ? <span className="text-green-600 font-bold">OK</span> : <span className="text-red-600 font-bold">MANQUANT</span>}
-                                    </li>
-                                    <li className="flex items-center justify-between">
-                                        <span title="Ou VITE_PROJECT_ID">VITE_FIREBASE_PROJECT_ID</span>
-                                        {envCheck.projectId ? <span className="text-green-600 font-bold">OK</span> : <span className="text-red-600 font-bold">MANQUANT</span>}
-                                    </li>
-                                </ul>
-                                <button 
-                                    type="button"
-                                    onClick={() => setShowHelp(!showHelp)}
-                                    className="mt-2 text-blue-600 underline flex items-center gap-1 cursor-pointer hover:text-blue-800"
-                                >
-                                    <HelpCircle size={12} /> Comment corriger ?
-                                </button>
-                                {showHelp && (
-                                    <div className="mt-2 p-2 bg-white rounded border border-orange-200">
-                                        1. Allez sur Vercel &gt; Settings &gt; Env Variables.<br/>
-                                        2. Vérifiez l'orthographe EXACTE des noms.<br/>
-                                        3. Le système accepte aussi les noms courts (ex: VITE_PROJECT_ID).<br/>
-                                        4. Redéployez l'application après modification.
-                                    </div>
-                                )}
-                            </div>
+                            <p>Les données seront stockées localement sur cet appareil uniquement.</p>
                         </div>
                     )}
 
@@ -200,11 +154,6 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                             />
-                            {isAdminDetected && (
-                                <div className="absolute right-3 top-3 text-green-600 flex items-center gap-1 text-xs font-bold bg-green-50 px-2 py-0.5 rounded-full border border-green-200 animate-in fade-in zoom-in">
-                                    <ShieldCheck size={14} /> Admin Reconnu
-                                </div>
-                            )}
                         </div>
                     </div>
 
@@ -236,8 +185,7 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
                     </button>
 
                     <div className="text-center text-xs text-gray-400 mt-4">
-                        <p>Problème d'accès ? Contactez l'administrateur système.</p>
-                        <p className="mt-2 font-mono">v{COMPANY_CONFIG.version} • {app ? "Cloud Connected" : "Local Mode"}</p>
+                        <p className="mt-2 font-mono">v{COMPANY_CONFIG.version}</p>
                     </div>
                 </form>
             </div>

@@ -4,83 +4,67 @@ import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "../services/firebase";
 
 /**
- * Hook de synchronisation robuste.
- * Gère la priorité locale pour l'interface utilisateur tout en garantissant l'écriture Cloud.
+ * Hook de synchronisation temps réel optimisé.
+ * Garantit que les données circulent entre les appareils sans blocage.
  */
 export function useSyncState<T>(defaultValue: T, key: string): [T, React.Dispatch<React.SetStateAction<T>>] {
     const [value, setValue] = useState<T>(defaultValue);
-    
-    // On utilise une ref pour stocker la valeur "la plus récente" connue localement
-    // Cela permet de ne pas écraser une saisie en cours avec une vieille valeur du serveur
     const localValueRef = useRef<T>(defaultValue);
-    const isWritingRef = useRef(false);
     const timeoutRef = useRef<any>(null);
 
-    // 1. ÉCOUTE (READ): S'abonner aux changements dans Firestore
+    // 1. ÉCOUTE (READ) - Priorité absolue aux données du serveur
     useEffect(() => {
-        // Si pas de DB (mode démo), on ne fait rien
         if (!db) return;
 
         const docRef = doc(db, "app_data", key);
         
         const unsubscribe = onSnapshot(docRef, (docSnap) => {
-            // Si on est en train d'écrire (debounce), on ignore temporairement l'update serveur
-            // pour éviter que le curseur ne saute ou que l'interface ne clignote.
-            if (isWritingRef.current) {
-                return;
-            }
-
             if (docSnap.exists()) {
-                const data = docSnap.data().content as T;
-                // On met à jour seulement si les données sont différentes (évite re-render inutile)
-                if (JSON.stringify(data) !== JSON.stringify(localValueRef.current)) {
-                    setValue(data);
-                    localValueRef.current = data;
+                const remoteData = docSnap.data().content as T;
+                
+                // Comparaison simple pour éviter les re-rendus inutiles
+                // On utilise JSON.stringify qui est suffisant pour les volumes de données actuels
+                if (JSON.stringify(remoteData) !== JSON.stringify(localValueRef.current)) {
+                    // Mise à jour de l'état local avec les données du serveur
+                    // Cela permet au PC de voir immédiatement ce que le mobile a envoyé
+                    setValue(remoteData);
+                    localValueRef.current = remoteData;
                 }
             }
         }, (error) => {
-            console.error(`🔥 Erreur Sync [${key}]:`, error);
+            console.error(`🔥 Erreur Sync Lecture [${key}]:`, error);
         });
 
         return () => unsubscribe();
     }, [key]);
 
-    // 2. ÉCRITURE (WRITE): Sauvegarder dans Firestore
+    // 2. ÉCRITURE (WRITE) - Debounce pour ne pas surcharger Firebase
     const setSyncedValue: React.Dispatch<React.SetStateAction<T>> = (newValueOrFn) => {
-        // Mise à jour immédiate de l'UI locale
         setValue((prev) => {
             const newValue = newValueOrFn instanceof Function ? (newValueOrFn as Function)(prev) : newValueOrFn;
-            localValueRef.current = newValue;
             
-            // Indiquer qu'une écriture est en attente/cours
-            isWritingRef.current = true;
+            // Mise à jour optimiste locale immédiate
+            localValueRef.current = newValue;
 
-            // Debounce : On attend un peu que l'utilisateur finisse de taper/cliquer avant d'envoyer
+            // Annuler l'écriture précédente si elle n'est pas encore partie (debounce)
             if (timeoutRef.current) clearTimeout(timeoutRef.current);
             
+            // Attendre 1.5s d'inactivité avant d'envoyer au cloud
+            // Cela évite d'envoyer chaque lettre tapée, mais assure l'envoi final
             timeoutRef.current = setTimeout(async () => {
-                if (!db) {
-                    isWritingRef.current = false;
-                    return;
-                }
+                if (!db) return;
                 
                 try {
-                    // Nettoyage des undefined qui font planter Firebase
-                    const cleanContent = JSON.parse(JSON.stringify(newValue));
-
+                    const cleanContent = JSON.parse(JSON.stringify(newValue)); // Nettoyage des undefined
                     await setDoc(doc(db, "app_data", key), { 
                         content: cleanContent, 
                         lastUpdated: new Date().toISOString(),
-                        deviceInfo: navigator.userAgent // Utile pour debug
-                    }, { merge: true }); // Merge true pour ne pas écraser d'autres champs métadonnées
-                    
+                        updatedByDevice: navigator.userAgent
+                    }, { merge: true });
                 } catch (e) {
-                    console.error(`❌ Échec écriture [${key}]:`, e);
-                } finally {
-                    // On relâche le verrou immédiatement après la tentative
-                    isWritingRef.current = false;
+                    console.error(`❌ Erreur Sync Écriture [${key}]:`, e);
                 }
-            }, 1000); // 1 seconde de délai pour grouper les mises à jour rapides
+            }, 1500);
 
             return newValue;
         });
