@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Article, TypeArticle } from '../types';
 import { Search, Plus, Tag, Edit2, X, Save, Box, Layers, DollarSign, Scissors, ShoppingBag, ArrowRightLeft, Trash2, Image as ImageIcon, Upload, CheckSquare, Square, LayoutGrid, List, QrCode, Archive, RotateCcw, AlertTriangle, Loader } from 'lucide-react';
@@ -120,19 +121,22 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
         const files = e.target.files;
         if (files && files.length > 0) {
             setIsUploading(true);
-            const newImages: string[] = [];
-            
             try {
-                // Upload parallèle pour plus de rapidité
-                const uploadPromises = Array.from(files).map(file => uploadImageToCloud(file as File, 'articles'));
-                const urls = await Promise.all(uploadPromises);
+                // Traitement séquentiel pour ne pas figer le navigateur
+                // Surtout important si on est en mode hors ligne (traitement CPU compression)
+                const newImages: string[] = [];
+                for (let i = 0; i < files.length; i++) {
+                    const url = await uploadImageToCloud(files[i], 'articles');
+                    newImages.push(url);
+                }
                 
                 setFormData(prev => ({
                     ...prev,
-                    images: [...(prev.images || []), ...urls]
+                    images: [...(prev.images || []), ...newImages]
                 }));
             } catch (error) {
-                alert("Erreur lors du téléchargement des images.");
+                console.error(error);
+                alert("Erreur lors du traitement des images.");
             } finally {
                 setIsUploading(false);
                 if (fileInputRef.current) fileInputRef.current.value = '';
@@ -830,7 +834,7 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                                         {isUploading ? (
                                             <>
                                                 <Loader className="animate-spin mb-2" size={24} />
-                                                <span className="text-xs font-bold">Envoi...</span>
+                                                <span className="text-xs font-bold">Traitement...</span>
                                             </>
                                         ) : (
                                             <>
@@ -868,8 +872,7 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                                     multiple 
                                 />
                                 <p className="text-xs text-gray-500">
-                                    Ajoutez plusieurs images. La première sera l'image de couverture. 
-                                    (Stockage Cloud activé)
+                                    Les images sont compressées automatiquement pour garantir un affichage rapide (même hors ligne).
                                 </p>
                             </div>
                         </div>

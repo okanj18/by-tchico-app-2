@@ -3,18 +3,81 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "./firebase";
 
 /**
+ * Compresse une image côté client via Canvas.
+ * Réduit la taille (max 1024px) et la qualité (70%) pour accélérer l'upload et l'affichage.
+ */
+const compressImage = (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 1024; // Largeur max raisonnable pour le web
+                let width = img.width;
+                let height = img.height;
+
+                // Calcul du ratio pour redimensionner
+                if (width > MAX_WIDTH) {
+                    height *= MAX_WIDTH / width;
+                    width = MAX_WIDTH;
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    reject(new Error("Impossible de traiter l'image (Canvas context error)"));
+                    return;
+                }
+                
+                // Dessiner l'image redimensionnée
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                // Convertir en JPEG qualité 70%
+                canvas.toBlob((blob) => {
+                    if (blob) resolve(blob);
+                    else reject(new Error("Erreur de compression"));
+                }, 'image/jpeg', 0.7);
+            };
+            
+            img.onerror = (err) => reject(err);
+        };
+        reader.onerror = (err) => reject(err);
+    });
+};
+
+/**
  * Télécharge une image vers Firebase Storage et renvoie l'URL optimisée.
- * Si Firebase n'est pas configuré, renvoie une erreur ou une simulation.
+ * Si Firebase n'est pas configuré, renvoie une version Base64 compressée (Mode Hors Ligne).
  */
 export const uploadImageToCloud = async (file: File, path: string): Promise<string> => {
     try {
-        if (!storage) throw new Error("Firebase Storage non initialisé");
-
-        // Création d'une référence unique : articles/ID_UNIQUE.jpg
-        const storageRef = ref(storage, `${path}/${Date.now()}_${file.name}`);
+        // 1. Compression systématique (Crucial pour la performance)
+        const compressedBlob = await compressImage(file);
         
-        // Upload
-        const snapshot = await uploadBytes(storageRef, file);
+        // 2. Vérification Firebase
+        if (!storage) {
+            console.warn("Mode Hors Ligne : Stockage de l'image en Base64 compressé localement.");
+            // Fallback: Retourne le Base64 de l'image COMPRESSÉE (beaucoup plus léger)
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(compressedBlob);
+            });
+        }
+
+        // 3. Upload Cloud (si connecté)
+        // Nom de fichier sécurisé
+        const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '')}`;
+        const storageRef = ref(storage, `${path}/${fileName}`);
+        
+        // Upload du blob compressé
+        const snapshot = await uploadBytes(storageRef, compressedBlob);
         
         // Récupération de l'URL publique
         const downloadURL = await getDownloadURL(snapshot.ref);
@@ -22,7 +85,7 @@ export const uploadImageToCloud = async (file: File, path: string): Promise<stri
         return downloadURL;
     } catch (error) {
         console.error("Erreur upload image:", error);
-        // Fallback: Si pas de Firebase (mode dev local sans internet), on retourne du base64 temporairement
+        // Fallback ultime : Base64 de l'original (si compression échoue)
         return new Promise((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result as string);
