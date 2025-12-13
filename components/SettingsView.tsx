@@ -8,7 +8,7 @@ import { CompanyAssets } from '../types';
 interface SettingsViewProps {
     fullData: any; // L'objet contenant tout l'état de l'application
     onRestore: (data: any) => void;
-    onImport: (type: 'CLIENTS' | 'ARTICLES', data: any[]) => void;
+    onImport: (type: 'CLIENTS' | 'ARTICLES' | 'EMPLOYES' | 'FOURNISSEURS' | 'DEPENSES' | 'POINTAGE', data: any[]) => void;
     onClearData?: () => void; // Nouvelle prop pour effacer les données
     companyAssets?: CompanyAssets;
     onUpdateAssets?: (assets: CompanyAssets) => void;
@@ -23,7 +23,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
     const stampInputRef = useRef<HTMLInputElement>(null);
     const signatureInputRef = useRef<HTMLInputElement>(null);
 
-    const [importType, setImportType] = useState<'CLIENTS' | 'ARTICLES'>('CLIENTS');
+    const [importType, setImportType] = useState<'CLIENTS' | 'ARTICLES' | 'EMPLOYES' | 'FOURNISSEURS' | 'DEPENSES' | 'POINTAGE'>('CLIENTS');
     const [statusMessage, setStatusMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
 
     // --- DIAGNOSTIC CONNEXION ---
@@ -256,7 +256,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
         setStatusMessage({type: 'success', text: `Export ${type} généré avec succès.`});
     };
 
-    // --- IMPORT CSV LOGIC (Simple) ---
+    // --- IMPORT CSV LOGIC (Enhanced) ---
     const handleCSVImportClick = () => {
         csvInputRef.current?.click();
     };
@@ -284,14 +284,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
             }
 
             const mappedData = resultData.map((row: any) => {
-                if (importType === 'CLIENTS') {
-                    // Fonction utilitaire pour parser les nombres proprement
-                    const p = (val: any) => {
-                        if (!val) return 0;
-                        const num = parseFloat(val.replace(',', '.').replace(/[^\d.-]/g, ''));
-                        return isNaN(num) ? 0 : num;
-                    };
+                // Fonction utilitaire pour parser les nombres proprement
+                const p = (val: any) => {
+                    if (!val) return 0;
+                    const num = parseFloat(val.toString().replace(',', '.').replace(/[^\d.-]/g, ''));
+                    return isNaN(num) ? 0 : num;
+                };
 
+                if (importType === 'CLIENTS') {
                     return {
                         id: `C_IMP_${Date.now()}_${Math.random()}`,
                         nom: row.Nom || row.Name || row.nom || 'Client Inconnu',
@@ -311,7 +311,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                             longueurPantalon: p(row['L_Pantalon'])
                         }
                     };
-                } else { // ARTICLES
+                } else if (importType === 'ARTICLES') {
                     return {
                         id: `A_IMP_${Date.now()}_${Math.random()}`,
                         nom: row.Nom || row.nom || 'Article Inconnu',
@@ -319,12 +319,78 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                         typeArticle: 'MATIERE_PREMIERE', 
                         prixAchatDefault: parseInt(row.PrixAchat || '0'),
                         prixVenteDefault: parseInt(row.PrixVente || '0'),
-                        unite: 'Pièce',
+                        unite: row.Unite || 'Pièce',
                         stockParLieu: {},
                         variantes: []
                     };
+                } else if (importType === 'EMPLOYES') {
+                    return {
+                        id: `E_IMP_${Date.now()}_${Math.random()}`,
+                        nom: row.Nom || 'Employé Inconnu',
+                        role: row.Role || 'STAGIAIRE',
+                        telephone: row.Telephone || '',
+                        email: row.Email || '',
+                        typeContrat: row.Contrat || 'CDI',
+                        salaireBase: p(row.SalaireBase),
+                        boutiqueId: 'ATELIER', // Par défaut
+                        historiquePaie: [],
+                        absences: []
+                    };
+                } else if (importType === 'FOURNISSEURS') {
+                    return {
+                        id: `F_IMP_${Date.now()}_${Math.random()}`,
+                        nomEntreprise: row.Entreprise || row.nomEntreprise || 'Fournisseur',
+                        contactPersonne: row.Contact || '',
+                        telephone: row.Telephone || '',
+                        adresse: row.Adresse || '',
+                        categories: row.Categories ? row.Categories.split(';') : [],
+                        delaiLivraisonMoyen: p(row.DelaiLivraison),
+                        notes: row.Notes || ''
+                    };
+                } else if (importType === 'DEPENSES') {
+                    // Essayer de parser la date, sinon aujourd'hui
+                    let dateDepense = new Date().toISOString();
+                    try {
+                        if (row.Date) {
+                            const parts = row.Date.split('/');
+                            if (parts.length === 3) dateDepense = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).toISOString();
+                            else dateDepense = new Date(row.Date).toISOString();
+                        }
+                    } catch(e) {}
+
+                    return {
+                        id: `D_IMP_${Date.now()}_${Math.random()}`,
+                        date: dateDepense,
+                        montant: p(row.Montant),
+                        categorie: row.Categorie || 'AUTRE',
+                        description: row.Description || 'Importé',
+                        boutiqueId: undefined, // Difficile à mapper sans ID exact
+                        compteId: undefined
+                    };
+                } else if (importType === 'POINTAGE') {
+                    // Tentative de retrouver l'employé par nom
+                    const employeNom = row.Employe;
+                    const employeExist = fullData.employes.find((e: any) => e.nom.toLowerCase() === employeNom?.toLowerCase());
+                    
+                    let datePt = new Date().toISOString().split('T')[0];
+                    try {
+                        if (row.Date) {
+                            const parts = row.Date.split('/');
+                            if (parts.length === 3) datePt = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                        }
+                    } catch(e) {}
+
+                    return {
+                        id: `PT_IMP_${Date.now()}_${Math.random()}`,
+                        employeId: employeExist ? employeExist.id : 'UNKNOWN_EMP',
+                        date: datePt,
+                        heureArrivee: row.Arrivee || '',
+                        heureDepart: row.Depart || '',
+                        statut: row.Statut || 'PRESENT'
+                    };
                 }
-            });
+                return null;
+            }).filter(item => item !== null);
 
             if (mappedData.length > 0) {
                 if (window.confirm(`Vous êtes sur le point d'importer ${mappedData.length} éléments dans ${importType}. Confirmer ?`)) {
@@ -395,7 +461,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                         <Upload size={20} /> Importation de Données (CSV)
                     </h3>
                     <p className="text-xs text-blue-700 mt-1">
-                        Restaurez vos clients ou articles à partir d'un fichier CSV précédemment exporté.
+                        Restaurez vos données fichier par fichier. <strong className="text-red-600">Attention :</strong> Si vous importez des Employés, faites-le AVANT d'importer les Pointages.
                     </p>
                 </div>
                 <div className="p-6">
@@ -409,6 +475,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                             >
                                 <option value="CLIENTS">Clients & Mesures</option>
                                 <option value="ARTICLES">Articles & Stocks</option>
+                                <option value="EMPLOYES">Employés & RH</option>
+                                <option value="FOURNISSEURS">Fournisseurs</option>
+                                <option value="DEPENSES">Dépenses</option>
+                                <option value="POINTAGE">Pointages (Requiert Employés existants)</option>
                             </select>
                         </div>
                         <div className="flex-1">
@@ -421,9 +491,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                             </button>
                         </div>
                     </div>
-                    <div className="mt-2 text-xs text-gray-500">
-                        <strong>Note :</strong> Pour les clients, les mesures (Cou, Epaule, Poitrine, etc.) seront automatiquement récupérées si les colonnes existent dans le CSV.
-                    </div>
+                    {importType === 'CLIENTS' && (
+                        <div className="mt-2 text-xs text-gray-500">
+                            <strong>Note :</strong> Les mesures (Cou, Epaule, Poitrine, etc.) seront automatiquement récupérées si les colonnes existent.
+                        </div>
+                    )}
+                    {importType === 'POINTAGE' && (
+                        <div className="mt-2 text-xs text-orange-600 bg-orange-50 p-2 rounded">
+                            <strong>Important :</strong> Le système tentera de lier les pointages aux employés existants en comparant leurs <strong>Noms</strong>. Assurez-vous d'avoir importé les employés d'abord.
+                        </div>
+                    )}
                 </div>
             </div>
 
