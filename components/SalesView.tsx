@@ -183,8 +183,122 @@ const SalesView: React.FC<SalesViewProps> = ({
         setSelectedOrderForPayment(null);
     };
 
+    // --- Print Function Updated ---
+    const generatePrintContent = (order: Commande, mode: 'TICKET' | 'DEVIS' | 'LIVRAISON' = 'TICKET') => {
+        const printWindow = window.open('', '', 'width=400,height=600');
+        if (!printWindow) return;
+
+        const dateStr = new Date(order.dateCommande).toLocaleDateString();
+        let docTitle = "TICKET DE CAISSE";
+        if (mode === 'DEVIS') docTitle = "DEVIS / PROFORMA";
+        if (mode === 'LIVRAISON') docTitle = "BON DE LIVRAISON";
+        
+        const isPaid = order.reste <= 0;
+        const stampText = isPaid ? "PAYÉ" : "NON SOLDÉ";
+        const stampColor = isPaid ? "#16a34a" : "#dc2626"; 
+        const showStamp = mode !== 'DEVIS';
+
+        const itemsHtml = order.detailsVente?.map(item => `
+            <div style="display:flex; justify-content:space-between; margin-bottom: 5px;">
+                <span>${item.nomArticle} ${item.variante !== 'Standard' ? '(' + item.variante + ')' : ''} x${item.quantite}</span>
+                <span>${(item.quantite * item.prixUnitaire).toLocaleString()}</span>
+            </div>
+        `).join('') || '';
+
+        const totalTTC = order.prixTotal || 0;
+        const tva = order.tva || 0;
+        const remise = order.remise || 0;
+        const totalHT = totalTTC - tva + remise;
+
+        const baseUrl = window.location.origin;
+        const logoUrl = companyAssets?.logoStr || `${baseUrl}${COMPANY_CONFIG.logoUrl}`;
+        // const stampUrl = companyAssets?.stampStr || `${baseUrl}${COMPANY_CONFIG.stampUrl}`;
+        // const signatureUrl = companyAssets?.signatureStr || `${baseUrl}${COMPANY_CONFIG.signatureUrl}`;
+
+        const html = `
+            <html>
+            <head>
+                <title>${docTitle}</title>
+                <style>
+                    body { font-family: monospace; padding: 20px; font-size: 12px; position: relative; max-width: 400px; margin: auto; }
+                    .header { text-align: center; margin-bottom: 20px; }
+                    .logo { text-align: center; margin-bottom: 10px; }
+                    .logo img { max-height: 70px; width: auto; }
+                    .total { border-top: 1px dashed black; margin-top: 10px; padding-top: 5px; }
+                    .footer { text-align:center; margin-top: 20px; font-size: 10px; }
+                    .row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+                    .bold { font-weight: bold; }
+                    .stamp { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg); font-size: 40px; color: ${stampColor}; opacity: 0.2; font-weight: bold; border: 4px solid ${stampColor}; padding: 10px; border-radius: 10px; }
+                </style>
+            </head>
+            <body>
+                <div class="content">
+                    <div class="header">
+                        <div class="logo"><img src="${logoUrl}" alt="Logo" onerror="this.style.display='none'"/></div>
+                        <h3>${COMPANY_CONFIG.name}</h3>
+                        <p>${COMPANY_CONFIG.address}<br/>${COMPANY_CONFIG.phone}</p>
+                        <p><strong>${docTitle}</strong></p>
+                        <p>Ref: #${order.id.slice(-6)}<br/>Date: ${dateStr}</p>
+                        <p>Client: ${order.clientNom}</p>
+                    </div>
+                    
+                    <div class="items">
+                        ${itemsHtml}
+                    </div>
+                    
+                    <div class="total">
+                        <div class="row">
+                            <span>Sous-total HT</span>
+                            <span>${totalHT.toLocaleString()}</span>
+                        </div>
+                        ${remise > 0 ? `
+                        <div class="row">
+                            <span>Remise</span>
+                            <span>-${remise.toLocaleString()}</span>
+                        </div>` : ''}
+                        ${tva > 0 ? `
+                        <div class="row">
+                            <span>TVA (${order.tvaRate || 18}%)</span>
+                            <span>${tva.toLocaleString()}</span>
+                        </div>` : ''}
+                        
+                        <div class="row bold" style="font-size: 14px; margin-top: 5px; border-top: 1px solid #ddd; padding-top: 5px;">
+                            <span>TOTAL TTC</span>
+                            <span>${totalTTC.toLocaleString()} ${COMPANY_CONFIG.currency}</span>
+                        </div>
+
+                        ${mode === 'TICKET' ? `
+                        <div class="row" style="margin-top: 10px;">
+                            <span>Montant Versé</span>
+                            <span>${order.avance.toLocaleString()}</span>
+                        </div>
+                        <div class="row bold">
+                            <span>Reste à Payer</span>
+                            <span>${order.reste.toLocaleString()}</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                    
+                    ${showStamp ? `<div class="stamp">${stampText}</div>` : ''}
+
+                    <div class="footer">
+                        <p>Merci de votre visite !<br/>Les articles vendus ne sont ni repris ni échangés.</p>
+                    </div>
+                </div>
+                <script>
+                    setTimeout(() => window.print(), 1000);
+                </script>
+            </body>
+            </html>
+        `;
+        
+        printWindow.document.write(html);
+        printWindow.document.close();
+    };
+
     const handlePrintQuoteFromCart = () => {
         if (cart.length === 0) return;
+        
         const dummyOrder: any = {
             id: 'PROFORMA',
             dateCommande: new Date().toISOString(),
@@ -202,9 +316,8 @@ const SalesView: React.FC<SalesViewProps> = ({
                 prixUnitaire: c.prix
             }))
         };
-        // Reuse print function logic or create simplified one
-        alert("Impression devis envoyée."); 
-    };
+        generatePrintContent(dummyOrder, 'DEVIS');
+    }
 
     const openCancelModal = (order: Commande) => {
         setSelectedOrderForCancel(order);
@@ -214,16 +327,26 @@ const SalesView: React.FC<SalesViewProps> = ({
 
     const handleConfirmCancel = () => {
         if (!selectedOrderForCancel) return;
-        if (selectedOrderForCancel.avance > 0 && !refundAccountId) {
-            alert("Veuillez sélectionner un compte pour déduire le remboursement.");
-            return;
+        
+        if (selectedOrderForCancel.avance > 0) {
+            if (!refundAccountId) {
+                alert("Veuillez sélectionner un compte pour déduire le remboursement.");
+                return;
+            }
+
+            const account = comptes.find(c => c.id === refundAccountId);
+            if (account) {
+                if (account.solde < selectedOrderForCancel.avance) {
+                    alert(`🚫 FONDS INSUFFISANTS\n\nLe compte "${account.nom}" ne dispose que de ${account.solde.toLocaleString()} F.\nIl est impossible de rembourser ${selectedOrderForCancel.avance.toLocaleString()} F.`);
+                    return;
+                }
+            }
         }
+
         onCancelSale(selectedOrderForCancel.id, refundAccountId);
         setIsCancelModalOpen(false);
         setSelectedOrderForCancel(null);
     };
-
-    // --- RENDER ---
 
     return (
         <div className="h-[calc(100vh-8rem)] flex flex-col space-y-4">
@@ -290,7 +413,7 @@ const SalesView: React.FC<SalesViewProps> = ({
                                 <select className="w-full p-2 border border-gray-300 rounded text-sm" value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">-- Compte d'encaissement --</option>{comptes.map(acc => (<option key={acc.id} value={acc.id}>{acc.nom} ({acc.type})</option>))}</select>
                                 {changeAmount > 0 && (<div className="text-center bg-green-100 text-green-800 p-1 rounded font-bold text-sm">Monnaie à rendre : {changeAmount.toLocaleString()} F</div>)}
                             </div>
-                            <button onClick={handleCheckout} disabled={cart.length === 0 || !selectedBoutiqueId} className="w-full bg-brand-600 text-white py-3 rounded-lg font-bold shadow-lg hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"><CheckCircle size={20} /> Valider la Vente</button>
+                            <div className="flex gap-2 pt-2"><button onClick={handlePrintQuoteFromCart} disabled={cart.length === 0} className="px-3 bg-white border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-100" title="Imprimer Devis"><FileText size={18}/></button><button onClick={handleCheckout} disabled={cart.length === 0 || !selectedBoutiqueId} className="flex-1 bg-brand-600 text-white py-3 rounded-lg font-bold shadow-lg hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"><CheckCircle size={20} /> Valider la Vente</button></div>
                         </div>
                     </div>
                 </div>
@@ -315,7 +438,8 @@ const SalesView: React.FC<SalesViewProps> = ({
                                         <td className="py-3 px-4 text-center">
                                             <div className="flex items-center justify-center gap-2">
                                                 {sale.statut !== StatutCommande.ANNULE && sale.reste > 0 && (<button onClick={() => openPaymentModal(sale)} className="text-white bg-green-600 hover:bg-green-700 px-2 py-1 rounded flex items-center gap-1 text-xs transition-colors"><Wallet size={12}/> Encaisser</button>)}
-                                                <button onClick={() => alert("Impression ticket")} className="text-gray-500 hover:text-brand-600 p-1.5 hover:bg-gray-100 rounded transition-colors" title="Imprimer Facture"><Printer size={16}/></button>
+                                                <button onClick={() => generatePrintContent(sale, 'TICKET')} className="text-gray-500 hover:text-brand-600 p-1.5 hover:bg-gray-100 rounded transition-colors" title="Imprimer Facture"><Printer size={16}/></button>
+                                                <button onClick={() => generatePrintContent(sale, 'LIVRAISON')} className="text-gray-500 hover:text-blue-600 p-1.5 hover:bg-gray-100 rounded transition-colors" title="Imprimer Bon de Livraison"><ClipboardList size={16}/></button>
                                                 <button onClick={() => setSelectedOrderDetails(sale)} className="text-blue-500 hover:text-blue-600 p-1.5 hover:bg-blue-50 rounded transition-colors" title="Détails"><User size={16} /></button>
                                                 {onCancelSale && sale.statut !== StatutCommande.ANNULE && (<button onClick={() => openCancelModal(sale)} className="text-red-500 hover:text-red-700 p-1.5 hover:bg-red-50 rounded" title="Annuler Vente"><Ban size={16}/></button>)}
                                             </div>
@@ -328,10 +452,10 @@ const SalesView: React.FC<SalesViewProps> = ({
                 </div>
             )}
 
-            {/* --- MODAL ENCAISSEMENT --- */}
+            {/* Modal Payment (CORRIGÉ - PLUS DE FLEX-COL) */}
             {paymentModalOpen && selectedOrderForPayment && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 relative">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-xl font-bold flex items-center gap-2 text-gray-800">
                                 <Wallet size={24} className="text-green-600"/> Encaissement
@@ -339,25 +463,15 @@ const SalesView: React.FC<SalesViewProps> = ({
                             <button onClick={() => setPaymentModalOpen(false)}><X size={20} className="text-gray-400"/></button>
                         </div>
                         
-                        <div className="py-2">
-                            <div className="mb-4">
+                        <div className="space-y-4">
+                            <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Montant à Encaisser</label>
-                                <input 
-                                    type="number" 
-                                    className="w-full p-2 border border-gray-300 rounded font-bold text-lg text-brand-700" 
-                                    value={payAmount || ''} 
-                                    onChange={e => setPayAmount(parseInt(e.target.value) || 0)} 
-                                    max={selectedOrderForPayment.reste} 
-                                />
+                                <input type="number" className="w-full p-2 border border-gray-300 rounded font-bold text-lg bg-gray-50" value={payAmount} onChange={e => setPayAmount(parseInt(e.target.value) || 0)} max={selectedOrderForPayment.reste} />
                                 <p className="text-xs text-gray-500 mt-1">Reste dû sur la commande : {selectedOrderForPayment.reste.toLocaleString()} F</p>
                             </div>
-                            <div className="mb-4">
+                            <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Moyen de Paiement</label>
-                                <select 
-                                    className="w-full p-2 border border-gray-300 rounded" 
-                                    value={payMethod} 
-                                    onChange={e => setPayMethod(e.target.value as ModePaiement)}
-                                >
+                                <select className="w-full p-2 border border-gray-300 rounded bg-gray-50" value={payMethod} onChange={e => setPayMethod(e.target.value as ModePaiement)}>
                                     <option value="ESPECE">Espèce</option>
                                     <option value="WAVE">Wave</option>
                                     <option value="ORANGE_MONEY">Orange Money</option>
@@ -365,42 +479,33 @@ const SalesView: React.FC<SalesViewProps> = ({
                                     <option value="CHEQUE">Chèque</option>
                                 </select>
                             </div>
-                            <div className="mb-4">
+                            <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Compte de Destination</label>
-                                <select 
-                                    className="w-full p-2 border border-gray-300 rounded bg-white" 
-                                    value={payAccount} 
-                                    onChange={e => setPayAccount(e.target.value)}
-                                >
+                                <select className="w-full p-2 border border-gray-300 rounded bg-gray-50" value={payAccount} onChange={e => setPayAccount(e.target.value)}>
                                     <option value="">-- Choisir un compte --</option>
-                                    {(comptes || []).map(acc => (
+                                    {comptes.map(acc => (
                                         <option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>
                                     ))}
                                 </select>
                             </div>
-                            <div className="mb-4">
+                            <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                                <input 
-                                    type="date" 
-                                    className="w-full p-2 border border-gray-300 rounded" 
-                                    value={payDate} 
-                                    onChange={e => setPayDate(e.target.value)} 
-                                />
+                                <input type="date" className="w-full p-2 border border-gray-300 rounded bg-gray-50" value={payDate} onChange={e => setPayDate(e.target.value)} />
                             </div>
                         </div>
 
-                        <div className="flex justify-end gap-3 mt-4">
-                            <button onClick={() => setPaymentModalOpen(false)} className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded font-medium">Annuler</button>
-                            <button onClick={handleConfirmPayment} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-bold shadow-sm">Valider</button>
+                        <div className="flex justify-end gap-3 mt-6">
+                            <button onClick={() => setPaymentModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Annuler</button>
+                            <button onClick={handleConfirmPayment} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-bold">Valider</button>
                         </div>
                     </div>
                 </div>
             )}
             
-            {/* --- MODAL ANNULATION --- */}
+            {/* Modal Confirmation Annulation (CORRIGÉ - PLUS DE FLEX-COL) */}
             {isCancelModalOpen && selectedOrderForCancel && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 relative">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-xl font-bold flex items-center gap-2 text-red-600">
                                 <AlertTriangle size={24} /> Annuler Vente ?
@@ -408,53 +513,55 @@ const SalesView: React.FC<SalesViewProps> = ({
                             <button onClick={() => setIsCancelModalOpen(false)}><X size={20} className="text-gray-400"/></button>
                         </div>
                         
-                        <div className="py-2">
-                            <p className="text-gray-700 mb-4 block">
-                                Êtes-vous sûr de vouloir annuler la commande <strong>#{selectedOrderForCancel.id.slice(-6)}</strong> de {selectedOrderForCancel.clientNom} ?
-                            </p>
-                            
-                            {selectedOrderForCancel.avance > 0 && (
-                                <div className="bg-orange-50 border border-orange-200 p-3 rounded mb-4">
-                                    <p className="text-sm text-orange-800 font-bold mb-2">Remboursement requis : {selectedOrderForCancel.avance.toLocaleString()} F</p>
-                                    <label className="block text-xs font-medium text-gray-700 mb-1">Compte pour le remboursement</label>
-                                    <select 
-                                        className="w-full p-2 border border-orange-300 rounded text-sm bg-white" 
-                                        value={refundAccountId} 
-                                        onChange={e => setRefundAccountId(e.target.value)}
-                                    >
-                                        <option value="">-- Choisir compte source --</option>
-                                        {(comptes || []).map(acc => (
-                                            <option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            )}
-                        </div>
+                        <p className="text-gray-700 mb-4 block">
+                            Êtes-vous sûr de vouloir annuler la commande <strong>#{selectedOrderForCancel.id.slice(-6)}</strong> de {selectedOrderForCancel.clientNom} ?
+                        </p>
+                        
+                        {selectedOrderForCancel.avance > 0 && (
+                            <div className="bg-orange-50 border border-orange-200 p-3 rounded mb-4">
+                                <p className="text-sm text-orange-800 font-bold mb-2">Remboursement requis : {selectedOrderForCancel.avance.toLocaleString()} F</p>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Compte pour le remboursement</label>
+                                <select className="w-full p-2 border border-orange-300 rounded text-sm bg-white" value={refundAccountId} onChange={e => setRefundAccountId(e.target.value)}>
+                                    <option value="">-- Choisir compte source --</option>
+                                    {comptes.map(acc => (
+                                        <option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
 
-                        <div className="flex justify-end gap-3 mt-4">
-                            <button onClick={() => setIsCancelModalOpen(false)} className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded font-medium">Retour</button>
-                            <button onClick={handleConfirmCancel} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 font-bold shadow-sm">Confirmer Annulation</button>
+                        <div className="flex justify-end gap-3">
+                            <button onClick={() => setIsCancelModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Retour</button>
+                            <button onClick={handleConfirmCancel} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 font-bold">Confirmer Annulation</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* --- MODAL DETAILS --- */}
+            {/* Modal Détails Historique (CORRIGÉ - HAUTEUR FIXE) */}
             {selectedOrderDetails && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col h-[80vh] overflow-hidden">
                         <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50 shrink-0">
                             <h3 className="text-lg font-bold text-gray-800">Détails Vente #{selectedOrderDetails.id.slice(-6)}</h3>
                             <button onClick={() => setSelectedOrderDetails(null)} className="p-1 hover:bg-gray-200 rounded-full text-gray-500 transition-colors"><X size={20}/></button>
                         </div>
                         
-                        <div className="overflow-y-auto p-6">
-                            <div className="grid grid-cols-2 gap-4 text-sm mb-6">
-                                <div><p className="text-xs text-gray-500 font-bold uppercase">Client</p><p className="font-bold text-gray-800">{selectedOrderDetails.clientNom}</p></div>
-                                <div><p className="text-xs text-gray-500 font-bold uppercase">Date</p><p className="font-bold text-gray-800">{new Date(selectedOrderDetails.dateCommande).toLocaleDateString()}</p></div>
+                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <p className="text-xs text-gray-500 font-bold uppercase">Client</p>
+                                    <p className="font-bold text-gray-800">{selectedOrderDetails.clientNom}</p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-gray-500 font-bold uppercase">Date</p>
+                                    <p className="font-bold text-gray-800">{new Date(selectedOrderDetails.dateCommande).toLocaleDateString()}</p>
+                                </div>
                                 <div>
                                     <p className="text-xs text-gray-500 font-bold uppercase">Statut</p>
-                                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${selectedOrderDetails.statut === StatutCommande.LIVRE ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{selectedOrderDetails.statut}</span>
+                                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${selectedOrderDetails.statut === StatutCommande.LIVRE ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                        {selectedOrderDetails.statut}
+                                    </span>
                                 </div>
                                 <div>
                                     <p className="text-xs text-gray-500 font-bold uppercase">Paiement</p>
@@ -464,22 +571,32 @@ const SalesView: React.FC<SalesViewProps> = ({
                                 </div>
                             </div>
 
-                            <div className="bg-gray-50 rounded-lg border border-gray-100 overflow-hidden mb-6">
+                            <div className="bg-gray-50 rounded-lg border border-gray-100 overflow-hidden">
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-gray-100 text-gray-600 font-medium text-xs">
-                                        <tr><th className="py-2 px-3">Article</th><th className="py-2 px-3 text-center">Qté</th><th className="py-2 px-3 text-right">Total</th></tr>
+                                        <tr>
+                                            <th className="py-2 px-3">Article</th>
+                                            <th className="py-2 px-3 text-center">Qté</th>
+                                            <th className="py-2 px-3 text-right">Total</th>
+                                        </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
                                         {selectedOrderDetails.detailsVente?.map((line, idx) => (
                                             <tr key={idx}>
-                                                <td className="py-2 px-3"><div className="font-medium text-gray-800">{line.nomArticle}</div>{line.variante !== 'Standard' && <div className="text-xs text-gray-500">{line.variante}</div>}</td>
+                                                <td className="py-2 px-3">
+                                                    <div className="font-medium text-gray-800">{line.nomArticle}</div>
+                                                    {line.variante !== 'Standard' && <div className="text-xs text-gray-500">{line.variante}</div>}
+                                                </td>
                                                 <td className="py-2 px-3 text-center">{line.quantite}</td>
                                                 <td className="py-2 px-3 text-right font-bold">{(line.quantite * line.prixUnitaire).toLocaleString()}</td>
                                             </tr>
                                         ))}
                                     </tbody>
                                     <tfoot className="bg-gray-50 font-bold border-t border-gray-200 text-gray-700">
-                                        <tr><td colSpan={2} className="py-2 px-3 text-right">Total</td><td className="py-2 px-3 text-right">{selectedOrderDetails.prixTotal.toLocaleString()} F</td></tr>
+                                        <tr>
+                                            <td colSpan={2} className="py-2 px-3 text-right">Total</td>
+                                            <td className="py-2 px-3 text-right">{selectedOrderDetails.prixTotal.toLocaleString()} F</td>
+                                        </tr>
                                     </tfoot>
                                 </table>
                             </div>
@@ -500,7 +617,7 @@ const SalesView: React.FC<SalesViewProps> = ({
                         </div>
 
                         <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 shrink-0">
-                            <button onClick={() => alert("Impression ticket")} className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900 transition-colors shadow-sm">
+                            <button onClick={() => generatePrintContent(selectedOrderDetails, 'TICKET')} className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900 transition-colors">
                                 <Printer size={16}/> Réimprimer
                             </button>
                         </div>
