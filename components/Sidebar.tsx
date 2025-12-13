@@ -105,7 +105,7 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({ currentView, setView, isOp
                                 }`}
                             >
                                 <Settings size={18} />
-                                <span className="font-medium text-sm">Paramètres & Données</span>
+                                <span className="font-medium text-sm">Paramètres & Exports</span>
                             </button>
                         </>
                     )}

@@ -310,6 +310,44 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                 <Database className="text-brand-600" /> Paramètres & Données
             </h2>
 
+            {/* --- SECTION EXPORT (PRIORITÉ HAUTE) --- */}
+            <div className="bg-white rounded-xl shadow-sm border border-brand-200 overflow-hidden ring-4 ring-brand-50">
+                <div className="bg-brand-50 p-4 border-b border-brand-200">
+                    <h3 className="font-bold text-brand-900 flex items-center gap-2">
+                        <FileText size={20} /> Exportation de Données (Excel/CSV)
+                    </h3>
+                    <p className="text-xs text-brand-700 mt-1">
+                        Cliquez ci-dessous pour télécharger vos fichiers Excel/CSV.
+                    </p>
+                </div>
+                <div className="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                    <button onClick={() => handleExportCSV('CLIENTS')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-200 transition-colors group">
+                        <Users className="text-blue-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
+                        <span className="text-xs font-bold text-gray-700 text-center">Clients & Mesures</span>
+                    </button>
+                    
+                    <button onClick={() => handleExportCSV('EMPLOYES')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-purple-50 hover:border-purple-200 transition-colors group">
+                        <Briefcase className="text-purple-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
+                        <span className="text-xs font-bold text-gray-700 text-center">Ressources Humaines</span>
+                    </button>
+
+                    <button onClick={() => handleExportCSV('FOURNISSEURS')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-orange-50 hover:border-orange-200 transition-colors group">
+                        <Truck className="text-orange-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
+                        <span className="text-xs font-bold text-gray-700 text-center">Fournisseurs</span>
+                    </button>
+
+                    <button onClick={() => handleExportCSV('ARTICLES')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-brand-50 hover:border-brand-200 transition-colors group">
+                        <ShoppingBag className="text-brand-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
+                        <span className="text-xs font-bold text-gray-700 text-center">Gestion Articles</span>
+                    </button>
+
+                    <button onClick={() => handleExportCSV('DEPENSES')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-red-50 hover:border-red-200 transition-colors group">
+                        <FileText className="text-red-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
+                        <span className="text-xs font-bold text-gray-700 text-center">Dépenses</span>
+                    </button>
+                </div>
+            </div>
+
             {/* --- DIAGNOSTIC PANEL --- */}
             <div className={`rounded-xl shadow-sm border p-4 ${
                 connectionStatus === 'OK' ? 'bg-green-50 border-green-200' : 
@@ -378,44 +416,6 @@ service cloud.firestore {
                     {statusMessage.text}
                 </div>
             )}
-
-            {/* SECTION 2: EXPORT SPECIFIQUE (CSV/EXCEL) - NOUVEAU */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 p-4 border-b border-gray-200">
-                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                        <FileText size={20} className="text-green-600" /> Exportation de Données (Excel/CSV)
-                    </h3>
-                    <p className="text-xs text-gray-500 mt-1">
-                        Téléchargez des fichiers lisibles sur Excel pour vos analyses ou archivage.
-                    </p>
-                </div>
-                <div className="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                    <button onClick={() => handleExportCSV('CLIENTS')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-200 transition-colors group">
-                        <Users className="text-blue-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
-                        <span className="text-xs font-bold text-gray-700 text-center">Clients & Mesures</span>
-                    </button>
-                    
-                    <button onClick={() => handleExportCSV('EMPLOYES')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-purple-50 hover:border-purple-200 transition-colors group">
-                        <Briefcase className="text-purple-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
-                        <span className="text-xs font-bold text-gray-700 text-center">Ressources Humaines</span>
-                    </button>
-
-                    <button onClick={() => handleExportCSV('FOURNISSEURS')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-orange-50 hover:border-orange-200 transition-colors group">
-                        <Truck className="text-orange-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
-                        <span className="text-xs font-bold text-gray-700 text-center">Fournisseurs</span>
-                    </button>
-
-                    <button onClick={() => handleExportCSV('ARTICLES')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-brand-50 hover:border-brand-200 transition-colors group">
-                        <ShoppingBag className="text-brand-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
-                        <span className="text-xs font-bold text-gray-700 text-center">Gestion Articles</span>
-                    </button>
-
-                    <button onClick={() => handleExportCSV('DEPENSES')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-red-50 hover:border-red-200 transition-colors group">
-                        <FileText className="text-red-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
-                        <span className="text-xs font-bold text-gray-700 text-center">Dépenses</span>
-                    </button>
-                </div>
-            </div>
 
             {/* SECTION 0: IDENTITÉ VISUELLE */}
             {onUpdateAssets && companyAssets && (
