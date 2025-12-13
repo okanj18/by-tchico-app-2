@@ -354,6 +354,27 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600" /> Atelier de Production</h2>
                 <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto items-center">
+                    {/* FILTRE ET VIEW MODES */}
+                    <div className="flex gap-2">
+                        <div className="relative">
+                            <input 
+                                type="text" 
+                                placeholder="Rechercher..." 
+                                className="pl-8 pr-3 py-1.5 border border-gray-300 rounded-lg text-sm w-40 sm:w-64 focus:ring-2 focus:ring-brand-500"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                            <Search className="absolute left-2.5 top-2 text-gray-400" size={14}/>
+                        </div>
+                        <button 
+                            onClick={() => setShowFiltersPanel(!showFiltersPanel)}
+                            className={`p-2 rounded-lg border transition-colors ${showFiltersPanel ? 'bg-brand-100 border-brand-300 text-brand-700' : 'bg-white border-gray-300 text-gray-600'}`}
+                            title="Filtres"
+                        >
+                            <Filter size={18} />
+                        </button>
+                    </div>
+
                     <div className="flex bg-gray-100 p-1 rounded-lg">
                         <button onClick={() => setViewMode('ORDERS')} className={`px-3 py-1.5 text-xs font-medium rounded-md ${viewMode === 'ORDERS' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><LayoutList size={14} /> Commandes</button>
                         <button onClick={() => setViewMode('TAILORS')} className={`px-3 py-1.5 text-xs font-medium rounded-md ${viewMode === 'TAILORS' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Users size={14} /> Suivi Tailleurs</button>
@@ -364,6 +385,38 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     )}
                 </div>
             </div>
+
+            {/* FILTER PANEL */}
+            {showFiltersPanel && (
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-in slide-in-from-top-2">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Statut</label>
+                        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="w-full p-2 border rounded text-sm">
+                            <option value="ALL">Tout</option>
+                            <option value="EN_COURS">En Cours (Actifs)</option>
+                            {Object.values(StatutCommande).map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Tailleur</label>
+                        <select value={filterTailor} onChange={e => setFilterTailor(e.target.value)} className="w-full p-2 border rounded text-sm">
+                            <option value="ALL">Tous</option>
+                            <option value="UNASSIGNED">Non assigné</option>
+                            {tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Période (Livraison)</label>
+                        <div className="flex gap-2">
+                            <input type="date" className="w-full p-1 border rounded text-xs" value={filterDeliveryDateStart} onChange={e => setFilterDeliveryDateStart(e.target.value)} placeholder="Du"/>
+                            <input type="date" className="w-full p-1 border rounded text-xs" value={filterDeliveryDateEnd} onChange={e => setFilterDeliveryDateEnd(e.target.value)} placeholder="Au"/>
+                        </div>
+                    </div>
+                    <div className="flex items-end">
+                        <button onClick={() => { setFilterStatus('ALL'); setFilterTailor('ALL'); setFilterDeliveryDateStart(''); setFilterDeliveryDateEnd(''); setSearchTerm(''); }} className="text-red-500 text-xs font-bold hover:underline mb-2">Réinitialiser Filtres</button>
+                    </div>
+                </div>
+            )}
 
             {/* MAIN CONTENT */}
             {viewMode === 'ORDERS' && (
@@ -401,7 +454,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         <>
                                             <button onClick={() => generatePrintContent(cmd, 'TICKET')} className="p-1.5 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded"><Printer size={16} /></button>
                                             {canSeeFinance && cmd.reste > 0 && (
-                                                <button onClick={() => openPaymentModal(cmd)} className="bg-brand-100 text-brand-800 px-3 py-1.5 rounded text-xs font-bold flex items-center gap-1 hover:bg-brand-200">
+                                                <button 
+                                                    onClick={(e) => { e.stopPropagation(); openPaymentModal(cmd); }} 
+                                                    className="bg-brand-100 text-brand-800 px-3 py-1.5 rounded text-xs font-bold flex items-center gap-1 hover:bg-brand-200"
+                                                >
                                                     <Wallet size={14} /> ENCAISSER
                                                 </button>
                                             )}
@@ -466,8 +522,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
             {/* Payment Modal */}
             {paymentModalOpen && selectedOrderForPayment && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-xl font-bold flex items-center gap-2 text-gray-800"><Wallet size={24} className="text-green-600"/> Encaissement</h3>
                             <button onClick={() => setPaymentModalOpen(false)}><X size={20} className="text-gray-400"/></button>
