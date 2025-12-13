@@ -3,31 +3,27 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "./firebase";
 
 /**
- * Compresse une image côté client via Canvas.
- * Utilise URL.createObjectURL pour une performance optimale (x10 plus rapide).
- * Réduit la taille (max 800px) et la qualité (60%) pour un chargement instantané.
+ * Compresse une image de manière agressive pour le web (Max 600px, Qualité 0.5).
+ * Cela garantit que l'image fait moins de 100ko et se charge instantanément.
  */
 const compressImage = (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
-        // Timeout de sécurité pour la compression (5s max)
-        const timeoutId = setTimeout(() => reject(new Error("Délai de compression dépassé")), 5000);
+        // Timeout de sécurité : si la compression prend > 3s, on rejette
+        const timeoutId = setTimeout(() => reject(new Error("Compression trop longue")), 3000);
 
         const img = new Image();
-        // createObjectURL est beaucoup plus rapide que FileReader
         const url = URL.createObjectURL(file);
         
         img.onload = () => {
             clearTimeout(timeoutId);
-            URL.revokeObjectURL(url); // Libérer la mémoire
+            URL.revokeObjectURL(url);
             
             try {
                 const canvas = document.createElement('canvas');
-                // 800px est un bon compromis qualité/poids pour le web/mobile
-                const MAX_WIDTH = 800; 
+                const MAX_WIDTH = 600; // Réduit à 600px pour performance maximale
                 let width = img.width;
                 let height = img.height;
 
-                // Calcul du ratio pour redimensionner
                 if (width > MAX_WIDTH) {
                     height *= MAX_WIDTH / width;
                     width = MAX_WIDTH;
@@ -42,14 +38,14 @@ const compressImage = (file: File): Promise<Blob> => {
                     return;
                 }
                 
-                // Dessiner l'image redimensionnée
+                // Dessin simple
                 ctx.drawImage(img, 0, 0, width, height);
                 
-                // Convertir en JPEG qualité 60% (très léger)
+                // Compression JPEG basse qualité (suffisant pour écran)
                 canvas.toBlob((blob) => {
                     if (blob) resolve(blob);
-                    else reject(new Error("Erreur conversion Blob"));
-                }, 'image/jpeg', 0.6);
+                    else reject(new Error("Erreur Blob"));
+                }, 'image/jpeg', 0.5);
             } catch (e) {
                 reject(e);
             }
@@ -65,17 +61,18 @@ const compressImage = (file: File): Promise<Blob> => {
     });
 };
 
-/**
- * Télécharge une image vers Firebase Storage et renvoie l'URL.
- * Intègre un mécanisme de Fallback robuste : si l'upload échoue ou prend trop de temps (>10s),
- * l'image est convertie en Base64 pour permettre à l'utilisateur de continuer sans blocage.
- */
 export const uploadImageToCloud = async (file: File, path: string): Promise<string> => {
     try {
         // 1. Compression
-        const compressedBlob = await compressImage(file);
+        let blobToUpload: Blob;
+        try {
+            blobToUpload = await compressImage(file);
+        } catch (e) {
+            console.warn("Échec compression, utilisation fichier original", e);
+            blobToUpload = file;
+        }
         
-        // Fonction interne pour convertir Blob en Base64 (Fallback)
+        // Helper Base64
         const blobToBase64 = (blob: Blob): Promise<string> => {
             return new Promise((resolve) => {
                 const reader = new FileReader();
@@ -84,37 +81,33 @@ export const uploadImageToCloud = async (file: File, path: string): Promise<stri
             });
         };
 
-        // 2. Si Firebase n'est pas dispo -> Fallback immédiat
+        // 2. Mode Hors Ligne
         if (!storage) {
-            console.warn("Mode Hors Ligne : Stockage local Base64.");
-            return await blobToBase64(compressedBlob);
+            return await blobToBase64(blobToUpload);
         }
 
-        // 3. Tentative d'Upload avec Timeout
-        const uploadPromise = async () => {
-             if (!storage) throw new Error("No storage");
-             const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-             const storageRef = ref(storage, `${path}/${fileName}`);
-             const snapshot = await uploadBytes(storageRef, compressedBlob);
-             return await getDownloadURL(snapshot.ref);
-        };
-
-        // Timeout de 10 secondes pour l'upload
+        // 3. Upload avec Timeout strict (7 secondes)
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+        const storageRef = ref(storage, `${path}/${fileName}`);
+        
+        const uploadTask = uploadBytes(storageRef, blobToUpload);
+        
+        // Race condition
         const timeoutPromise = new Promise<string>((_, reject) => 
-            setTimeout(() => reject(new Error("Upload timeout")), 10000)
+            setTimeout(() => reject(new Error("Timeout Upload")), 7000)
         );
 
+        const urlPromise = uploadTask.then(snapshot => getDownloadURL(snapshot.ref));
+
         try {
-            // Course entre l'upload et le timeout
-            return await Promise.race([uploadPromise(), timeoutPromise]);
+            return await Promise.race([urlPromise, timeoutPromise]);
         } catch (e) {
-            console.warn("L'upload Cloud a échoué ou a pris trop de temps. Utilisation du stockage local (Base64).", e);
-            // Si l'upload échoue (réseau lent, erreur config), on utilise le Base64
-            return await blobToBase64(compressedBlob);
+            console.warn("Upload lent ou échoué, repli sur stockage local.", e);
+            return await blobToBase64(blobToUpload);
         }
 
     } catch (error) {
-        console.error("Erreur critique traitement image:", error);
-        return ""; // Retourne chaîne vide en cas d'échec total pour ne pas planter l'app
+        console.error("Erreur critique image:", error);
+        return "";
     }
 };

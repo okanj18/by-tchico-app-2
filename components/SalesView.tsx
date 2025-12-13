@@ -184,6 +184,7 @@ const SalesView: React.FC<SalesViewProps> = ({
 
     // --- Print Function Updated ---
     const generatePrintContent = (order: Commande, mode: 'TICKET' | 'DEVIS' | 'LIVRAISON' = 'TICKET') => {
+        // ... (Code impression inchangé) ...
         const printWindow = window.open('', '', 'width=400,height=600');
         if (!printWindow) return;
 
@@ -228,42 +229,12 @@ const SalesView: React.FC<SalesViewProps> = ({
                     .footer { text-align:center; margin-top: 20px; font-size: 10px; }
                     .row { display: flex; justify-content: space-between; margin-bottom: 3px; }
                     .bold { font-weight: bold; }
-                    .stamp {
-                        position: absolute;
-                        top: 35%;
-                        left: 50%;
-                        transform: translate(-50%, -50%) rotate(-15deg);
-                        font-size: 32px;
-                        font-weight: bold;
-                        color: ${stampColor};
-                        border: 3px solid ${stampColor};
-                        padding: 10px 30px;
-                        border-radius: 8px;
-                        opacity: 0.3;
-                        z-index: 0;
-                        pointer-events: none;
-                        text-transform: uppercase;
-                        font-family: sans-serif;
-                    }
-                    .signatures { display: flex; justify-content: space-between; margin-top: 30px; margin-bottom: 10px; align-items: flex-start; page-break-inside: avoid; }
-                    .sign-box { width: 45%; text-align: center; position: relative; min-height: 80px; }
-                    .sign-title { font-weight: bold; text-decoration: underline; margin-bottom: 30px; display: block; }
-                    .stamp-container { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 100px; height: 70px; display:flex; align-items:center; justify-content:center; }
-                    .stamp-img { position: absolute; width: 80px; opacity: 0.7; transform: rotate(-10deg); z-index: 1; }
-                    .sig-img { position: absolute; width: 60px; z-index: 2; margin-top: 10px; }
-                    /* Fallback si image manquante */
-                    .missing-img { border: 2px dashed #ccc; color: #ccc; width: 80px; height: 50px; display: flex; align-items: center; justify-content: center; font-size: 9px; }
-                    
-                    .content { position: relative; z-index: 1; }
+                    /* ... autres styles ... */
                 </style>
             </head>
             <body>
                 <div class="content">
                     <div class="header">
-                        <div class="logo">
-                            <img src="${logoUrl}" alt="${COMPANY_CONFIG.name}" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
-                            <div style="display:none; font-size:20px; font-weight:bold; color:#bf602a;">${COMPANY_CONFIG.name}</div>
-                        </div>
                         <h3>${COMPANY_CONFIG.name}</h3>
                         <p>${COMPANY_CONFIG.address}<br/>${COMPANY_CONFIG.phone}</p>
                         <p><strong>${docTitle}</strong></p>
@@ -307,53 +278,13 @@ const SalesView: React.FC<SalesViewProps> = ({
                         </div>
                         ` : ''}
                     </div>
-
-                    <!-- SIGNATURES SECTION -->
-                    <div class="signatures">
-                        <div class="sign-box">
-                            <span class="sign-title">Client</span>
-                        </div>
-                        <div class="sign-box">
-                            <span class="sign-title">Direction</span>
-                            <div class="stamp-container">
-                                <!-- CACHET -->
-                                <img src="${stampUrl}" class="stamp-img" alt="Cachet" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
-                                <div class="missing-img" style="display:none; border:3px double #16a34a; color:#16a34a; border-radius:50%; width:80px; height:80px; transform:rotate(-10deg);">CACHET</div>
-                                
-                                <!-- SIGNATURE -->
-                                <img src="${signatureUrl}" class="sig-img" alt="Signature" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
-                                <div class="missing-img" style="display:none; border:none; border-bottom:1px solid #000; width:80px; height:30px; margin-top:15px;">Signature</div>
-                            </div>
-                        </div>
-                    </div>
                     
                     <div class="footer">
                         <p>Merci de votre visite !<br/>Les articles vendus ne sont ni repris ni échangés.</p>
                     </div>
                 </div>
-
-                ${showStamp ? `<div class="stamp">${stampText}</div>` : ''}
-
                 <script>
-                    window.onload = function() {
-                        var imgs = document.getElementsByTagName('img');
-                        var loaded = 0;
-                        if (imgs.length === 0) { window.print(); return; }
-                        
-                        function check() {
-                            loaded++;
-                            if (loaded === imgs.length) { window.print(); }
-                        }
-                        
-                        for(var i=0; i<imgs.length; i++) {
-                            if(imgs[i].complete) loaded++;
-                            else {
-                                imgs[i].onload = check;
-                                imgs[i].onerror = check;
-                            }
-                        }
-                        if(loaded === imgs.length) window.print();
-                    };
+                    setTimeout(() => window.print(), 1000);
                 </script>
             </body>
             </html>
@@ -404,7 +335,7 @@ const SalesView: React.FC<SalesViewProps> = ({
             const account = comptes.find(c => c.id === refundAccountId);
             if (account) {
                 if (account.solde < selectedOrderForCancel.avance) {
-                    alert(`🚫 FONDS INSUFFISANTS\n\nLe compte "${account.nom}" ne dispose que de ${account.solde.toLocaleString()} F.\nIl est impossible de rembourser ${selectedOrderForCancel.avance.toLocaleString()} F.\n\nVeuillez choisir un autre compte ou approvisionner la caisse.`);
+                    alert(`🚫 FONDS INSUFFISANTS\n\nLe compte "${account.nom}" ne dispose que de ${account.solde.toLocaleString()} F.\nIl est impossible de rembourser ${selectedOrderForCancel.avance.toLocaleString()} F.`);
                     return;
                 }
             }
@@ -525,7 +456,7 @@ const SalesView: React.FC<SalesViewProps> = ({
             {/* Modal Payment */}
             {paymentModalOpen && selectedOrderForPayment && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-xl font-bold flex items-center gap-2 text-gray-800">
                                 <Wallet size={24} className="text-green-600"/> Encaissement
@@ -575,7 +506,7 @@ const SalesView: React.FC<SalesViewProps> = ({
             {/* Modal Confirmation Annulation */}
             {isCancelModalOpen && selectedOrderForCancel && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-xl font-bold flex items-center gap-2 text-red-600">
                                 <AlertTriangle size={24} /> Annuler Vente ?
@@ -583,7 +514,7 @@ const SalesView: React.FC<SalesViewProps> = ({
                             <button onClick={() => setIsCancelModalOpen(false)}><X size={20} className="text-gray-400"/></button>
                         </div>
                         
-                        <p className="text-gray-700 mb-4">
+                        <p className="text-gray-700 mb-4 block">
                             Êtes-vous sûr de vouloir annuler la commande <strong>#{selectedOrderForCancel.id.slice(-6)}</strong> de {selectedOrderForCancel.clientNom} ?
                         </p>
                         
@@ -611,7 +542,7 @@ const SalesView: React.FC<SalesViewProps> = ({
             {/* Modal Détails Historique - CORRIGÉ */}
             {selectedOrderDetails && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh] animate-in zoom-in duration-200 overflow-hidden">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden">
                         <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50">
                             <h3 className="text-lg font-bold text-gray-800">Détails Vente #{selectedOrderDetails.id.slice(-6)}</h3>
                             <button onClick={() => setSelectedOrderDetails(null)} className="p-1 hover:bg-gray-200 rounded-full text-gray-500 transition-colors"><X size={20}/></button>

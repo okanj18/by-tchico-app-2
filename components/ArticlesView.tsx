@@ -116,35 +116,32 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
         });
     };
 
-    // --- OPTIMIZED IMAGE UPLOAD (PARALLEL & ROBUST) ---
+    // --- SEQUENTIAL IMAGE UPLOAD (SAFE MODE) ---
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
         if (files && files.length > 0) {
             setIsUploading(true);
             try {
-                // Conversion en tableau typé File[]
                 const fileList = Array.from(files) as File[];
-                
-                // Lancement de tous les uploads en parallèle
-                const uploadPromises = fileList.map(file => uploadImageToCloud(file, 'articles'));
-                
-                // Attente de la fin de tous les traitements
-                const results = await Promise.all(uploadPromises);
-                
-                // Filtrer les chaînes vides (échecs)
-                const newImages = results.filter(url => url && url.length > 0);
-                
-                if (newImages.length < fileList.length) {
-                    console.warn("Certaines images n'ont pas pu être chargées.");
+                const uploadedUrls: string[] = [];
+
+                // Traitement séquentiel pour ne pas figer le navigateur
+                for (const file of fileList) {
+                    try {
+                        const url = await uploadImageToCloud(file, 'articles');
+                        if (url) uploadedUrls.push(url);
+                    } catch (err) {
+                        console.error("Erreur upload fichier unique:", err);
+                    }
                 }
 
                 setFormData(prev => ({
                     ...prev,
-                    images: [...(prev.images || []), ...newImages]
+                    images: [...(prev.images || []), ...uploadedUrls]
                 }));
             } catch (error) {
                 console.error(error);
-                alert("Erreur inattendue lors du traitement des images.");
+                alert("Erreur lors du traitement des images.");
             } finally {
                 setIsUploading(false);
                 if (fileInputRef.current) fileInputRef.current.value = '';
@@ -590,7 +587,7 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
             {/* Archive Confirmation Modal */}
             {articleToArchive && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 z-[60] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-lg p-6 max-w-sm w-full animate-in zoom-in duration-200">
+                    <div className="bg-white rounded-xl shadow-lg p-6 max-w-sm w-full">
                         <div className="flex items-center gap-3 mb-4">
                             <div className={`p-2 rounded-full ${articleToArchive.archived ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
                                 {articleToArchive.archived ? <RotateCcw size={24}/> : <AlertTriangle size={24}/>}
@@ -637,7 +634,7 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
             {/* Modal - REDESIGNED */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[95vh] flex flex-col">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[95vh]">
                          <div className="bg-white px-6 py-4 border-b border-gray-100 flex justify-between items-center shrink-0">
                             <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800">
                                 <Tag size={24} className="text-brand-600"/>
@@ -771,7 +768,7 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                                 </div>
 
                                 {(hasSizes || hasColors) && (
-                                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 animate-in fade-in slide-in-from-top-2">
+                                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                                         <h4 className="font-bold text-gray-800 mb-3 text-sm">Variantes</h4>
                                         <div className="space-y-2">
                                             {variantRows.map((row) => (
@@ -842,7 +839,13 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                                         {isUploading ? (
                                             <>
                                                 <Loader className="animate-spin mb-2" size={24} />
-                                                <span className="text-xs font-bold">Traitement...</span>
+                                                <span className="text-xs font-bold text-center px-1">Traitement...<br/>(Ne fermez pas)</span>
+                                                <button 
+                                                    className="mt-2 text-xs text-red-500 hover:underline" 
+                                                    onClick={(e) => { e.stopPropagation(); setIsUploading(false); }}
+                                                >
+                                                    Annuler
+                                                </button>
                                             </>
                                         ) : (
                                             <>
@@ -880,7 +883,7 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                                     multiple 
                                 />
                                 <p className="text-xs text-gray-500">
-                                    Les images sont compressées automatiquement pour garantir un affichage rapide (même hors ligne).
+                                    Les images sont compressées automatiquement (Max 600px).
                                 </p>
                             </div>
                         </div>
