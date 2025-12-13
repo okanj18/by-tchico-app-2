@@ -355,7 +355,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600" /> Atelier de Production</h2>
                 <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto items-center">
                     <div className="flex bg-gray-100 p-1 rounded-lg">
-                        <button onClick={() => setViewMode('ORDERS')} className={`px-3 py-1.5 text-xs font-medium rounded-md ${viewMode === 'ORDERS' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500'}`}><LayoutList size={14} /> Commandes</button>
+                        <button onClick={() => setViewMode('ORDERS')} className={`px-3 py-1.5 text-xs font-medium rounded-md ${viewMode === 'ORDERS' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><LayoutList size={14} /> Commandes</button>
+                        <button onClick={() => setViewMode('TAILORS')} className={`px-3 py-1.5 text-xs font-medium rounded-md ${viewMode === 'TAILORS' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Users size={14} /> Suivi Tailleurs</button>
+                        <button onClick={() => setViewMode('PERFORMANCE')} className={`px-3 py-1.5 text-xs font-medium rounded-md ${viewMode === 'PERFORMANCE' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Trophy size={14} /> Performance</button>
                     </div>
                     {!showArchived && (
                         <button onClick={handleOpenCreateModal} className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded-lg flex items-center gap-2 font-medium text-sm"><Plus size={18} /> Nouvelle Commande</button>
@@ -370,7 +372,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         const isCancelled = cmd.statut === StatutCommande.ANNULE;
                         return (
                             <div key={cmd.id} className={`bg-white rounded-xl shadow-sm border p-5 hover:shadow-md transition-shadow relative group border-gray-100 ${isCancelled ? 'opacity-75' : ''}`}>
-                                <div className="absolute top-2 right-2 flex gap-1 z-[500]">
+                                <div className="absolute top-2 right-2 flex gap-1 z-[50]">
                                     <button onClick={() => openQRModal(cmd)} className="p-1.5 bg-white border border-gray-200 text-gray-500 hover:text-brand-600 rounded"><QrCode size={14} /></button>
                                     {!showArchived && !isCancelled && cmd.statut !== StatutCommande.LIVRE && (
                                         <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 bg-white border border-gray-200 text-gray-500 hover:text-brand-600 rounded"><Edit2 size={14} /></button>
@@ -387,7 +389,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         <p className="text-xs flex items-center gap-1 mt-1 text-gray-500"><Calendar size={12}/> Livraison: {new Date(cmd.dateLivraisonPrevue).toLocaleDateString()}</p>
                                     </div>
                                 </div>
-                                <div className="mt-4 pt-3 border-t border-gray-100 flex flex-wrap gap-2 pl-3 items-center relative z-50">
+                                <div className="mt-4 pt-3 border-t border-gray-100 flex flex-wrap gap-2 pl-3 items-center relative z-20">
                                     {!showArchived && cmd.statut !== StatutCommande.LIVRE && !isCancelled && (
                                         <div className="flex-1 min-w-[120px]">
                                             <select className="block w-full text-xs border-gray-300 rounded p-1.5" value={cmd.statut} onChange={(e) => onUpdateStatus(cmd.id, e.target.value as StatutCommande)}>
@@ -409,6 +411,51 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             </div>
                         );
                     })}
+                </div>
+            )}
+
+            {/* TAILORS VIEW */}
+            {viewMode === 'TAILORS' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                    {tailleurs.map(tailor => {
+                        const assignedOrders = commandes.filter(c => c.tailleursIds.includes(tailor.id) && c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE && !c.archived);
+                        return (
+                            <div key={tailor.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                <div className="bg-gray-50 p-4 border-b border-gray-100 flex justify-between items-center">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-bold">{tailor.nom.charAt(0)}</div>
+                                        <div><h3 className="font-bold text-gray-800">{tailor.nom}</h3><p className="text-xs text-gray-500">{tailor.role}</p></div>
+                                    </div>
+                                    <span className="bg-white px-2 py-1 rounded text-xs font-bold border border-gray-200">{assignedOrders.length} Tâches</span>
+                                </div>
+                                <div className="p-4 space-y-3 max-h-[300px] overflow-y-auto">
+                                    {assignedOrders.length > 0 ? assignedOrders.map(order => (
+                                        <div key={order.id} className="flex items-start gap-2 p-2 rounded bg-gray-50 border border-gray-100">
+                                            <div className="mt-1"><AlertCircle size={14} className={new Date(order.dateLivraisonPrevue) < new Date() ? "text-red-500" : "text-gray-400"} /></div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs font-bold text-gray-800 truncate">{order.clientNom}</p>
+                                                <p className="text-[10px] text-gray-600 truncate">{order.description}</p>
+                                                <div className="flex justify-between mt-1">
+                                                    <span className={`text-[10px] px-1.5 rounded ${getStatusColor(order.statut)}`}>{order.statut}</span>
+                                                    <span className="text-[10px] text-gray-400">{new Date(order.dateLivraisonPrevue).toLocaleDateString()}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )) : (
+                                        <p className="text-center text-gray-400 text-sm py-4 italic">Aucune commande en cours.</p>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* PERFORMANCE VIEW (SIMPLE) */}
+            {viewMode === 'PERFORMANCE' && (
+                <div className="p-8 text-center text-gray-400">
+                    <Trophy size={48} className="mx-auto mb-2 opacity-20"/>
+                    <p>Module de performance en cours de développement.</p>
                 </div>
             )}
 
@@ -468,6 +515,53 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 <div><label className="block text-sm font-medium mb-1">Prix Total (TTC)</label><input type="number" className="w-full p-2 border rounded" value={prixBase} onChange={e => setPrixBase(parseInt(e.target.value) || 0)}/></div>
                                 <div><label className="block text-sm font-medium mb-1">Avance</label><input type="number" className="w-full p-2 border rounded" value={avance} onChange={e => setAvance(parseInt(e.target.value) || 0)}/></div>
                             </div>
+                            
+                            {/* ASSIGNATION TAILLEURS */}
+                            <div className="bg-gray-50 p-3 rounded border border-gray-200">
+                                <label className="block text-sm font-medium mb-2">Assigner à des tailleurs</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {tailleurs.map(t => (
+                                        <button
+                                            key={t.id}
+                                            onClick={() => toggleTailleurSelection(t.id)}
+                                            className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${selectedTailleurs.includes(t.id) ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100'}`}
+                                        >
+                                            {t.nom}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* CONSOMMATION MATIERES */}
+                            <div className="bg-gray-50 p-3 rounded border border-gray-200">
+                                <label className="block text-sm font-medium mb-2">Matériel utilisé (Stock)</label>
+                                <div className="flex gap-2 mb-2">
+                                    <select className="flex-1 text-xs p-1.5 border rounded" value={tempConso.articleId} onChange={e => setTempConso({...tempConso, articleId: e.target.value, variante: ''})}>
+                                        <option value="">-- Article --</option>
+                                        {matieresPremieres.map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}
+                                    </select>
+                                    {selectedArticleObj && selectedArticleObj.variantes.length > 0 && (
+                                        <select className="flex-1 text-xs p-1.5 border rounded" value={tempConso.variante} onChange={e => setTempConso({...tempConso, variante: e.target.value})}>
+                                            <option value="">-- Variante --</option>
+                                            {selectedArticleObj.variantes.map(v => <option key={v} value={v}>{v}</option>)}
+                                        </select>
+                                    )}
+                                    <input type="number" className="w-20 text-xs p-1.5 border rounded" placeholder="Qté" value={tempConso.quantite || ''} onChange={e => setTempConso({...tempConso, quantite: parseFloat(e.target.value) || 0})}/>
+                                    <button onClick={addConsommation} className="bg-gray-800 text-white p-1.5 rounded"><Plus size={16}/></button>
+                                </div>
+                                <div className="space-y-1">
+                                    {consommations.map(c => {
+                                        const artName = articles.find(a => a.id === c.articleId)?.nom || '???';
+                                        return (
+                                            <div key={c.id} className="flex justify-between items-center bg-white p-2 rounded border border-gray-100 text-xs">
+                                                <span>{artName} ({c.variante || 'Std'}) x {c.quantite}</span>
+                                                <button onClick={() => removeConsommation(c.id)} className="text-red-500"><X size={14}/></button>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+
                             {avance > 0 && !isEditingOrder && (
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Compte Encaissement Avance</label>
