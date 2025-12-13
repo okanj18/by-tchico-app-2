@@ -116,19 +116,20 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
         });
     };
 
-    // --- OPTIMIZED IMAGE UPLOAD ---
+    // --- OPTIMIZED IMAGE UPLOAD (PARALLEL) ---
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
         if (files && files.length > 0) {
             setIsUploading(true);
             try {
-                // Traitement séquentiel pour ne pas figer le navigateur
-                // Surtout important si on est en mode hors ligne (traitement CPU compression)
-                const newImages: string[] = [];
-                for (let i = 0; i < files.length; i++) {
-                    const url = await uploadImageToCloud(files[i], 'articles');
-                    newImages.push(url);
-                }
+                // Conversion en tableau pour map
+                const fileList = Array.from(files);
+                
+                // Lancement de tous les uploads en parallèle
+                const uploadPromises = fileList.map(file => uploadImageToCloud(file as File, 'articles'));
+                
+                // Attente de la fin de tous les traitements
+                const newImages = await Promise.all(uploadPromises);
                 
                 setFormData(prev => ({
                     ...prev,

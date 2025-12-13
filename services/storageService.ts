@@ -4,7 +4,7 @@ import { storage } from "./firebase";
 
 /**
  * Compresse une image côté client via Canvas.
- * Réduit la taille (max 1024px) et la qualité (70%) pour accélérer l'upload et l'affichage.
+ * Réduit la taille (max 600px) et la qualité (50%) pour un chargement instantané.
  */
 const compressImage = (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
@@ -16,7 +16,8 @@ const compressImage = (file: File): Promise<Blob> => {
             
             img.onload = () => {
                 const canvas = document.createElement('canvas');
-                const MAX_WIDTH = 1024; // Largeur max raisonnable pour le web
+                // Optimisation: 600px est suffisant pour l'affichage web/mobile
+                const MAX_WIDTH = 600; 
                 let width = img.width;
                 let height = img.height;
 
@@ -38,11 +39,11 @@ const compressImage = (file: File): Promise<Blob> => {
                 // Dessiner l'image redimensionnée
                 ctx.drawImage(img, 0, 0, width, height);
                 
-                // Convertir en JPEG qualité 70%
+                // Convertir en JPEG qualité 50% (très léger)
                 canvas.toBlob((blob) => {
                     if (blob) resolve(blob);
                     else reject(new Error("Erreur de compression"));
-                }, 'image/jpeg', 0.7);
+                }, 'image/jpeg', 0.5);
             };
             
             img.onerror = (err) => reject(err);
