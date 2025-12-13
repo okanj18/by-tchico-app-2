@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets } from '../types';
 import { COMPANY_CONFIG } from '../config';
 import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight } from 'lucide-react';
-import { QRGeneratorModal } from './QRTools';
+import { QRGeneratorModal, QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
     commandes: Commande[];
@@ -28,6 +28,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [viewMode, setViewMode] = useState<'ORDERS' | 'TAILORS' | 'PERFORMANCE'>('ORDERS');
     const [showArchived, setShowArchived] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    
+    // SCANNER STATE
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
 
     // FILTERS
     const [showFiltersPanel, setShowFiltersPanel] = useState(false);
@@ -69,8 +72,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [initialAccountId, setInitialAccountId] = useState('');
 
     // --- DERIVED DATA ---
-    const isProductionStaff = userRole === RoleEmploye.TAILLEUR || userRole === RoleEmploye.CHEF_ATELIER;
-    const canSeeFinance = userRole === RoleEmploye.ADMIN || userRole === RoleEmploye.GERANT;
+    // Correction : Le Chef d'Atelier DOIT pouvoir encaisser
+    const canSeeFinance = userRole === RoleEmploye.ADMIN || userRole === RoleEmploye.GERANT || userRole === RoleEmploye.CHEF_ATELIER;
+    
     const tailleurs = employes.filter(e => e.role === RoleEmploye.TAILLEUR || e.role === RoleEmploye.CHEF_ATELIER || e.role === RoleEmploye.STAGIAIRE);
     const matieresPremieres = articles.filter(a => a.typeArticle === 'MATIERE_PREMIERE');
 
@@ -146,7 +150,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             tva: applyTva ? Math.round(Math.max(0, prixBase - remise) * COMPANY_CONFIG.tvaRate) : 0,
             remise, avance, reste: Math.max(0, montantTotalTTC - avance),
             type: 'SUR_MESURE',
-            paiements: [], // Géré par le parent lors de l'update/create
+            paiements: [], 
             consommations: consommations.map(c => ({ articleId: c.articleId, variante: c.variante, quantite: c.quantite }))
         };
 
@@ -198,6 +202,16 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         printWindow.document.close();
     };
 
+    const handleScan = (decodedText: string) => {
+        setIsScannerOpen(false);
+        setSearchTerm(decodedText);
+        // Si le code correspond exactement à une commande, on pourrait l'ouvrir
+        const exactMatch = commandes.find(c => c.id === decodedText);
+        if (exactMatch) {
+            // Optionnel: Ouvrir directement le détail ou faire une action
+        }
+    };
+
     // --- RENDER HELPERS ---
     const getStatusColor = (s: string) => {
         switch(s) {
@@ -220,7 +234,16 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier Production</h2>
                     <p className="text-sm text-gray-500">Gestion des commandes sur mesure et suivi atelier.</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2 items-center">
+                    {/* BOUTON SCANNER RÉINTÉGRÉ */}
+                    <button 
+                        onClick={() => setIsScannerOpen(true)} 
+                        className="bg-gray-800 text-white p-2 rounded-lg hover:bg-gray-900 transition-colors shadow-sm flex items-center gap-2"
+                        title="Scanner QR Code"
+                    >
+                        <Camera size={18} /> <span className="hidden sm:inline text-sm font-bold">Scanner</span>
+                    </button>
+
                     <div className="flex bg-white border border-gray-200 p-1 rounded-lg">
                         <button onClick={() => setViewMode('ORDERS')} className={`px-3 py-1.5 text-xs font-bold rounded ${viewMode === 'ORDERS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><LayoutList size={14}/> Commandes</button>
                         <button onClick={() => setViewMode('TAILORS')} className={`px-3 py-1.5 text-xs font-bold rounded ${viewMode === 'TAILORS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Users size={14}/> Tailleurs</button>
@@ -284,7 +307,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 <div className="text-xs">
                                     {cmd.reste > 0 ? <span className="text-red-600 font-bold">Reste: {cmd.reste.toLocaleString()} F</span> : <span className="text-green-600 font-bold flex items-center gap-1"><CheckSquare size={10}/> Payé</span>}
                                 </div>
-                                <div className="flex gap-1">
+                                <div className="flex gap-1 items-center">
                                     <button onClick={() => {setQrOrder(cmd); setQrModalOpen(true);}} className="p-1.5 text-gray-500 hover:bg-white rounded hover:text-brand-600"><QrCode size={16}/></button>
                                     {!showArchived && cmd.statut !== StatutCommande.LIVRE && cmd.statut !== StatutCommande.ANNULE && (
                                         <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-gray-500 hover:bg-white rounded hover:text-blue-600"><Edit2 size={16}/></button>
@@ -298,7 +321,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                 e.stopPropagation(); 
                                                 openPaymentModal(cmd); 
                                             }}
-                                            className="px-3 py-1 bg-brand-600 text-white text-xs font-bold rounded hover:bg-brand-700 ml-2"
+                                            className="px-3 py-1 bg-brand-600 text-white text-xs font-bold rounded hover:bg-brand-700 ml-2 relative z-[10]"
                                         >
                                             Encaisser
                                         </button>
@@ -387,6 +410,15 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             {/* MODAL QR CODE */}
             {qrOrder && (
                 <QRGeneratorModal isOpen={qrModalOpen} onClose={() => setQrModalOpen(false)} value={qrOrder.id} title={qrOrder.clientNom} subtitle={qrOrder.description} />
+            )}
+
+            {/* MODAL SCANNER */}
+            {isScannerOpen && (
+                <QRScannerModal 
+                    isOpen={isScannerOpen} 
+                    onClose={() => setIsScannerOpen(false)} 
+                    onScan={handleScan} 
+                />
             )}
 
             {/* MODAL CREATE / EDIT ORDER */}
