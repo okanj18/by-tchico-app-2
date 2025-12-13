@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Article, TypeArticle } from '../types';
 import { Search, Plus, Tag, Edit2, X, Save, Box, Layers, DollarSign, Scissors, ShoppingBag, ArrowRightLeft, Trash2, Image as ImageIcon, Upload, CheckSquare, Square, LayoutGrid, List, QrCode, Archive, RotateCcw, AlertTriangle, Loader } from 'lucide-react';
 import { QRGeneratorModal } from './QRTools';
-import { uploadImageToCloud } from '../services/storageService'; // Import du service optimisé
+import { uploadImageToCloud } from '../services/storageService'; 
 
 interface ArticlesViewProps {
     articles: Article[];
@@ -19,7 +19,7 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
     const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
     const [showArchived, setShowArchived] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const [isUploading, setIsUploading] = useState(false); // État de chargement
+    const [isUploading, setIsUploading] = useState(false); 
 
     // QR Code State
     const [qrModalOpen, setQrModalOpen] = useState(false);
@@ -116,28 +116,35 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
         });
     };
 
-    // --- OPTIMIZED IMAGE UPLOAD (PARALLEL) ---
+    // --- OPTIMIZED IMAGE UPLOAD (PARALLEL & ROBUST) ---
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
         if (files && files.length > 0) {
             setIsUploading(true);
             try {
-                // Conversion en tableau pour map
-                const fileList = Array.from(files);
+                // Conversion en tableau
+                const fileList = Array.from(files) as File[];
                 
                 // Lancement de tous les uploads en parallèle
-                const uploadPromises = fileList.map(file => uploadImageToCloud(file as File, 'articles'));
+                const uploadPromises = fileList.map(file => uploadImageToCloud(file, 'articles'));
                 
                 // Attente de la fin de tous les traitements
-                const newImages = await Promise.all(uploadPromises);
+                const results = await Promise.all(uploadPromises);
                 
+                // Filtrer les chaînes vides (échecs)
+                const newImages = results.filter(url => url && url.length > 0);
+                
+                if (newImages.length < fileList.length) {
+                    console.warn("Certaines images n'ont pas pu être chargées.");
+                }
+
                 setFormData(prev => ({
                     ...prev,
                     images: [...(prev.images || []), ...newImages]
                 }));
             } catch (error) {
                 console.error(error);
-                alert("Erreur lors du traitement des images.");
+                alert("Erreur inattendue lors du traitement des images.");
             } finally {
                 setIsUploading(false);
                 if (fileInputRef.current) fileInputRef.current.value = '';
