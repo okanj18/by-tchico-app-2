@@ -1,8 +1,10 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Employe, Boutique, Depense, RoleEmploye, Pointage, SessionUser, TransactionPaie, Absence, CompteFinancier, TransactionTresorerie } from '../types';
-import { Users, UserPlus, Clock, Calendar, Save, X, Edit2, Trash2, CheckCircle, XCircle, Search, Filter, Briefcase, DollarSign, Banknote, UserMinus, History, ArrowUpCircle, ArrowDownCircle, AlertCircle, Plus, TrendingUp, AlertTriangle, Archive, RotateCcw, AlertOctagon, Lock, Mail, Key } from 'lucide-react';
+import { Users, UserPlus, Clock, Calendar, Save, X, Edit2, Trash2, CheckCircle, XCircle, Search, Filter, Briefcase, DollarSign, Banknote, UserMinus, History, ArrowUpCircle, ArrowDownCircle, AlertCircle, Plus, TrendingUp, AlertTriangle, Archive, RotateCcw, AlertOctagon, Lock, Mail, Key, QrCode, Camera, Printer } from 'lucide-react';
 import { createAuthUser } from '../services/firebase';
+import { QRGeneratorModal, QRScannerModal } from './QRTools';
+import { QRCodeCanvas } from 'qrcode.react';
 
 interface HRViewProps {
     employes: Employe[];
@@ -122,6 +124,11 @@ const HRView: React.FC<HRViewProps> = ({
         statut: 'PRESENT' | 'RETARD' | 'ABSENT' | 'CONGE'
     } | null>(null);
 
+    // --- QR CODE BADGE SYSTEM ---
+    const [badgeEmployee, setBadgeEmployee] = useState<Employe | null>(null);
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [showBatchBadges, setShowBatchBadges] = useState(false);
+
     // Derived Data
     const filteredEmployes = employes.filter(e => {
         const matchesSearch = e.nom.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -182,6 +189,40 @@ const HRView: React.FC<HRViewProps> = ({
             statut: 'ABSENT' 
         };
         onAddPointage(newPointage);
+    };
+
+    const handleScanAttendance = (scannedText: string) => {
+        // Le code scanné est l'ID de l'employé
+        const employe = employes.find(e => e.id === scannedText);
+        if (!employe) {
+            alert("Badge inconnu !");
+            return;
+        }
+
+        // Vérifier si un pointage existe déjà pour aujourd'hui
+        // Utiliser la date sélectionnée ou la date du jour (pour le scan on force souvent la date du jour)
+        const today = new Date().toISOString().split('T')[0];
+        if (pointageDate !== today) {
+            if(!window.confirm(`Vous scannez pour la date du ${today}, mais l'affichage est sur le ${pointageDate}. Continuer ?`)) return;
+            setPointageDate(today);
+        }
+
+        const existingPt = pointages.find(p => p.employeId === employe.id && p.date === today);
+
+        if (!existingPt) {
+            // Clock IN
+            handleClockIn(employe.id);
+            alert(`✅ ${employe.nom} : Arrivée enregistrée !`);
+        } else if (!existingPt.heureDepart && existingPt.statut !== 'ABSENT') {
+            // Clock OUT
+            handleClockOut(existingPt);
+            alert(`👋 ${employe.nom} : Départ enregistré !`);
+        } else {
+            alert(`⚠️ ${employe.nom} a déjà terminé sa journée ou est marqué absent.`);
+        }
+        
+        // Fermer le scanner après un succès (optionnel, on peut laisser ouvert pour scanner à la chaîne)
+        // setIsScannerOpen(false); 
     };
 
     const openCorrectionModal = (emp: Employe, existingPt?: Pointage) => {
@@ -552,6 +593,7 @@ const HRView: React.FC<HRViewProps> = ({
                     )}
                     {activeTab === 'EMPLOYEES' && !isPointageOnly && (
                         <div className="flex gap-2">
+                            <button onClick={() => setShowBatchBadges(true)} className="bg-gray-800 text-white px-3 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors text-sm hover:bg-gray-900"><QrCode size={16} /> Imprimer Badges</button>
                             <button onClick={() => setShowArchived(!showArchived)} className={`px-3 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors text-sm border ${showArchived ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}><Archive size={16} />{showArchived ? 'Voir Actifs' : 'Archives'}</button>
                             {!showArchived && (<button onClick={openAddModal} className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors text-sm"><UserPlus size={16} /> Nouveau</button>)}
                         </div>
@@ -578,11 +620,67 @@ const HRView: React.FC<HRViewProps> = ({
                                         <td className="py-3 px-4 text-gray-600"><div>{emp.telephone}</div>{emp.email && <div className="text-xs text-blue-500">{emp.email}</div>}</td>
                                         <td className="py-3 px-4 text-gray-600">{emp.typeContrat}</td>
                                         <td className="py-3 px-4 text-right font-medium">{emp.salaireBase.toLocaleString()} F</td>
-                                        <td className="py-3 px-4 text-center"><div className="flex justify-center gap-1">{!showArchived ? (<><button onClick={() => openAttendanceHistory(emp)} className="p-1.5 text-purple-600 hover:bg-purple-50 rounded"><Calendar size={16}/></button>{emp.email && (<button onClick={() => openAccessModal(emp)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Lock size={16}/></button>)}<button onClick={() => openAbsenceModal(emp)} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><UserMinus size={16}/></button><button onClick={() => openHistoryModal(emp)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"><History size={16}/></button><button onClick={() => openPayModal(emp)} className="p-1.5 text-green-600 hover:bg-green-50 rounded"><Banknote size={16}/></button><button onClick={() => openEditModal(emp)} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded"><Edit2 size={16}/></button><button onClick={(e) => triggerArchive(e, emp.id)} className="p-1.5 text-orange-500 hover:bg-orange-50 rounded"><Archive size={16}/></button></>) : (<button onClick={() => handleRestoreEmployee(emp)} className="p-1.5 text-green-600 hover:bg-green-50 rounded"><RotateCcw size={14}/></button>)}</div></td>
+                                        <td className="py-3 px-4 text-center"><div className="flex justify-center gap-1">{!showArchived ? (<><button onClick={() => setBadgeEmployee(emp)} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded" title="Badge QR"><QrCode size={16}/></button><button onClick={() => openAttendanceHistory(emp)} className="p-1.5 text-purple-600 hover:bg-purple-50 rounded"><Calendar size={16}/></button>{emp.email && (<button onClick={() => openAccessModal(emp)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Lock size={16}/></button>)}<button onClick={() => openAbsenceModal(emp)} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><UserMinus size={16}/></button><button onClick={() => openHistoryModal(emp)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"><History size={16}/></button><button onClick={() => openPayModal(emp)} className="p-1.5 text-green-600 hover:bg-green-50 rounded"><Banknote size={16}/></button><button onClick={() => openEditModal(emp)} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded"><Edit2 size={16}/></button><button onClick={(e) => triggerArchive(e, emp.id)} className="p-1.5 text-orange-500 hover:bg-orange-50 rounded"><Archive size={16}/></button></>) : (<button onClick={() => handleRestoreEmployee(emp)} className="p-1.5 text-green-600 hover:bg-green-50 rounded"><RotateCcw size={14}/></button>)}</div></td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL IMPRESSION DE MASSE BADGES */}
+            {showBatchBadges && (
+                <div className="fixed inset-0 z-[100] bg-white overflow-auto flex flex-col">
+                    {/* Non-printable toolbar */}
+                    <div className="bg-gray-900 text-white p-4 flex justify-between items-center shrink-0 print:hidden shadow-md sticky top-0 z-50">
+                        <div className="flex items-center gap-4">
+                            <h3 className="text-xl font-bold flex items-center gap-2"><QrCode size={24} /> Planche de Badges Employés</h3>
+                            <span className="text-sm bg-gray-800 px-3 py-1 rounded-full">{filteredEmployes.length} Badges</span>
+                        </div>
+                        <div className="flex gap-3">
+                            <button onClick={() => window.print()} className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg transition-transform hover:scale-105">
+                                <Printer size={20}/> Imprimer (A4)
+                            </button>
+                            <button onClick={() => setShowBatchBadges(false)} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg flex items-center gap-2">
+                                <X size={20}/> Fermer
+                            </button>
+                        </div>
+                    </div>
+                    
+                    {/* Printable Area */}
+                    <div className="p-8 bg-gray-100 min-h-screen print:p-0 print:bg-white">
+                        <style>{`
+                            @media print { 
+                                @page { margin: 0.5cm; } 
+                                body * { visibility: hidden; } 
+                                .printable-badges-container, .printable-badges-container * { visibility: visible; } 
+                                .printable-badges-container { position: absolute; left: 0; top: 0; width: 100%; background: white; } 
+                                .badge-card { break-inside: avoid; page-break-inside: avoid; border: 1px solid #000; }
+                            }
+                        `}</style>
+                        
+                        <div className="printable-badges-container grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 max-w-5xl mx-auto print:max-w-none print:gap-4 print:grid-cols-2">
+                            {filteredEmployes.map(emp => (
+                                <div key={emp.id} className="badge-card bg-white border border-gray-300 rounded-xl p-6 flex flex-col items-center text-center shadow-sm print:shadow-none print:rounded-none">
+                                    <h3 className="font-bold text-xl mb-4 text-gray-900 uppercase tracking-widest border-b-2 border-gray-900 pb-1 w-full">BY TCHICO</h3>
+                                    <div className="my-4">
+                                        <QRCodeCanvas value={emp.id} size={150} level="H" />
+                                    </div>
+                                    <div className="mt-2 w-full">
+                                        <p className="font-bold text-2xl text-gray-900 uppercase truncate">{emp.nom}</p>
+                                        <p className="text-sm text-gray-500 uppercase font-bold tracking-wider mt-1">{emp.role}</p>
+                                    </div>
+                                    <div className="mt-4 text-[10px] text-gray-400 font-mono">
+                                        ID: {emp.id}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        
+                        {filteredEmployes.length === 0 && (
+                            <div className="text-center text-gray-500 py-20">Aucun employé à afficher.</div>
+                        )}
                     </div>
                 </div>
             )}
@@ -715,8 +813,19 @@ const HRView: React.FC<HRViewProps> = ({
             {activeTab === 'POINTAGE' && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
                     <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                        <div className="flex items-center gap-2"><Calendar size={18} className="text-gray-500"/><input type="date" value={pointageDate} onChange={(e) => setPointageDate(e.target.value)} className="bg-transparent border-none font-bold text-gray-700 focus:ring-0"/></div>
-                        {!isPointageOnly && <div className="text-xs text-gray-500">Total Présents: {dailyPointages.filter(p => p.statut === 'PRESENT' || p.statut === 'RETARD').length}</div>}
+                        <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2 bg-white border border-gray-300 rounded px-3 py-1">
+                                <Calendar size={18} className="text-gray-500"/>
+                                <input type="date" value={pointageDate} onChange={(e) => setPointageDate(e.target.value)} className="bg-transparent border-none font-bold text-gray-700 focus:ring-0 text-sm"/>
+                            </div>
+                            <button 
+                                onClick={() => setIsScannerOpen(true)}
+                                className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded font-bold text-sm flex items-center gap-2"
+                            >
+                                <Camera size={16} /> Scanner Pointage
+                            </button>
+                        </div>
+                        {!isPointageOnly && <div className="text-xs text-gray-500 font-bold">Présents: {dailyPointages.filter(p => p.statut === 'PRESENT' || p.statut === 'RETARD').length}</div>}
                     </div>
                     <div className="overflow-x-auto flex-1">
                         <table className="w-full text-sm text-left">
@@ -795,6 +904,26 @@ const HRView: React.FC<HRViewProps> = ({
                         <div className="flex justify-end gap-3"><button onClick={() => setArchiveConfirmId(null)} className="px-4 py-2 text-gray-600 bg-gray-100 rounded">Annuler</button><button onClick={confirmArchive} className="px-4 py-2 bg-orange-600 text-white rounded font-bold">Confirmer</button></div>
                     </div>
                 </div>
+            )}
+
+            {/* QR GENERATOR MODAL */}
+            {badgeEmployee && (
+                <QRGeneratorModal
+                    isOpen={!!badgeEmployee}
+                    onClose={() => setBadgeEmployee(null)}
+                    value={badgeEmployee.id}
+                    title={`Badge : ${badgeEmployee.nom}`}
+                    subtitle={badgeEmployee.role}
+                />
+            )}
+
+            {/* QR SCANNER MODAL */}
+            {isScannerOpen && (
+                <QRScannerModal
+                    isOpen={isScannerOpen}
+                    onClose={() => setIsScannerOpen(false)}
+                    onScan={handleScanAttendance}
+                />
             )}
         </div>
     );
