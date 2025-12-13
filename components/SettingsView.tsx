@@ -1,6 +1,6 @@
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Download, Upload, RefreshCw, AlertTriangle, FileText, Database, CheckCircle, Save, Trash2, Wifi, WifiOff, Lock, Code, Image as ImageIcon } from 'lucide-react';
+import { Download, Upload, RefreshCw, AlertTriangle, FileText, Database, CheckCircle, Save, Trash2, Wifi, WifiOff, Lock, Code, Image as ImageIcon, Users, Truck, ShoppingBag, Scissors, Briefcase } from 'lucide-react';
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { db } from "../services/firebase";
 import { CompanyAssets } from '../types';
@@ -134,24 +134,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
     // --- EXPORT CSV LOGIC ---
     const convertToCSV = (objArray: any[]) => {
         if (!objArray || objArray.length === 0) return '';
-        const array = typeof objArray !== 'object' ? JSON.parse(objArray) : objArray;
+        // Flatten objects if needed inside map before calling convertToCSV
         
         // Collect all keys from all objects to ensure we have headers even if some objects miss keys
         let headers = new Set<string>();
-        array.forEach((obj: any) => {
+        objArray.forEach((obj: any) => {
             Object.keys(obj).forEach(key => {
-                if (typeof obj[key] !== 'object') headers.add(key); // Skip nested objects for simple CSV
+                if (typeof obj[key] !== 'object') headers.add(key); // Skip nested objects
             });
         });
         const headerArray = Array.from(headers);
         
         let str = headerArray.join(',') + '\r\n';
 
-        for (let i = 0; i < array.length; i++) {
+        for (let i = 0; i < objArray.length; i++) {
             let line = '';
             for (let index in headerArray) {
                 if (line !== '') line += ',';
-                let val = array[i][headerArray[index]];
+                let val = objArray[i][headerArray[index]];
                 // Escape quotes and handle commas
                 if (typeof val === 'string') {
                     val = `"${val.replace(/"/g, '""')}"`;
@@ -163,7 +163,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
         return str;
     };
 
-    const handleExportCSV = (type: 'CLIENTS' | 'ARTICLES' | 'VENTES') => {
+    const handleExportCSV = (type: 'CLIENTS' | 'ARTICLES' | 'EMPLOYES' | 'FOURNISSEURS' | 'DEPENSES') => {
         let data: any[] = [];
         let filename = '';
 
@@ -172,9 +172,20 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                 Nom: c.nom,
                 Telephone: c.telephone,
                 Ville: c.ville || '',
-                Note: c.notes || ''
+                Note: c.notes || '',
+                // Mesures (Aplaties pour CSV)
+                'Cou': c.mesures?.tourCou || '',
+                'Epaule': c.mesures?.epaule || '',
+                'Poitrine': c.mesures?.poitrine || '',
+                'Manche': c.mesures?.longueurManche || '',
+                'Taille': c.mesures?.taille || '',
+                'Ceinture': c.mesures?.ceinture || '',
+                'Bassin': c.mesures?.tourFesse || '',
+                'Cuisse': c.mesures?.tourCuisse || '',
+                'L_Boubou': c.mesures?.longueurBoubou1 || '',
+                'L_Pantalon': c.mesures?.longueurPantalon || ''
             }));
-            filename = 'clients_by_tchico.csv';
+            filename = 'clients_mesures_by_tchico.csv';
         } else if (type === 'ARTICLES') {
             data = fullData.articles.map((a: any) => ({
                 Nom: a.nom,
@@ -182,21 +193,42 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                 Type: a.typeArticle,
                 PrixAchat: a.prixAchatDefault,
                 PrixVente: a.prixVenteDefault,
+                Unite: a.unite,
                 StockTotal: Object.values(a.stockParLieu).reduce((acc:any, v:any) => acc + Object.values(v).reduce((acc2:any, q:any)=>acc2+Number(q),0), 0)
             }));
-            filename = 'articles_by_tchico.csv';
-        } else if (type === 'VENTES') {
-            data = fullData.commandes
-                .filter((c: any) => c.type === 'PRET_A_PORTER')
-                .map((c: any) => ({
-                    Date: new Date(c.dateCommande).toLocaleDateString(),
-                    Client: c.clientNom,
-                    Description: c.description,
-                    Montant: c.prixTotal,
-                    Statut: c.statut,
-                    Reste: c.reste
-                }));
-            filename = 'ventes_by_tchico.csv';
+            filename = 'articles_stock_by_tchico.csv';
+        } else if (type === 'EMPLOYES') {
+            data = fullData.employes.map((e: any) => ({
+                Nom: e.nom,
+                Role: e.role,
+                Telephone: e.telephone,
+                Email: e.email || '',
+                Contrat: e.typeContrat,
+                SalaireBase: e.salaireBase,
+                Boutique: fullData.boutiques.find((b:any) => b.id === e.boutiqueId)?.nom || 'Atelier Central'
+            }));
+            filename = 'rh_employes_by_tchico.csv';
+        } else if (type === 'FOURNISSEURS') {
+            data = fullData.fournisseurs.map((f: any) => ({
+                Entreprise: f.nomEntreprise,
+                Contact: f.contactPersonne,
+                Telephone: f.telephone,
+                Adresse: f.adresse,
+                Categories: f.categories ? f.categories.join('; ') : '',
+                DelaiLivraison: f.delaiLivraisonMoyen,
+                Notes: f.notes || ''
+            }));
+            filename = 'fournisseurs_by_tchico.csv';
+        } else if (type === 'DEPENSES') {
+            data = fullData.depenses.map((d: any) => ({
+                Date: new Date(d.date).toLocaleDateString(),
+                Montant: d.montant,
+                Categorie: d.categorie,
+                Description: d.description,
+                Boutique: fullData.boutiques.find((b:any) => b.id === d.boutiqueId)?.nom || 'Siège/Général',
+                Compte: fullData.comptes.find((c:any) => c.id === d.compteId)?.nom || ''
+            }));
+            filename = 'depenses_by_tchico.csv';
         }
 
         const csvStr = convertToCSV(data);
@@ -206,6 +238,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
         link.href = url;
         link.download = filename;
         link.click();
+        setStatusMessage({type: 'success', text: `Export ${type} généré avec succès.`});
     };
 
     // --- IMPORT CSV LOGIC (Simple) ---
@@ -346,7 +379,44 @@ service cloud.firestore {
                 </div>
             )}
 
-            {/* ... RESTE DES SECTIONS ... */}
+            {/* SECTION 2: EXPORT SPECIFIQUE (CSV/EXCEL) - NOUVEAU */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="bg-gray-50 p-4 border-b border-gray-200">
+                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                        <FileText size={20} className="text-green-600" /> Exportation de Données (Excel/CSV)
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                        Téléchargez des fichiers lisibles sur Excel pour vos analyses ou archivage.
+                    </p>
+                </div>
+                <div className="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                    <button onClick={() => handleExportCSV('CLIENTS')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-200 transition-colors group">
+                        <Users className="text-blue-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
+                        <span className="text-xs font-bold text-gray-700 text-center">Clients & Mesures</span>
+                    </button>
+                    
+                    <button onClick={() => handleExportCSV('EMPLOYES')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-purple-50 hover:border-purple-200 transition-colors group">
+                        <Briefcase className="text-purple-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
+                        <span className="text-xs font-bold text-gray-700 text-center">Ressources Humaines</span>
+                    </button>
+
+                    <button onClick={() => handleExportCSV('FOURNISSEURS')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-orange-50 hover:border-orange-200 transition-colors group">
+                        <Truck className="text-orange-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
+                        <span className="text-xs font-bold text-gray-700 text-center">Fournisseurs</span>
+                    </button>
+
+                    <button onClick={() => handleExportCSV('ARTICLES')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-brand-50 hover:border-brand-200 transition-colors group">
+                        <ShoppingBag className="text-brand-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
+                        <span className="text-xs font-bold text-gray-700 text-center">Gestion Articles</span>
+                    </button>
+
+                    <button onClick={() => handleExportCSV('DEPENSES')} className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-red-50 hover:border-red-200 transition-colors group">
+                        <FileText className="text-red-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
+                        <span className="text-xs font-bold text-gray-700 text-center">Dépenses</span>
+                    </button>
+                </div>
+            </div>
+
             {/* SECTION 0: IDENTITÉ VISUELLE */}
             {onUpdateAssets && companyAssets && (
                 <div className="bg-white rounded-xl shadow-sm border border-brand-200 overflow-hidden">
@@ -417,10 +487,10 @@ service cloud.firestore {
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="bg-gray-50 p-4 border-b border-gray-200">
                     <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                        <Save size={20} /> Sauvegarde & Restauration Système
+                        <Save size={20} /> Sauvegarde & Restauration Système (JSON)
                     </h3>
                     <p className="text-xs text-gray-500 mt-1">
-                        Vos données sont enregistrées automatiquement dans ce navigateur. Utilisez cette section pour les transférer ailleurs.
+                        Utilisez cette section pour une sauvegarde complète technique (fichier JSON non lisible sur Excel).
                     </p>
                 </div>
                 <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
