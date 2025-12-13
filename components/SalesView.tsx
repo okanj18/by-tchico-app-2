@@ -14,7 +14,7 @@ interface SalesViewProps {
     onAddPayment: (orderId: string, amount: number, method: ModePaiement, note: string, date: string, accountId?: string) => void;
     comptes: CompteFinancier[];
     onCancelSale: (orderId: string, refundAccountId: string) => void;
-    companyAssets?: CompanyAssets; // Ajout prop
+    companyAssets?: CompanyAssets;
 }
 
 const SalesView: React.FC<SalesViewProps> = ({ 
@@ -211,7 +211,6 @@ const SalesView: React.FC<SalesViewProps> = ({
         const totalHT = totalTTC - tva + remise;
 
         const baseUrl = window.location.origin;
-        // Priorité aux assets base64 personnalisés
         const logoUrl = companyAssets?.logoStr || `${baseUrl}${COMPANY_CONFIG.logoUrl}`;
         const stampUrl = companyAssets?.stampStr || `${baseUrl}${COMPANY_CONFIG.stampUrl}`;
         const signatureUrl = companyAssets?.signatureStr || `${baseUrl}${COMPANY_CONFIG.signatureUrl}`;
@@ -453,7 +452,7 @@ const SalesView: React.FC<SalesViewProps> = ({
                 </div>
             )}
 
-            {/* Modal Payment */}
+            {/* Modal Payment (CORRIGÉ - PLUS DE FLEX-COL) */}
             {paymentModalOpen && selectedOrderForPayment && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
@@ -467,12 +466,12 @@ const SalesView: React.FC<SalesViewProps> = ({
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Montant à Encaisser</label>
-                                <input type="number" className="w-full p-2 border border-gray-300 rounded font-bold text-lg" value={payAmount} onChange={e => setPayAmount(parseInt(e.target.value) || 0)} max={selectedOrderForPayment.reste} />
+                                <input type="number" className="w-full p-2 border border-gray-300 rounded font-bold text-lg bg-gray-50" value={payAmount} onChange={e => setPayAmount(parseInt(e.target.value) || 0)} max={selectedOrderForPayment.reste} />
                                 <p className="text-xs text-gray-500 mt-1">Reste dû sur la commande : {selectedOrderForPayment.reste.toLocaleString()} F</p>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Moyen de Paiement</label>
-                                <select className="w-full p-2 border border-gray-300 rounded" value={payMethod} onChange={e => setPayMethod(e.target.value as ModePaiement)}>
+                                <select className="w-full p-2 border border-gray-300 rounded bg-gray-50" value={payMethod} onChange={e => setPayMethod(e.target.value as ModePaiement)}>
                                     <option value="ESPECE">Espèce</option>
                                     <option value="WAVE">Wave</option>
                                     <option value="ORANGE_MONEY">Orange Money</option>
@@ -482,7 +481,7 @@ const SalesView: React.FC<SalesViewProps> = ({
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Compte de Destination</label>
-                                <select className="w-full p-2 border border-gray-300 rounded" value={payAccount} onChange={e => setPayAccount(e.target.value)}>
+                                <select className="w-full p-2 border border-gray-300 rounded bg-gray-50" value={payAccount} onChange={e => setPayAccount(e.target.value)}>
                                     <option value="">-- Choisir un compte --</option>
                                     {comptes.map(acc => (
                                         <option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>
@@ -491,7 +490,7 @@ const SalesView: React.FC<SalesViewProps> = ({
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                                <input type="date" className="w-full p-2 border border-gray-300 rounded" value={payDate} onChange={e => setPayDate(e.target.value)} />
+                                <input type="date" className="w-full p-2 border border-gray-300 rounded bg-gray-50" value={payDate} onChange={e => setPayDate(e.target.value)} />
                             </div>
                         </div>
 
@@ -503,7 +502,7 @@ const SalesView: React.FC<SalesViewProps> = ({
                 </div>
             )}
             
-            {/* Modal Confirmation Annulation */}
+            {/* Modal Confirmation Annulation (CORRIGÉ - PLUS DE FLEX-COL) */}
             {isCancelModalOpen && selectedOrderForCancel && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
@@ -539,11 +538,11 @@ const SalesView: React.FC<SalesViewProps> = ({
                 </div>
             )}
 
-            {/* Modal Détails Historique - CORRIGÉ */}
+            {/* Modal Détails Historique (CORRIGÉ - HAUTEUR FIXE) */}
             {selectedOrderDetails && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden">
-                        <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col h-[80vh] overflow-hidden">
+                        <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50 shrink-0">
                             <h3 className="text-lg font-bold text-gray-800">Détails Vente #{selectedOrderDetails.id.slice(-6)}</h3>
                             <button onClick={() => setSelectedOrderDetails(null)} className="p-1 hover:bg-gray-200 rounded-full text-gray-500 transition-colors"><X size={20}/></button>
                         </div>
@@ -617,7 +616,7 @@ const SalesView: React.FC<SalesViewProps> = ({
                             )}
                         </div>
 
-                        <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+                        <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 shrink-0">
                             <button onClick={() => generatePrintContent(selectedOrderDetails, 'TICKET')} className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900 transition-colors">
                                 <Printer size={16}/> Réimprimer
                             </button>
