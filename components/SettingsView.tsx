@@ -270,11 +270,31 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
 
             const mappedData = resultData.map((row: any) => {
                 if (importType === 'CLIENTS') {
+                    // Fonction utilitaire pour parser les nombres proprement
+                    const p = (val: any) => {
+                        if (!val) return 0;
+                        const num = parseFloat(val.replace(',', '.').replace(/[^\d.-]/g, ''));
+                        return isNaN(num) ? 0 : num;
+                    };
+
                     return {
                         id: `C_IMP_${Date.now()}_${Math.random()}`,
                         nom: row.Nom || row.Name || row.nom || 'Client Inconnu',
                         telephone: row.Telephone || row.Phone || row.telephone || '',
-                        mesures: {} 
+                        ville: row.Ville || '',
+                        notes: row.Note || '',
+                        mesures: {
+                            tourCou: p(row['Cou']),
+                            epaule: p(row['Epaule']),
+                            poitrine: p(row['Poitrine']),
+                            longueurManche: p(row['Manche']),
+                            taille: p(row['Taille']),
+                            ceinture: p(row['Ceinture']),
+                            tourFesse: p(row['Bassin']), // Mappage Bassin -> tourFesse
+                            tourCuisse: p(row['Cuisse']),
+                            longueurBoubou1: p(row['L_Boubou']),
+                            longueurPantalon: p(row['L_Pantalon'])
+                        }
                     };
                 } else { // ARTICLES
                     return {
@@ -345,6 +365,45 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                         <FileText className="text-red-500 mb-2 group-hover:scale-110 transition-transform" size={24}/>
                         <span className="text-xs font-bold text-gray-700 text-center">Dépenses</span>
                     </button>
+                </div>
+            </div>
+
+            {/* --- SECTION IMPORT CSV --- */}
+            <div className="bg-white rounded-xl shadow-sm border border-blue-200 overflow-hidden mt-6">
+                <div className="bg-blue-50 p-4 border-b border-blue-100">
+                    <h3 className="font-bold text-blue-900 flex items-center gap-2">
+                        <Upload size={20} /> Importation de Données (CSV)
+                    </h3>
+                    <p className="text-xs text-blue-700 mt-1">
+                        Restaurez vos clients ou articles à partir d'un fichier CSV précédemment exporté.
+                    </p>
+                </div>
+                <div className="p-6">
+                    <div className="flex gap-4 items-end">
+                        <div className="flex-1">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Type de données à importer</label>
+                            <select 
+                                value={importType} 
+                                onChange={(e) => setImportType(e.target.value as any)}
+                                className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                            >
+                                <option value="CLIENTS">Clients & Mesures</option>
+                                <option value="ARTICLES">Articles & Stocks</option>
+                            </select>
+                        </div>
+                        <div className="flex-1">
+                            <input type="file" accept=".csv" ref={csvInputRef} className="hidden" onChange={handleCSVFileChange} />
+                            <button 
+                                onClick={handleCSVImportClick}
+                                className="w-full px-4 py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700 flex items-center justify-center gap-2"
+                            >
+                                <Upload size={18} /> Choisir Fichier CSV & Importer
+                            </button>
+                        </div>
+                    </div>
+                    <div className="mt-2 text-xs text-gray-500">
+                        <strong>Note :</strong> Pour les clients, les mesures (Cou, Epaule, Poitrine, etc.) seront automatiquement récupérées si les colonnes existent dans le CSV.
+                    </div>
                 </div>
             </div>
 
