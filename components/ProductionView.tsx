@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight } from 'lucide-react';
+import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
@@ -107,6 +107,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const montantTotalTTC = Math.max(0, prixBase - remise) + (applyTva ? Math.round(Math.max(0, prixBase - remise) * COMPANY_CONFIG.tvaRate) : 0);
 
     // --- ACTIONS ---
+
+    const handleForceRefresh = () => {
+        window.location.reload();
+    };
 
     const handleOpenCreateModal = () => {
         setIsEditingOrder(false); setSelectedOrderId(null);
@@ -229,6 +233,14 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     <p className="text-sm text-gray-500">Gestion des commandes sur mesure et suivi atelier.</p>
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
+                    <button 
+                        onClick={handleForceRefresh} 
+                        className="bg-white border border-gray-300 text-gray-600 p-2 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
+                        title="Forcer la synchronisation"
+                    >
+                        <RefreshCw size={18} />
+                    </button>
+
                     <button 
                         onClick={() => setIsScannerOpen(true)} 
                         className="bg-gray-800 text-white p-2 rounded-lg hover:bg-gray-900 transition-colors shadow-sm flex items-center gap-2"

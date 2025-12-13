@@ -23,10 +23,7 @@ export function useSyncState<T>(defaultValue: T, key: string): [T, React.Dispatc
                 const remoteData = docSnap.data().content as T;
                 
                 // Comparaison simple pour éviter les re-rendus inutiles
-                // On utilise JSON.stringify qui est suffisant pour les volumes de données actuels
                 if (JSON.stringify(remoteData) !== JSON.stringify(localValueRef.current)) {
-                    // Mise à jour de l'état local avec les données du serveur
-                    // Cela permet au PC de voir immédiatement ce que le mobile a envoyé
                     setValue(remoteData);
                     localValueRef.current = remoteData;
                 }
@@ -38,7 +35,7 @@ export function useSyncState<T>(defaultValue: T, key: string): [T, React.Dispatc
         return () => unsubscribe();
     }, [key]);
 
-    // 2. ÉCRITURE (WRITE) - Debounce pour ne pas surcharger Firebase
+    // 2. ÉCRITURE (WRITE) - Debounce optimisé pour Mobile (500ms)
     const setSyncedValue: React.Dispatch<React.SetStateAction<T>> = (newValueOrFn) => {
         setValue((prev) => {
             const newValue = newValueOrFn instanceof Function ? (newValueOrFn as Function)(prev) : newValueOrFn;
@@ -46,11 +43,10 @@ export function useSyncState<T>(defaultValue: T, key: string): [T, React.Dispatc
             // Mise à jour optimiste locale immédiate
             localValueRef.current = newValue;
 
-            // Annuler l'écriture précédente si elle n'est pas encore partie (debounce)
+            // Annuler l'écriture précédente si elle n'est pas encore partie
             if (timeoutRef.current) clearTimeout(timeoutRef.current);
             
-            // Attendre 1.5s d'inactivité avant d'envoyer au cloud
-            // Cela évite d'envoyer chaque lettre tapée, mais assure l'envoi final
+            // Délai court (500ms) pour capter les clics rapides (Statut, Paiement) tout en groupant la frappe
             timeoutRef.current = setTimeout(async () => {
                 if (!db) return;
                 
@@ -64,7 +60,7 @@ export function useSyncState<T>(defaultValue: T, key: string): [T, React.Dispatc
                 } catch (e) {
                     console.error(`❌ Erreur Sync Écriture [${key}]:`, e);
                 }
-            }, 1500);
+            }, 500);
 
             return newValue;
         });
