@@ -122,7 +122,7 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
         if (files && files.length > 0) {
             setIsUploading(true);
             try {
-                // Conversion en tableau
+                // Conversion en tableau typé File[]
                 const fileList = Array.from(files) as File[];
                 
                 // Lancement de tous les uploads en parallèle

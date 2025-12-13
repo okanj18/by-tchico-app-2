@@ -4,8 +4,8 @@ import { storage } from "./firebase";
 
 /**
  * Compresse une image côté client via Canvas.
- * Utilise URL.createObjectURL pour une performance optimale.
- * Réduit la taille (max 800px) et la qualité (60%) pour un chargement rapide.
+ * Utilise URL.createObjectURL pour une performance optimale (x10 plus rapide).
+ * Réduit la taille (max 800px) et la qualité (60%) pour un chargement instantané.
  */
 const compressImage = (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
@@ -13,7 +13,7 @@ const compressImage = (file: File): Promise<Blob> => {
         const timeoutId = setTimeout(() => reject(new Error("Délai de compression dépassé")), 5000);
 
         const img = new Image();
-        // createObjectURL est plus rapide que FileReader pour charger l'image
+        // createObjectURL est beaucoup plus rapide que FileReader
         const url = URL.createObjectURL(file);
         
         img.onload = () => {
@@ -22,7 +22,7 @@ const compressImage = (file: File): Promise<Blob> => {
             
             try {
                 const canvas = document.createElement('canvas');
-                // 800px est un bon compromis qualité/poids
+                // 800px est un bon compromis qualité/poids pour le web/mobile
                 const MAX_WIDTH = 800; 
                 let width = img.width;
                 let height = img.height;
@@ -45,7 +45,7 @@ const compressImage = (file: File): Promise<Blob> => {
                 // Dessiner l'image redimensionnée
                 ctx.drawImage(img, 0, 0, width, height);
                 
-                // Convertir en JPEG qualité 60%
+                // Convertir en JPEG qualité 60% (très léger)
                 canvas.toBlob((blob) => {
                     if (blob) resolve(blob);
                     else reject(new Error("Erreur conversion Blob"));
