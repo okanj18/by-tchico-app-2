@@ -104,6 +104,23 @@ const HRView: React.FC<HRViewProps> = ({
     const [badgeEmployee, setBadgeEmployee] = useState<Employe | null>(null);
     const [showBatchBadges, setShowBatchBadges] = useState(false);
 
+    // HELPER: ROLE COLOR BADGE
+    const getRoleBadgeColor = (role: string) => {
+        switch (role) {
+            case RoleEmploye.ADMIN: return 'bg-red-100 text-red-800 border border-red-200';
+            case RoleEmploye.GERANT: return 'bg-purple-100 text-purple-800 border border-purple-200';
+            case RoleEmploye.CHEF_ATELIER: return 'bg-indigo-100 text-indigo-800 border border-indigo-200';
+            case RoleEmploye.TAILLEUR: return 'bg-blue-100 text-blue-800 border border-blue-200';
+            case RoleEmploye.VENDEUR: return 'bg-green-100 text-green-800 border border-green-200';
+            case RoleEmploye.LIVREUR: return 'bg-orange-100 text-orange-800 border border-orange-200';
+            case RoleEmploye.CHAUFFEUR: return 'bg-amber-100 text-amber-800 border border-amber-200';
+            case RoleEmploye.GARDIEN: return 'bg-stone-100 text-stone-800 border border-stone-200';
+            case RoleEmploye.ASSISTANT: return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+            case RoleEmploye.STAGIAIRE: return 'bg-gray-100 text-gray-600 border border-gray-200';
+            default: return 'bg-gray-50 text-gray-800 border border-gray-200';
+        }
+    };
+
     // Filtered Data
     const filteredEmployes = employes.filter(e => {
         const matchesSearch = e.nom.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -685,7 +702,11 @@ const HRView: React.FC<HRViewProps> = ({
                                                 )}
                                             </div>
                                         </td>
-                                        <td className="py-3 px-4"><span className="bg-brand-50 text-brand-800 px-2 py-1 rounded text-xs">{emp.role}</span></td>
+                                        <td className="py-3 px-4">
+                                            <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${getRoleBadgeColor(emp.role)}`}>
+                                                {emp.role}
+                                            </span>
+                                        </td>
                                         <td className="py-3 px-4 text-gray-600">{emp.telephone}</td>
                                         <td className="py-3 px-4 text-gray-600">{emp.typeContrat}</td>
                                         <td className="py-3 px-4 text-right font-medium">{emp.salaireBase.toLocaleString()} F</td>
