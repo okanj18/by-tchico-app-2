@@ -575,7 +575,11 @@ const HRView: React.FC<HRViewProps> = ({
                                                         <button onClick={() => openPayModal(emp)} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Paie"><Banknote size={16}/></button>
                                                         <button onClick={() => { setSelectedEmployeeForHistory(emp); setHistoryModalOpen(true); }} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Historique"><History size={16}/></button>
                                                         <button onClick={() => openEditModal(emp)} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded"><Edit2 size={16}/></button>
-                                                        <button onClick={() => onDeleteEmploye(emp.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><Archive size={16}/></button>
+                                                        <button onClick={() => {
+                                                            if (window.confirm("Êtes-vous sûr de vouloir archiver cet employé ? Il ne sera plus visible dans la liste active.")) {
+                                                                onDeleteEmploye(emp.id);
+                                                            }
+                                                        }} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><Archive size={16}/></button>
                                                     </>
                                                 ) : (
                                                     <button onClick={() => onUpdateEmploye({...emp, actif: true})} className="p-1.5 text-green-600 hover:bg-green-50 rounded"><RotateCcw size={16}/></button>
@@ -852,6 +856,183 @@ const HRView: React.FC<HRViewProps> = ({
                             <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Heure Départ</label><input type="time" className="w-full p-2 border rounded" value={editingPointage.heureDepart} onChange={e => setEditingPointage({...editingPointage, heureDepart: e.target.value})}/></div>
                         </div>
                         <div className="flex justify-end gap-3 mt-6"><button onClick={() => setCorrectionModalOpen(false)} className="px-4 py-2 text-gray-600 bg-gray-100 rounded">Annuler</button><button onClick={handleSaveCorrection} className="px-4 py-2 bg-blue-600 text-white rounded font-bold">Corriger</button></div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL TRANSPORT GROUPÉ */}
+            {transportModalOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[75] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 flex flex-col max-h-[90vh]">
+                        <div className="flex justify-between items-center mb-4 shrink-0">
+                            <h3 className="text-xl font-bold flex items-center gap-2 text-indigo-700"><Bus size={24}/> Transport Groupé</h3>
+                            <button onClick={() => setTransportModalOpen(false)}><X size={20}/></button>
+                        </div>
+                        
+                        <div className="mb-4 shrink-0 space-y-3">
+                            <div className="flex gap-4">
+                                <div className="flex-1">
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Montant / Pers.</label>
+                                    <input type="number" className="w-full p-2 border rounded font-bold" value={transportAmount} onChange={e => setTransportAmount(parseInt(e.target.value)||0)}/>
+                                </div>
+                                <div className="flex-1">
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Caisse de sortie</label>
+                                    <select className="w-full p-2 border rounded bg-indigo-50" value={transportAccountId} onChange={e => setTransportAccountId(e.target.value)}>
+                                        <option value="">-- Choisir --</option>
+                                        {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="flex justify-between items-center bg-gray-50 p-2 rounded">
+                                <span className="text-sm font-bold text-gray-600">Sélectionnés: {transportSelection.length}</span>
+                                <button onClick={selectAllTransport} className="text-xs text-blue-600 underline">Tout cocher</button>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto border rounded-lg p-2 space-y-1">
+                            {filteredEmployes.map(emp => (
+                                <div key={emp.id} className={`flex items-center justify-between p-2 rounded cursor-pointer ${transportSelection.includes(emp.id) ? 'bg-indigo-50 border border-indigo-200' : 'hover:bg-gray-50 border border-transparent'}`} onClick={() => toggleTransportSelection(emp.id)}>
+                                    <span className="text-sm font-medium">{emp.nom}</span>
+                                    {transportSelection.includes(emp.id) ? <CheckSquare size={18} className="text-indigo-600"/> : <div className="w-4 h-4 border rounded border-gray-300"></div>}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="mt-4 pt-4 border-t shrink-0 flex justify-between items-center">
+                            <div className="text-sm">Total: <strong>{(transportAmount * transportSelection.length).toLocaleString()} F</strong></div>
+                            <button onClick={handleBulkTransport} className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 font-bold disabled:opacity-50" disabled={transportSelection.length === 0}>Valider Sortie</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL ACTION TRANSACTION (EDIT/DELETE) */}
+            {actionTransactionModalOpen && currentActionTransaction && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
+                        <div className="flex items-center gap-3 text-gray-800 mb-4 border-b border-gray-100 pb-3">
+                            {actionType === 'DELETE' ? <Trash2 className="text-red-600" size={24}/> : <Edit2 className="text-blue-600" size={24}/>}
+                            <h3 className="text-lg font-bold">{actionType === 'DELETE' ? 'Annuler Transaction' : 'Modifier Transaction'}</h3>
+                        </div>
+                        <div className="mb-4 text-sm bg-gray-50 p-3 rounded text-gray-700"><p><strong>Type :</strong> {currentActionTransaction.type}</p><p><strong>Montant Actuel :</strong> {currentActionTransaction.montant.toLocaleString()} F</p></div>
+                        {actionType === 'EDIT' && (<div className="mb-4"><label className="block text-sm font-medium text-gray-700 mb-1">Nouveau Montant</label><input type="number" value={newEditAmount} onChange={e => setNewEditAmount(parseInt(e.target.value) || 0)} className="w-full p-2 border border-gray-300 rounded font-bold"/></div>)}
+                        <div className="mb-6"><label className="block text-sm font-medium text-gray-700 mb-1">{actionType === 'DELETE' ? 'Rembourser (créditer) sur le compte :' : 'Ajuster différence sur le compte :'}</label><select className="w-full p-2 border border-gray-300 rounded bg-blue-50 border-blue-200 text-sm" value={refundAccountId} onChange={(e) => setRefundAccountId(e.target.value)}><option value="">-- Choisir Caisse / Banque --</option>{comptes.map(acc => (<option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>))}</select><p className="text-[10px] text-gray-500 mt-1">{actionType === 'DELETE' ? "Le montant sera rajouté au solde de ce compte." : "La différence sera débitée ou créditée sur ce compte."}</p></div>
+                        <div className="flex justify-end gap-3"><button onClick={() => setActionTransactionModalOpen(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg font-medium">Annuler</button><button onClick={handleProcessTransactionAction} disabled={!refundAccountId} className={`px-4 py-2 text-white rounded-lg font-bold shadow-md disabled:opacity-50 ${actionType === 'DELETE' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>Confirmer</button></div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL PAIE INDIVIDUELLE */}
+            {payModalOpen && selectedEmployeeForPay && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in duration-200">
+                        <div className="bg-gray-800 p-4 text-white flex justify-between items-center">
+                            <h3 className="font-bold flex items-center gap-2"><Banknote size={20} /> Paie: {selectedEmployeeForPay.nom}</h3>
+                            <button onClick={() => setPayModalOpen(false)}><X size={20}/></button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div className="flex gap-4">
+                                <button onClick={() => setPayTab('TRANSACTION')} className={`flex-1 py-2 rounded text-sm font-bold ${payTab === 'TRANSACTION' ? 'bg-brand-100 text-brand-800' : 'bg-gray-100'}`}>Acompte / Prime</button>
+                                <button onClick={() => setPayTab('SALAIRE')} className={`flex-1 py-2 rounded text-sm font-bold ${payTab === 'SALAIRE' ? 'bg-green-100 text-green-800' : 'bg-gray-100'}`}>Salaire Fin de Mois</button>
+                            </div>
+
+                            {payTab === 'TRANSACTION' ? (
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="block text-xs font-bold mb-1">Date</label><input type="date" className="w-full p-2 border rounded" value={transactionData.date} onChange={e => setTransactionData({...transactionData, date: e.target.value})}/></div>
+                                        <div><label className="block text-xs font-bold mb-1">Type</label><select className="w-full p-2 border rounded" value={transactionData.type} onChange={e => setTransactionData({...transactionData, type: e.target.value})}><option value="ACOMPTE">Acompte</option><option value="PRIME">Prime</option></select></div>
+                                    </div>
+                                    {transactionData.type === 'ACOMPTE' && (
+                                        <div><label className="block text-xs font-bold mb-1">Compte Caisse</label><select className="w-full p-2 border rounded" value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)}><option value="">-- Choisir --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                                    )}
+                                    <div><label className="block text-xs font-bold mb-1">Montant</label><input type="number" className="w-full p-2 border rounded font-bold" value={transactionData.montant} onChange={e => setTransactionData({...transactionData, montant: parseInt(e.target.value)||0})}/></div>
+                                    <div><label className="block text-xs font-bold mb-1">Note</label><input type="text" className="w-full p-2 border rounded" value={transactionData.note} onChange={e => setTransactionData({...transactionData, note: e.target.value})}/></div>
+                                    <button onClick={handleSaveTransaction} className="w-full bg-brand-600 text-white p-2 rounded font-bold mt-2">Enregistrer</button>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Calendar size={16} className="text-gray-500" />
+                                        <input 
+                                            type="month" 
+                                            className="border rounded p-1" 
+                                            value={salaryMonth} 
+                                            onChange={e => setSalaryMonth(e.target.value)} 
+                                        />
+                                    </div>
+                                    
+                                    {/* CALCULATOR */}
+                                    {(() => {
+                                        const stats = calculateSalaryDetails(selectedEmployeeForPay, salaryMonth);
+                                        return (
+                                            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200 space-y-2 text-sm">
+                                                <div className="flex justify-between"><span>Salaire de Base</span><span className="font-bold">{stats.salaireBase.toLocaleString()} F</span></div>
+                                                <div className="flex justify-between text-green-600"><span>+ Primes</span><span>+{stats.primes.toLocaleString()} F</span></div>
+                                                <div className="flex justify-between text-orange-600"><span>- Acomptes</span><span>-{stats.acomptes.toLocaleString()} F</span></div>
+                                                {stats.dejaPaye > 0 && <div className="flex justify-between text-blue-600"><span>- Déjà Payé</span><span>-{stats.dejaPaye.toLocaleString()} F</span></div>}
+                                                <div className="border-t border-gray-300 my-2 pt-2 flex justify-between text-lg font-bold">
+                                                    <span>Net à Payer</span>
+                                                    <span>{stats.netAPayer.toLocaleString()} F</span>
+                                                </div>
+
+                                                {stats.netAPayer > 0 ? (
+                                                    <div className="pt-2 mt-2 border-t border-gray-200">
+                                                        <label className="block text-xs font-bold mb-1">Caisse de paiement</label>
+                                                        <select className="w-full p-2 border rounded mb-2" value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)}>
+                                                            <option value="">-- Choisir Caisse --</option>
+                                                            {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
+                                                        </select>
+                                                        <button 
+                                                            onClick={() => handlePaySalaryNet(stats)}
+                                                            className="w-full bg-green-600 text-white p-2 rounded font-bold hover:bg-green-700"
+                                                        >
+                                                            Valider Paiement Salaire
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-center text-gray-500 italic mt-2">Salaire entièrement réglé pour ce mois.</div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL HISTORIQUE PAIE AVEC ACTIONS */}
+            {historyModalOpen && selectedEmployeeForHistory && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="bg-gray-800 text-white p-4 flex justify-between items-center shrink-0"><h3 className="font-bold">Historique: {selectedEmployeeForHistory.nom}</h3><button onClick={() => setHistoryModalOpen(false)}><X size={20}/></button></div>
+                        <div className="p-6 overflow-y-auto flex-1">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-gray-50 font-medium"><tr><th className="p-2">Date</th><th className="p-2">Type</th><th className="p-2">Description</th><th className="p-2 text-right">Montant</th><th className="p-2 text-center">Action</th></tr></thead>
+                                <tbody>
+                                    {selectedEmployeeForHistory.historiquePaie?.map(tr => (
+                                        <tr key={tr.id} className="border-b">
+                                            <td className="p-2">{new Date(tr.date).toLocaleDateString()}</td>
+                                            <td className="p-2"><span className={`px-2 py-0.5 rounded text-xs font-bold ${tr.type === 'SALAIRE_NET' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>{tr.type}</span></td>
+                                            <td className="p-2 text-gray-600 truncate max-w-[150px]">{tr.description}</td>
+                                            <td className="p-2 text-right font-bold">{tr.montant.toLocaleString()} F</td>
+                                            <td className="p-2 text-center">
+                                                {tr.type !== 'SALAIRE_NET' && (
+                                                    <div className="flex justify-center gap-2">
+                                                        <button onClick={() => openActionTransactionModal(tr, 'EDIT')} className="text-blue-500 hover:text-blue-700" title="Modifier"><Edit2 size={14}/></button>
+                                                        <button onClick={() => openActionTransactionModal(tr, 'DELETE')} className="text-red-500 hover:text-red-700" title="Supprimer"><Trash2 size={14}/></button>
+                                                    </div>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {(!selectedEmployeeForHistory.historiquePaie || selectedEmployeeForHistory.historiquePaie.length === 0) && (
+                                        <tr><td colSpan={5} className="p-4 text-center text-gray-400">Aucun historique.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             )}
