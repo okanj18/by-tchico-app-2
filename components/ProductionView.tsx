@@ -130,6 +130,27 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         { id: StatutCommande.PRET, label: 'Prêt', color: 'border-green-300 bg-green-50' }
     ];
 
+    // --- HELPER FUNCTIONS ---
+    const formatPaymentMethod = (method: string) => {
+        switch(method) {
+            case 'ORANGE_MONEY': return 'Orange Money';
+            case 'WAVE': return 'Wave';
+            case 'ESPECE': return 'Espèce';
+            case 'VIREMENT': return 'Virement';
+            case 'CHEQUE': return 'Chèque';
+            default: return method;
+        }
+    };
+
+    const getPaymentColor = (method: string) => {
+        switch(method) {
+            case 'ORANGE_MONEY': return 'bg-orange-50 text-orange-700 border-orange-200';
+            case 'WAVE': return 'bg-blue-50 text-blue-700 border-blue-200';
+            case 'ESPECE': return 'bg-green-50 text-green-700 border-green-200';
+            default: return 'bg-gray-100 text-gray-700 border-gray-200';
+        }
+    };
+
     // --- ACTIONS ---
 
     const handleForceRefresh = () => {
@@ -526,11 +547,11 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         <td className="py-3 px-4 text-gray-600">{cmd.description}</td>
                                         <td className="py-3 px-4 text-right font-medium">{cmd.prixTotal.toLocaleString()} F</td>
                                         <td 
-                                            className="py-3 px-4 text-right text-green-600 cursor-pointer hover:bg-green-50 transition-colors rounded"
+                                            className="py-3 px-4 text-right text-green-600 cursor-pointer hover:bg-green-50 transition-colors rounded flex items-center justify-end gap-1"
                                             onClick={() => openPaymentHistoryModal(cmd)}
                                             title="Voir détail des paiements"
                                         >
-                                            {cmd.avance.toLocaleString()} F
+                                            <List size={12} className="opacity-50"/> {cmd.avance.toLocaleString()} F
                                         </td>
                                         <td className={`py-3 px-4 text-right font-bold ${cmd.reste > 0 ? 'text-red-600' : 'text-gray-400'}`}>
                                             {cmd.reste > 0 ? `${cmd.reste.toLocaleString()} F` : '-'}
@@ -750,10 +771,20 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                     <tbody className="divide-y divide-gray-100">
                                         {selectedOrderForHistory.paiements.map((p, idx) => (
                                             <tr key={idx} className="hover:bg-gray-50">
-                                                <td className="py-2.5 text-gray-600">{new Date(p.date).toLocaleDateString()}</td>
+                                                <td className="py-2.5 text-gray-600">
+                                                    <div className="flex flex-col">
+                                                        <span className="font-medium text-gray-900">{new Date(p.date).toLocaleDateString()}</span>
+                                                        <span className="text-[10px] text-gray-400">{new Date(p.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                                    </div>
+                                                </td>
                                                 <td className="py-2.5">
-                                                    <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded text-xs font-bold border border-gray-200">
-                                                        {p.moyenPaiement}
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold border ${
+                                                        p.moyenPaiement === 'ESPECE' ? 'bg-green-50 text-green-700 border-green-200' :
+                                                        p.moyenPaiement === 'WAVE' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                                        p.moyenPaiement === 'ORANGE_MONEY' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                                        'bg-gray-100 text-gray-700 border-gray-200'
+                                                    }`}>
+                                                        {formatPaymentMethod(p.moyenPaiement)}
                                                     </span>
                                                 </td>
                                                 <td className="py-2.5 text-xs text-gray-500 italic max-w-[120px] truncate">{p.note || '-'}</td>

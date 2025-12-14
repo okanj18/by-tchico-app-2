@@ -525,7 +525,7 @@ const App: React.FC = () => {
                                 articleId: l.articleId,
                                 articleNom: l.nomArticle,
                                 variante: l.variante,
-                                type: 'ACHAT',
+                                type: TypeMouvement.ACHAT,
                                 quantite: qty,
                                 lieuId: lieuId,
                                 commentaire: `Réception CF ${c.id}`
