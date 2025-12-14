@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon } from 'lucide-react';
+import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
@@ -38,7 +38,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [filterTailor, setFilterTailor] = useState('ALL');
     const [filterDeliveryDateStart, setFilterDeliveryDateStart] = useState('');
     const [filterDeliveryDateEnd, setFilterDeliveryDateEnd] = useState('');
-    const [historyFilterDebt, setHistoryFilterDebt] = useState(false); // New filter for unpaid delivered items
+    const [historyFilterDebt, setHistoryFilterDebt] = useState(false); 
     
     // MODALS
     const [qrModalOpen, setQrModalOpen] = useState(false);
@@ -53,6 +53,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditingOrder, setIsEditingOrder] = useState(false);
     const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+
+    // NEW: PAYMENT HISTORY DETAILS MODAL
+    const [paymentHistoryModalOpen, setPaymentHistoryModalOpen] = useState(false);
+    const [selectedOrderForHistory, setSelectedOrderForHistory] = useState<Commande | null>(null);
     
     // FORM ORDER
     const [selectedClientId, setSelectedClientId] = useState('');
@@ -191,9 +195,20 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             tva: applyTva ? Math.round(Math.max(0, prixBase - remise) * COMPANY_CONFIG.tvaRate) : 0,
             remise, avance, reste: Math.max(0, montantTotalTTC - avance),
             type: 'SUR_MESURE',
-            paiements: [], 
+            paiements: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.paiements || []) : [],
             consommations: consommations.map(c => ({ articleId: c.articleId, variante: c.variante, quantite: c.quantite }))
         };
+
+        // Si c'est une création et qu'il y a une avance, on ajoute le paiement initial à l'historique
+        if (!isEditingOrder && avance > 0) {
+            orderData.paiements = [{
+                id: `PAY_INIT_${Date.now()}`,
+                date: new Date().toISOString(),
+                montant: avance,
+                moyenPaiement: initialPaymentMethod,
+                note: "Avance à la commande"
+            }];
+        }
 
         if (isEditingOrder) {
             onUpdateOrder(orderData, initialAccountId, initialPaymentMethod);
@@ -209,6 +224,11 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         setPaymentAmount(cmd.reste);
         setPaymentAccountId('');
         setPaymentModalOpen(true);
+    };
+
+    const openPaymentHistoryModal = (cmd: Commande) => {
+        setSelectedOrderForHistory(cmd);
+        setPaymentHistoryModalOpen(true);
     };
 
     const handleConfirmPayment = () => {
@@ -505,7 +525,13 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         <td className="py-3 px-4 font-bold text-gray-800">{cmd.clientNom}</td>
                                         <td className="py-3 px-4 text-gray-600">{cmd.description}</td>
                                         <td className="py-3 px-4 text-right font-medium">{cmd.prixTotal.toLocaleString()} F</td>
-                                        <td className="py-3 px-4 text-right text-green-600">{cmd.avance.toLocaleString()} F</td>
+                                        <td 
+                                            className="py-3 px-4 text-right text-green-600 cursor-pointer hover:bg-green-50 transition-colors rounded"
+                                            onClick={() => openPaymentHistoryModal(cmd)}
+                                            title="Voir détail des paiements"
+                                        >
+                                            {cmd.avance.toLocaleString()} F
+                                        </td>
                                         <td className={`py-3 px-4 text-right font-bold ${cmd.reste > 0 ? 'text-red-600' : 'text-gray-400'}`}>
                                             {cmd.reste > 0 ? `${cmd.reste.toLocaleString()} F` : '-'}
                                         </td>
@@ -522,9 +548,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                         className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs font-bold shadow-sm transition-colors"
                                                         title="Encaisser le reste"
                                                     >
-                                                        <Wallet size={12}/> Encaisser
+                                                        <Wallet size={12}/>
                                                     </button>
                                                 )}
+                                                <button onClick={() => openPaymentHistoryModal(cmd)} className="text-gray-500 hover:text-purple-600 p-1 bg-gray-100 rounded" title="Historique Paiements"><List size={16}/></button>
                                                 <button onClick={() => generatePrintContent(cmd)} className="text-gray-500 hover:text-gray-800 p-1" title="Réimprimer"><Printer size={16}/></button>
                                                 <button onClick={() => handleOpenEditModal(cmd)} className="text-gray-500 hover:text-blue-600 p-1" title="Voir/Modifier"><Eye size={16}/></button>
                                             </div>
@@ -672,6 +699,79 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         <div className="p-4 border-t bg-gray-50 flex justify-end gap-3 rounded-b-xl">
                             <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 bg-white border rounded text-gray-700 hover:bg-gray-100">Annuler</button>
                             <button onClick={handleSaveOrder} className="px-4 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 font-bold">Enregistrer</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL PAYMENT HISTORY (NEW) */}
+            {paymentHistoryModalOpen && selectedOrderForHistory && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[90] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[80vh]">
+                        <div className="bg-gray-800 text-white p-4 flex justify-between items-center shrink-0">
+                            <h3 className="font-bold flex items-center gap-2"><List size={18}/> Historique Paiements</h3>
+                            <button onClick={() => setPaymentHistoryModalOpen(false)}><X size={20}/></button>
+                        </div>
+                        
+                        <div className="p-4 bg-gray-50 border-b border-gray-200 shrink-0">
+                            <div className="flex justify-between items-end mb-2">
+                                <div>
+                                    <p className="text-xs text-gray-500 font-bold uppercase">Commande</p>
+                                    <p className="font-bold text-gray-800">#{selectedOrderForHistory.id.slice(-6)} - {selectedOrderForHistory.clientNom}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-xs text-gray-500 font-bold uppercase">Total</p>
+                                    <p className="font-bold text-brand-600">{selectedOrderForHistory.prixTotal.toLocaleString()} F</p>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 mt-3">
+                                <div className="bg-green-100 p-2 rounded border border-green-200 text-center">
+                                    <span className="text-xs text-green-800 block">Déjà Payé</span>
+                                    <span className="font-bold text-green-900">{selectedOrderForHistory.avance.toLocaleString()} F</span>
+                                </div>
+                                <div className="bg-red-100 p-2 rounded border border-red-200 text-center">
+                                    <span className="text-xs text-red-800 block">Reste à Payer</span>
+                                    <span className="font-bold text-red-900">{selectedOrderForHistory.reste.toLocaleString()} F</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-4">
+                            {selectedOrderForHistory.paiements && selectedOrderForHistory.paiements.length > 0 ? (
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-white border-b border-gray-200 text-gray-500 font-medium text-xs uppercase">
+                                        <tr>
+                                            <th className="py-2">Date</th>
+                                            <th className="py-2">Mode</th>
+                                            <th className="py-2">Note</th>
+                                            <th className="py-2 text-right">Montant</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {selectedOrderForHistory.paiements.map((p, idx) => (
+                                            <tr key={idx} className="hover:bg-gray-50">
+                                                <td className="py-2.5 text-gray-600">{new Date(p.date).toLocaleDateString()}</td>
+                                                <td className="py-2.5">
+                                                    <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded text-xs font-bold border border-gray-200">
+                                                        {p.moyenPaiement}
+                                                    </span>
+                                                </td>
+                                                <td className="py-2.5 text-xs text-gray-500 italic max-w-[120px] truncate">{p.note || '-'}</td>
+                                                <td className="py-2.5 text-right font-bold text-green-600">+{p.montant.toLocaleString()} F</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <div className="text-center py-8 text-gray-400">
+                                    <CreditCard size={32} className="mx-auto mb-2 opacity-20"/>
+                                    <p>Aucun paiement enregistré.</p>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="p-3 border-t bg-gray-50 text-right shrink-0">
+                            <button onClick={() => setPaymentHistoryModalOpen(false)} className="px-4 py-2 bg-white border rounded text-gray-600 hover:bg-gray-100 text-sm font-medium">Fermer</button>
                         </div>
                     </div>
                 </div>
