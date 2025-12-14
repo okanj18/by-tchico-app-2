@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie, Absence } from '../types';
-import { Users, Calendar, DollarSign, Plus, Edit2, Trash2, CheckCircle, XCircle, Search, Clock, Briefcase, Wallet, X, Bus, CheckSquare, History, UserMinus, AlertTriangle, Printer, Lock, RotateCcw, Banknote, QrCode, Camera, Archive } from 'lucide-react';
-import { createAuthUser } from '../services/firebase';
+import { Users, Calendar, DollarSign, Plus, Edit2, Trash2, CheckCircle, XCircle, Search, Clock, Briefcase, Wallet, X, Bus, CheckSquare, History, UserMinus, AlertTriangle, Printer, Lock, RotateCcw, Banknote, QrCode, Camera, Archive, Calculator, ChevronRight } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 import { QRCodeCanvas } from 'qrcode.react';
 
@@ -48,18 +47,15 @@ const HRView: React.FC<HRViewProps> = ({
     const [transportAmount, setTransportAmount] = useState(1000);
     const [transportAccountId, setTransportAccountId] = useState('');
 
-    // Access Modal
-    const [accessModalOpen, setAccessModalOpen] = useState(false);
-    const [accessEmployee, setAccessEmployee] = useState<Employe | null>(null);
-    const [newPassword, setNewPassword] = useState('');
-
     // Pay Modal
     const [payModalOpen, setPayModalOpen] = useState(false);
     const [selectedEmployeeForPay, setSelectedEmployeeForPay] = useState<Employe | null>(null);
     const [payTab, setPayTab] = useState<'TRANSACTION' | 'SALAIRE'>('TRANSACTION');
     const [paymentAccountId, setPaymentAccountId] = useState<string>('');
     const [transactionData, setTransactionData] = useState({ date: new Date().toISOString().split('T')[0], type: 'ACOMPTE', montant: 0, note: '' });
-    const [salaryData, setSalaryData] = useState({ period: '', note: '' });
+    
+    // Salary Month State
+    const [salaryMonth, setSalaryMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
 
     // History Modal
     const [historyModalOpen, setHistoryModalOpen] = useState(false);
@@ -75,8 +71,7 @@ const HRView: React.FC<HRViewProps> = ({
     // Pointage Logic
     const [pointageDate, setPointageDate] = useState(new Date().toISOString().split('T')[0]);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
-    const [attendanceHistoryModalOpen, setAttendanceHistoryModalOpen] = useState(false);
-    const [selectedEmployeeForAttendance, setSelectedEmployeeForAttendance] = useState<Employe | null>(null);
+    const [manualBadgeId, setManualBadgeId] = useState('');
     
     // Correction Pointage
     const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
@@ -102,6 +97,26 @@ const HRView: React.FC<HRViewProps> = ({
     });
 
     const dailyPointages = pointages.filter(p => p.date === pointageDate);
+
+    // --- CALCUL SALAIRE ---
+    const calculateSalaryDetails = (emp: Employe, monthStr: string) => {
+        const [year, month] = monthStr.split('-').map(Number);
+        
+        // Filtrer les transactions du mois
+        const monthTransactions = emp.historiquePaie?.filter(t => {
+            const d = new Date(t.date);
+            return d.getFullYear() === year && d.getMonth() + 1 === month;
+        }) || [];
+
+        const acomptes = monthTransactions.filter(t => t.type === 'ACOMPTE').reduce((sum, t) => sum + t.montant, 0);
+        const primes = monthTransactions.filter(t => t.type === 'PRIME').reduce((sum, t) => sum + t.montant, 0);
+        const dejaPaye = monthTransactions.filter(t => t.type === 'SALAIRE_NET').reduce((sum, t) => sum + t.montant, 0);
+
+        const salaireBase = emp.salaireBase || 0;
+        const netAPayer = Math.max(0, salaireBase + primes - acomptes - dejaPaye);
+
+        return { salaireBase, acomptes, primes, dejaPaye, netAPayer, monthTransactions };
+    };
 
     // --- ACTIONS POINTAGE ---
 
@@ -143,12 +158,18 @@ const HRView: React.FC<HRViewProps> = ({
     };
 
     const handleScanAttendance = (scannedText: string) => {
-        const employe = employes.find(e => e.id === scannedText);
-        if (!employe) { alert("Badge inconnu !"); return; }
+        // Nettoyage input si manuel
+        const empId = scannedText.trim();
+        const employe = employes.find(e => e.id === empId);
+        
+        if (!employe) { 
+            if (!isScannerOpen) alert("Badge inconnu !"); // Alert seulement si manuel pour éviter spam scanner
+            return; 
+        }
 
         const today = new Date().toISOString().split('T')[0];
         if (pointageDate !== today) {
-            if(!window.confirm(`Vous scannez pour le ${today}, mais l'affichage est sur le ${pointageDate}. Basculer à aujourd'hui ?`)) return;
+            if(!window.confirm(`Vous pointez pour le ${today}, mais l'affichage est sur le ${pointageDate}. Basculer à aujourd'hui ?`)) return;
             setPointageDate(today);
         }
 
@@ -156,12 +177,20 @@ const HRView: React.FC<HRViewProps> = ({
 
         if (!existingPt) {
             handleClockIn(employe.id);
-            alert(`✅ ${employe.nom} : Arrivée enregistrée !`);
+            if (!isScannerOpen) alert(`✅ ${employe.nom} : Arrivée enregistrée !`);
         } else if (!existingPt.heureDepart && existingPt.statut !== 'ABSENT') {
             handleClockOut(existingPt);
-            alert(`👋 ${employe.nom} : Départ enregistré !`);
+            if (!isScannerOpen) alert(`👋 ${employe.nom} : Départ enregistré !`);
         } else {
-            alert(`⚠️ ${employe.nom} a déjà terminé sa journée ou est absent.`);
+            if (!isScannerOpen) alert(`⚠️ ${employe.nom} a déjà terminé sa journée ou est absent.`);
+        }
+        
+        // Reset manuel
+        setManualBadgeId('');
+        // Fermer scanner si ouvert
+        if (isScannerOpen) {
+            setIsScannerOpen(false);
+            alert(`Pointage réussi pour ${employe.nom}`);
         }
     };
 
@@ -278,6 +307,42 @@ const HRView: React.FC<HRViewProps> = ({
         setSelectedEmployeeForPay(updatedEmp);
         setTransactionData({ ...transactionData, montant: 0, note: '' });
         alert("Opération enregistrée !");
+    };
+
+    const handlePaySalaryNet = (stats: any) => {
+        if (!selectedEmployeeForPay) return;
+        if (!paymentAccountId) { alert("Veuillez sélectionner la caisse de paiement."); return; }
+        if (stats.netAPayer <= 0) { alert("Aucun montant à payer."); return; }
+
+        const account = comptes.find(c => c.id === paymentAccountId);
+        if (account && account.solde < stats.netAPayer) {
+            alert(`Solde insuffisant sur ${account.nom}.`);
+            return;
+        }
+
+        const transaction: TransactionPaie = {
+            id: `TR_SAL_${Date.now()}`,
+            date: new Date().toISOString(),
+            type: 'SALAIRE_NET',
+            montant: stats.netAPayer,
+            description: `Solde Salaire ${salaryMonth}`
+        };
+
+        const updatedEmp = { ...selectedEmployeeForPay, historiquePaie: [transaction, ...(selectedEmployeeForPay.historiquePaie || [])] };
+        onUpdateEmploye(updatedEmp);
+
+        onAddDepense({
+            id: `D_SAL_${Date.now()}`,
+            date: new Date().toISOString().split('T')[0],
+            montant: stats.netAPayer,
+            categorie: 'SALAIRE',
+            description: `Solde Salaire ${selectedEmployeeForPay.nom} (${salaryMonth})`,
+            boutiqueId: selectedEmployeeForPay.boutiqueId || 'ATELIER',
+            compteId: paymentAccountId
+        });
+
+        setSelectedEmployeeForPay(updatedEmp);
+        alert("Salaire validé et payé !");
     };
 
     const openActionTransactionModal = (t: TransactionPaie, action: 'EDIT' | 'DELETE') => {
@@ -442,7 +507,7 @@ const HRView: React.FC<HRViewProps> = ({
             {/* TAB POINTAGE */}
             {activeTab === 'POINTAGE' && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
-                    <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                    <div className="p-4 border-b border-gray-100 flex flex-wrap justify-between items-center bg-gray-50 gap-4">
                         <div className="flex items-center gap-4">
                             <div className="flex items-center gap-2 bg-white border border-gray-300 rounded px-3 py-1.5">
                                 <Calendar size={18} className="text-gray-500"/>
@@ -452,9 +517,28 @@ const HRView: React.FC<HRViewProps> = ({
                                 onClick={() => setIsScannerOpen(true)}
                                 className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded font-bold text-sm flex items-center gap-2"
                             >
-                                <Camera size={16} /> Scanner Pointage
+                                <Camera size={16} /> Scanner Badge
                             </button>
                         </div>
+                        
+                        {/* SAISIE MANUELLE BADGE */}
+                        <div className="flex items-center gap-2">
+                            <input 
+                                type="text" 
+                                placeholder="ID Badge Manuel" 
+                                className="p-1.5 text-sm border rounded w-32"
+                                value={manualBadgeId}
+                                onChange={(e) => setManualBadgeId(e.target.value)}
+                                onKeyPress={(e) => e.key === 'Enter' && handleScanAttendance(manualBadgeId)}
+                            />
+                            <button 
+                                onClick={() => handleScanAttendance(manualBadgeId)}
+                                className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm font-bold"
+                            >
+                                Pointer
+                            </button>
+                        </div>
+
                         {!isPointageOnly && <div className="text-xs text-gray-500 font-bold">Présents: {dailyPointages.filter(p => p.statut === 'PRESENT' || p.statut === 'RETARD').length}</div>}
                     </div>
                     <div className="overflow-x-auto flex-1">
@@ -465,7 +549,7 @@ const HRView: React.FC<HRViewProps> = ({
                                     const pt = dailyPointages.find(p => p.employeId === emp.id);
                                     return (
                                         <tr key={emp.id} className="hover:bg-gray-50">
-                                            <td className="py-3 px-4 font-bold text-gray-800">{emp.nom} <span className="text-xs text-gray-400 font-normal">({emp.role})</span></td>
+                                            <td className="py-3 px-4 font-bold text-gray-800">{emp.nom} <span className="text-xs text-gray-400 font-normal">({emp.role})</span><br/><span className="text-[10px] text-gray-400 font-mono">ID: {emp.id}</span></td>
                                             <td className="py-3 px-4 text-center">{pt ? <span className={`px-2 py-1 rounded text-xs font-bold ${getPointageStatusColor(pt.statut)}`}>{pt.statut}</span> : <span className="text-gray-400 text-xs">NON POINTÉ</span>}</td>
                                             <td className="py-3 px-4 text-center">{pt?.heureArrivee || '-'}</td>
                                             <td className="py-3 px-4 text-center">{pt?.heureDepart || '-'}</td>
@@ -593,7 +677,52 @@ const HRView: React.FC<HRViewProps> = ({
                                     <button onClick={handleSaveTransaction} className="w-full bg-brand-600 text-white p-2 rounded font-bold mt-2">Enregistrer</button>
                                 </div>
                             ) : (
-                                <div className="text-center py-8 text-gray-500">Module Salaire Complet à venir...</div>
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Calendar size={16} className="text-gray-500" />
+                                        <input 
+                                            type="month" 
+                                            className="border rounded p-1" 
+                                            value={salaryMonth} 
+                                            onChange={e => setSalaryMonth(e.target.value)} 
+                                        />
+                                    </div>
+                                    
+                                    {/* CALCULATOR */}
+                                    {(() => {
+                                        const stats = calculateSalaryDetails(selectedEmployeeForPay, salaryMonth);
+                                        return (
+                                            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200 space-y-2 text-sm">
+                                                <div className="flex justify-between"><span>Salaire de Base</span><span className="font-bold">{stats.salaireBase.toLocaleString()} F</span></div>
+                                                <div className="flex justify-between text-green-600"><span>+ Primes</span><span>+{stats.primes.toLocaleString()} F</span></div>
+                                                <div className="flex justify-between text-orange-600"><span>- Acomptes</span><span>-{stats.acomptes.toLocaleString()} F</span></div>
+                                                {stats.dejaPaye > 0 && <div className="flex justify-between text-blue-600"><span>- Déjà Payé</span><span>-{stats.dejaPaye.toLocaleString()} F</span></div>}
+                                                <div className="border-t border-gray-300 my-2 pt-2 flex justify-between text-lg font-bold">
+                                                    <span>Net à Payer</span>
+                                                    <span>{stats.netAPayer.toLocaleString()} F</span>
+                                                </div>
+
+                                                {stats.netAPayer > 0 ? (
+                                                    <div className="pt-2 mt-2 border-t border-gray-200">
+                                                        <label className="block text-xs font-bold mb-1">Caisse de paiement</label>
+                                                        <select className="w-full p-2 border rounded mb-2" value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)}>
+                                                            <option value="">-- Choisir Caisse --</option>
+                                                            {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
+                                                        </select>
+                                                        <button 
+                                                            onClick={() => handlePaySalaryNet(stats)}
+                                                            className="w-full bg-green-600 text-white p-2 rounded font-bold hover:bg-green-700"
+                                                        >
+                                                            Valider Paiement Salaire
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-center text-gray-500 italic mt-2">Salaire entièrement réglé pour ce mois.</div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
                             )}
                         </div>
                     </div>
