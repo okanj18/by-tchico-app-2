@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw } from 'lucide-react';
+import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
@@ -25,7 +25,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     onUpdateStatus, onCreateOrder, onUpdateOrder, onAddPayment, onArchiveOrder, comptes, companyAssets 
 }) => {
     // --- STATE ---
-    const [viewMode, setViewMode] = useState<'ORDERS' | 'TAILORS' | 'PERFORMANCE'>('ORDERS');
+    const [viewMode, setViewMode] = useState<'ORDERS' | 'TAILORS' | 'PERFORMANCE' | 'KANBAN'>('KANBAN');
     const [showArchived, setShowArchived] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     
@@ -105,6 +105,15 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
     // Calculate totals for form
     const montantTotalTTC = Math.max(0, prixBase - remise) + (applyTva ? Math.round(Math.max(0, prixBase - remise) * COMPANY_CONFIG.tvaRate) : 0);
+
+    // --- KANBAN CONFIG ---
+    const KANBAN_COLUMNS = [
+        { id: StatutCommande.EN_ATTENTE, label: 'En Attente', color: 'border-gray-300 bg-gray-50' },
+        { id: StatutCommande.EN_COUPE, label: 'Coupe', color: 'border-blue-300 bg-blue-50' },
+        { id: StatutCommande.COUTURE, label: 'Couture', color: 'border-indigo-300 bg-indigo-50' },
+        { id: StatutCommande.FINITION, label: 'Finition', color: 'border-purple-300 bg-purple-50' },
+        { id: StatutCommande.PRET, label: 'Prêt', color: 'border-green-300 bg-green-50' }
+    ];
 
     // --- ACTIONS ---
 
@@ -210,6 +219,25 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         setSearchTerm(decodedText);
     };
 
+    // --- DRAG AND DROP HANDLERS ---
+    const handleDragStart = (e: React.DragEvent, orderId: string) => {
+        e.dataTransfer.setData("orderId", orderId);
+        e.dataTransfer.effectAllowed = "move";
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+    };
+
+    const handleDrop = (e: React.DragEvent, newStatus: string) => {
+        e.preventDefault();
+        const orderId = e.dataTransfer.getData("orderId");
+        if (orderId) {
+            onUpdateStatus(orderId, newStatus as StatutCommande);
+        }
+    };
+
     // --- RENDER HELPERS ---
     const getStatusColor = (s: string) => {
         switch(s) {
@@ -225,9 +253,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 h-[calc(100vh-8rem)] flex flex-col">
             {/* HEADER */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                 <div>
                     <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier Production</h2>
                     <p className="text-sm text-gray-500">Gestion des commandes sur mesure et suivi atelier.</p>
@@ -250,9 +278,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     </button>
 
                     <div className="flex bg-white border border-gray-200 p-1 rounded-lg">
-                        <button onClick={() => setViewMode('ORDERS')} className={`px-3 py-1.5 text-xs font-bold rounded ${viewMode === 'ORDERS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><LayoutList size={14}/> Commandes</button>
-                        <button onClick={() => setViewMode('TAILORS')} className={`px-3 py-1.5 text-xs font-bold rounded ${viewMode === 'TAILORS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Users size={14}/> Tailleurs</button>
-                        <button onClick={() => setViewMode('PERFORMANCE')} className={`px-3 py-1.5 text-xs font-bold rounded ${viewMode === 'PERFORMANCE' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Trophy size={14}/> Performance</button>
+                        <button onClick={() => setViewMode('KANBAN')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'KANBAN' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Columns size={14}/> Kanban</button>
+                        <button onClick={() => setViewMode('ORDERS')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'ORDERS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><LayoutList size={14}/> Liste</button>
+                        <button onClick={() => setViewMode('TAILORS')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'TAILORS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Users size={14}/> Tailleurs</button>
+                        <button onClick={() => setViewMode('PERFORMANCE')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'PERFORMANCE' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Trophy size={14}/> Stats</button>
                     </div>
                     {!showArchived && (
                         <button onClick={handleOpenCreateModal} className="bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-brand-700"><Plus size={16}/> Créer</button>
@@ -261,8 +290,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             </div>
 
             {/* FILTERS */}
-            {viewMode === 'ORDERS' && (
-                <div className="bg-white p-3 rounded-lg border border-gray-200 flex flex-wrap gap-3 items-center">
+            {(viewMode === 'ORDERS' || viewMode === 'KANBAN') && (
+                <div className="bg-white p-3 rounded-lg border border-gray-200 flex flex-wrap gap-3 items-center shrink-0">
                     <div className="relative flex-1 min-w-[200px]">
                         <Search className="absolute left-3 top-2.5 text-gray-400" size={16}/>
                         <input type="text" className="w-full pl-9 pr-4 py-2 bg-gray-50 border-none rounded-lg text-sm" placeholder="Rechercher client, description..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
@@ -279,137 +308,202 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* VIEW: ORDERS */}
+            {/* VIEW: KANBAN */}
+            {viewMode === 'KANBAN' && (
+                <div className="flex-1 overflow-x-auto overflow-y-hidden pb-2">
+                    <div className="flex gap-4 h-full min-w-max">
+                        {KANBAN_COLUMNS.map(column => {
+                            const columnOrders = filteredCommandes.filter(c => c.statut === column.id);
+                            return (
+                                <div 
+                                    key={column.id} 
+                                    className={`w-[280px] md:w-[320px] flex flex-col h-full rounded-xl border ${column.color} transition-colors`}
+                                    onDragOver={handleDragOver}
+                                    onDrop={(e) => handleDrop(e, column.id)}
+                                >
+                                    <div className="p-3 font-bold text-gray-700 flex justify-between items-center border-b border-gray-200/50 bg-white/50 rounded-t-xl shrink-0">
+                                        <span>{column.label}</span>
+                                        <span className="bg-white px-2 py-0.5 rounded-full text-xs shadow-sm">{columnOrders.length}</span>
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto p-2 space-y-3 custom-scrollbar">
+                                        {columnOrders.map(cmd => (
+                                            <div 
+                                                key={cmd.id} 
+                                                className="bg-white p-3 rounded-lg shadow-sm border border-gray-100 cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow group relative"
+                                                draggable
+                                                onDragStart={(e) => handleDragStart(e, cmd.id)}
+                                            >
+                                                {/* Mini Quick Actions */}
+                                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 bg-white/90 rounded p-0.5">
+                                                    <button onClick={() => handleOpenEditModal(cmd)} className="p-1 hover:text-blue-600"><Edit2 size={12}/></button>
+                                                    <button onClick={() => {setQrOrder(cmd); setQrModalOpen(true);}} className="p-1 hover:text-brand-600"><QrCode size={12}/></button>
+                                                </div>
+
+                                                <div className="font-bold text-gray-800 text-sm mb-1">{cmd.clientNom}</div>
+                                                <p className="text-xs text-gray-500 mb-2 line-clamp-2">{cmd.description}</p>
+                                                
+                                                <div className="flex justify-between items-end mt-2">
+                                                    <div className="flex items-center gap-1 text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">
+                                                        <Clock size={10}/> {new Date(cmd.dateLivraisonPrevue).toLocaleDateString(undefined, {month:'numeric', day:'numeric'})}
+                                                    </div>
+                                                    <div className="flex -space-x-1">
+                                                        {cmd.tailleursIds.map(tid => {
+                                                            const t = tailleurs.find(emp => emp.id === tid);
+                                                            return t ? (
+                                                                <div key={tid} className="w-5 h-5 rounded-full bg-blue-100 border border-white text-[8px] flex items-center justify-center text-blue-800 font-bold" title={t.nom}>
+                                                                    {t.nom.charAt(0)}
+                                                                </div>
+                                                            ) : null;
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* VIEW: ORDERS (GRID) */}
             {viewMode === 'ORDERS' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {filteredCommandes.map(cmd => (
-                        <div key={cmd.id} className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col h-full overflow-hidden">
-                            {/* Card Body - Clickable space reduced to specific areas to avoid conflicts */}
-                            <div className="p-5 flex-1 relative">
-                                {/* Absolute Actions */}
-                                <div className="absolute top-2 right-2 flex gap-1 z-10">
-                                    <button onClick={() => {setQrOrder(cmd); setQrModalOpen(true);}} className="p-1.5 text-gray-400 hover:text-brand-600 bg-white/80 rounded-full hover:bg-gray-100"><QrCode size={16}/></button>
-                                    {!showArchived && cmd.statut !== StatutCommande.LIVRE && cmd.statut !== StatutCommande.ANNULE && (
-                                        <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-gray-400 hover:text-blue-600 bg-white/80 rounded-full hover:bg-gray-100"><Edit2 size={16}/></button>
+                <div className="flex-1 overflow-y-auto">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20">
+                        {filteredCommandes.map(cmd => (
+                            <div key={cmd.id} className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col h-full overflow-hidden">
+                                {/* Card Body - Clickable space reduced to specific areas to avoid conflicts */}
+                                <div className="p-5 flex-1 relative">
+                                    {/* Absolute Actions */}
+                                    <div className="absolute top-2 right-2 flex gap-1 z-10">
+                                        <button onClick={() => {setQrOrder(cmd); setQrModalOpen(true);}} className="p-1.5 text-gray-400 hover:text-brand-600 bg-white/80 rounded-full hover:bg-gray-100"><QrCode size={16}/></button>
+                                        {!showArchived && cmd.statut !== StatutCommande.LIVRE && cmd.statut !== StatutCommande.ANNULE && (
+                                            <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-gray-400 hover:text-blue-600 bg-white/80 rounded-full hover:bg-gray-100"><Edit2 size={16}/></button>
+                                        )}
+                                        <button onClick={() => generatePrintContent(cmd)} className="p-1.5 text-gray-400 hover:text-gray-800 bg-white/80 rounded-full hover:bg-gray-100"><Printer size={16}/></button>
+                                    </div>
+
+                                    <div className="flex justify-between items-start mb-2 pr-12">
+                                        <h3 className="font-bold text-lg text-gray-800 truncate">{cmd.clientNom}</h3>
+                                    </div>
+                                    
+                                    <span className={`inline-block text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wider mb-2 ${getStatusColor(cmd.statut)}`}>{cmd.statut}</span>
+                                    <p className="text-sm text-gray-600 mb-3 line-clamp-2">{cmd.description}</p>
+                                    
+                                    <div className="flex items-center gap-4 text-xs text-gray-500 mb-4">
+                                        <div className="flex items-center gap-1"><Calendar size={12}/> {new Date(cmd.dateLivraisonPrevue).toLocaleDateString()}</div>
+                                        <div className="flex items-center gap-1"><Shirt size={12}/> Qté: {cmd.quantite}</div>
+                                    </div>
+
+                                    <div className="flex flex-wrap gap-1">
+                                        {cmd.tailleursIds.map(tid => {
+                                            const t = tailleurs.find(emp => emp.id === tid);
+                                            return t ? <span key={tid} className="text-[10px] bg-gray-100 px-2 py-0.5 rounded text-gray-600">{t.nom}</span> : null;
+                                        })}
+                                    </div>
+                                </div>
+
+                                {/* Card Footer - Explicitly separate stacking context */}
+                                <div className="p-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between z-20 relative">
+                                    <div className="text-xs">
+                                        {cmd.reste > 0 ? <span className="text-red-600 font-bold">Reste: {cmd.reste.toLocaleString()} F</span> : <span className="text-green-600 font-bold flex items-center gap-1"><CheckSquare size={10}/> Payé</span>}
+                                    </div>
+                                    
+                                    {canSeeFinance && cmd.reste > 0 && (
+                                        <button 
+                                            onClick={(e) => { 
+                                                e.preventDefault(); 
+                                                e.stopPropagation(); 
+                                                openPaymentModal(cmd); 
+                                            }}
+                                            className="px-4 py-2 bg-brand-600 text-white text-xs font-bold rounded shadow hover:bg-brand-700 cursor-pointer active:scale-95 transition-transform"
+                                            style={{ zIndex: 50, position: 'relative' }} // FORCE Z-INDEX ON WINDOWS
+                                        >
+                                            ENCAISSER
+                                        </button>
                                     )}
-                                    <button onClick={() => generatePrintContent(cmd)} className="p-1.5 text-gray-400 hover:text-gray-800 bg-white/80 rounded-full hover:bg-gray-100"><Printer size={16}/></button>
-                                </div>
-
-                                <div className="flex justify-between items-start mb-2 pr-12">
-                                    <h3 className="font-bold text-lg text-gray-800 truncate">{cmd.clientNom}</h3>
-                                </div>
-                                
-                                <span className={`inline-block text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wider mb-2 ${getStatusColor(cmd.statut)}`}>{cmd.statut}</span>
-                                <p className="text-sm text-gray-600 mb-3 line-clamp-2">{cmd.description}</p>
-                                
-                                <div className="flex items-center gap-4 text-xs text-gray-500 mb-4">
-                                    <div className="flex items-center gap-1"><Calendar size={12}/> {new Date(cmd.dateLivraisonPrevue).toLocaleDateString()}</div>
-                                    <div className="flex items-center gap-1"><Shirt size={12}/> Qté: {cmd.quantite}</div>
-                                </div>
-
-                                <div className="flex flex-wrap gap-1">
-                                    {cmd.tailleursIds.map(tid => {
-                                        const t = tailleurs.find(emp => emp.id === tid);
-                                        return t ? <span key={tid} className="text-[10px] bg-gray-100 px-2 py-0.5 rounded text-gray-600">{t.nom}</span> : null;
-                                    })}
                                 </div>
                             </div>
-
-                            {/* Card Footer - Explicitly separate stacking context */}
-                            <div className="p-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between z-20 relative">
-                                <div className="text-xs">
-                                    {cmd.reste > 0 ? <span className="text-red-600 font-bold">Reste: {cmd.reste.toLocaleString()} F</span> : <span className="text-green-600 font-bold flex items-center gap-1"><CheckSquare size={10}/> Payé</span>}
-                                </div>
-                                
-                                {canSeeFinance && cmd.reste > 0 && (
-                                    <button 
-                                        onClick={(e) => { 
-                                            e.preventDefault(); 
-                                            e.stopPropagation(); 
-                                            openPaymentModal(cmd); 
-                                        }}
-                                        className="px-4 py-2 bg-brand-600 text-white text-xs font-bold rounded shadow hover:bg-brand-700 cursor-pointer active:scale-95 transition-transform"
-                                        style={{ zIndex: 50, position: 'relative' }} // FORCE Z-INDEX ON WINDOWS
-                                    >
-                                        ENCAISSER
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
             )}
 
             {/* VIEW: TAILORS */}
             {viewMode === 'TAILORS' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {tailleurs.map(t => {
-                        const tasks = commandes.filter(c => c.tailleursIds.includes(t.id) && c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE && !c.archived);
-                        return (
-                            <div key={t.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-                                <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
-                                    <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center font-bold text-lg">{t.nom.charAt(0)}</div>
-                                    <div><h3 className="font-bold text-gray-800">{t.nom}</h3><p className="text-xs text-gray-500">{t.role}</p></div>
-                                    <span className="ml-auto bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-bold">{tasks.length} Tâches</span>
+                <div className="flex-1 overflow-y-auto">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20">
+                        {tailleurs.map(t => {
+                            const tasks = commandes.filter(c => c.tailleursIds.includes(t.id) && c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE && !c.archived);
+                            return (
+                                <div key={t.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                                    <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+                                        <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center font-bold text-lg">{t.nom.charAt(0)}</div>
+                                        <div><h3 className="font-bold text-gray-800">{t.nom}</h3><p className="text-xs text-gray-500">{t.role}</p></div>
+                                        <span className="ml-auto bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-bold">{tasks.length} Tâches</span>
+                                    </div>
+                                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                                        {tasks.length > 0 ? tasks.map(task => (
+                                            <div key={task.id} className="p-2 bg-gray-50 rounded border border-gray-100 text-sm">
+                                                <div className="flex justify-between mb-1"><span className="font-bold text-gray-700">{task.clientNom}</span><span className={`text-[10px] px-1.5 rounded ${getStatusColor(task.statut)}`}>{task.statut}</span></div>
+                                                <p className="text-gray-500 text-xs mb-1">{task.description}</p>
+                                                <div className="flex items-center gap-1 text-[10px] text-orange-600 font-medium"><Clock size={10}/> Livraison: {new Date(task.dateLivraisonPrevue).toLocaleDateString()}</div>
+                                            </div>
+                                        )) : <p className="text-center text-gray-400 text-xs italic py-4">Aucune tâche en cours.</p>}
+                                    </div>
                                 </div>
-                                <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                                    {tasks.length > 0 ? tasks.map(task => (
-                                        <div key={task.id} className="p-2 bg-gray-50 rounded border border-gray-100 text-sm">
-                                            <div className="flex justify-between mb-1"><span className="font-bold text-gray-700">{task.clientNom}</span><span className={`text-[10px] px-1.5 rounded ${getStatusColor(task.statut)}`}>{task.statut}</span></div>
-                                            <p className="text-gray-500 text-xs mb-1">{task.description}</p>
-                                            <div className="flex items-center gap-1 text-[10px] text-orange-600 font-medium"><Clock size={10}/> Livraison: {new Date(task.dateLivraisonPrevue).toLocaleDateString()}</div>
-                                        </div>
-                                    )) : <p className="text-center text-gray-400 text-xs italic py-4">Aucune tâche en cours.</p>}
-                                </div>
-                            </div>
-                        );
-                    })}
+                            );
+                        })}
+                    </div>
                 </div>
             )}
 
             {/* VIEW: PERFORMANCE */}
             {viewMode === 'PERFORMANCE' && (
-                <div className="space-y-6">
-                    {/* Global Stats */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
-                            <div><p className="text-xs text-gray-500 uppercase font-bold">Total Commandes (Mois)</p><p className="text-2xl font-bold text-gray-900">{commandes.filter(c => !c.archived).length}</p></div>
-                            <div className="p-2 bg-blue-50 text-blue-600 rounded-full"><LayoutList size={24}/></div>
+                <div className="flex-1 overflow-y-auto">
+                    <div className="space-y-6 pb-20">
+                        {/* Global Stats */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                                <div><p className="text-xs text-gray-500 uppercase font-bold">Total Commandes (Mois)</p><p className="text-2xl font-bold text-gray-900">{commandes.filter(c => !c.archived).length}</p></div>
+                                <div className="p-2 bg-blue-50 text-blue-600 rounded-full"><LayoutList size={24}/></div>
+                            </div>
+                            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                                <div><p className="text-xs text-gray-500 uppercase font-bold">Chiffre d'Affaires Prod.</p><p className="text-2xl font-bold text-gray-900">{commandes.filter(c => c.type === 'SUR_MESURE' && !c.archived).reduce((acc, c) => acc + c.prixTotal, 0).toLocaleString()} F</p></div>
+                                <div className="p-2 bg-green-50 text-green-600 rounded-full"><Wallet size={24}/></div>
+                            </div>
+                            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                                <div><p className="text-xs text-gray-500 uppercase font-bold">Tailleurs Actifs</p><p className="text-2xl font-bold text-gray-900">{tailleurs.length}</p></div>
+                                <div className="p-2 bg-purple-50 text-purple-600 rounded-full"><Users size={24}/></div>
+                            </div>
                         </div>
-                        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
-                            <div><p className="text-xs text-gray-500 uppercase font-bold">Chiffre d'Affaires Prod.</p><p className="text-2xl font-bold text-gray-900">{commandes.filter(c => c.type === 'SUR_MESURE' && !c.archived).reduce((acc, c) => acc + c.prixTotal, 0).toLocaleString()} F</p></div>
-                            <div className="p-2 bg-green-50 text-green-600 rounded-full"><Wallet size={24}/></div>
-                        </div>
-                        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
-                            <div><p className="text-xs text-gray-500 uppercase font-bold">Tailleurs Actifs</p><p className="text-2xl font-bold text-gray-900">{tailleurs.length}</p></div>
-                            <div className="p-2 bg-purple-50 text-purple-600 rounded-full"><Users size={24}/></div>
-                        </div>
-                    </div>
 
-                    {/* Tailor Performance Table */}
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                        <div className="p-4 bg-gray-50 border-b border-gray-100"><h3 className="font-bold text-gray-700 flex items-center gap-2"><Activity size={18}/> Performance Individuelle</h3></div>
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-white text-gray-500 font-medium border-b border-gray-100">
-                                <tr><th className="p-4">Tailleur</th><th className="p-4 text-center">En Cours</th><th className="p-4 text-center">Terminés (Total)</th><th className="p-4 text-right">Valeur Produite</th></tr>
-                            </thead>
-                            <tbody>
-                                {tailleurs.map(t => {
-                                    const totalDone = commandes.filter(c => c.tailleursIds.includes(t.id) && (c.statut === StatutCommande.LIVRE || c.statut === StatutCommande.PRET)).length;
-                                    const inProgress = commandes.filter(c => c.tailleursIds.includes(t.id) && c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.PRET && c.statut !== StatutCommande.ANNULE).length;
-                                    const valueProduced = commandes.filter(c => c.tailleursIds.includes(t.id)).reduce((acc, c) => acc + c.prixTotal, 0);
-                                    
-                                    return (
-                                        <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50">
-                                            <td className="p-4 font-bold text-gray-800">{t.nom}</td>
-                                            <td className="p-4 text-center"><span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold">{inProgress}</span></td>
-                                            <td className="p-4 text-center"><span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">{totalDone}</span></td>
-                                            <td className="p-4 text-right font-medium text-gray-600">{valueProduced.toLocaleString()} F</td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
+                        {/* Tailor Performance Table */}
+                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                            <div className="p-4 bg-gray-50 border-b border-gray-100"><h3 className="font-bold text-gray-700 flex items-center gap-2"><Activity size={18}/> Performance Individuelle</h3></div>
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-white text-gray-500 font-medium border-b border-gray-100">
+                                    <tr><th className="p-4">Tailleur</th><th className="p-4 text-center">En Cours</th><th className="p-4 text-center">Terminés (Total)</th><th className="p-4 text-right">Valeur Produite</th></tr>
+                                </thead>
+                                <tbody>
+                                    {tailleurs.map(t => {
+                                        const totalDone = commandes.filter(c => c.tailleursIds.includes(t.id) && (c.statut === StatutCommande.LIVRE || c.statut === StatutCommande.PRET)).length;
+                                        const inProgress = commandes.filter(c => c.tailleursIds.includes(t.id) && c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.PRET && c.statut !== StatutCommande.ANNULE).length;
+                                        const valueProduced = commandes.filter(c => c.tailleursIds.includes(t.id)).reduce((acc, c) => acc + c.prixTotal, 0);
+                                        
+                                        return (
+                                            <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50">
+                                                <td className="p-4 font-bold text-gray-800">{t.nom}</td>
+                                                <td className="p-4 text-center"><span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold">{inProgress}</span></td>
+                                                <td className="p-4 text-center"><span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">{totalDone}</span></td>
+                                                <td className="p-4 text-right font-medium text-gray-600">{valueProduced.toLocaleString()} F</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             )}
