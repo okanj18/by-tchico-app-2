@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns } from 'lucide-react';
+import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
@@ -25,7 +25,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     onUpdateStatus, onCreateOrder, onUpdateOrder, onAddPayment, onArchiveOrder, comptes, companyAssets 
 }) => {
     // --- STATE ---
-    const [viewMode, setViewMode] = useState<'ORDERS' | 'TAILORS' | 'PERFORMANCE' | 'KANBAN'>('KANBAN');
+    const [viewMode, setViewMode] = useState<'ORDERS' | 'TAILORS' | 'PERFORMANCE' | 'KANBAN' | 'HISTORY'>('KANBAN');
     const [showArchived, setShowArchived] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     
@@ -81,6 +81,14 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         return commandes.filter(c => {
             if (c.type !== 'SUR_MESURE') return false; 
 
+            // Filtre View Mode (Active vs History)
+            const isCompleted = c.statut === StatutCommande.LIVRE || c.statut === StatutCommande.ANNULE;
+            if (viewMode === 'HISTORY') {
+                if (!isCompleted) return false;
+            } else if (viewMode === 'KANBAN' || viewMode === 'ORDERS' || viewMode === 'TAILORS') {
+                if (isCompleted) return false; // Hide completed in active views
+            }
+
             const matchesSearch = c.clientNom.toLowerCase().includes(searchTerm.toLowerCase()) || 
                                   c.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                   c.description.toLowerCase().includes(searchTerm.toLowerCase());
@@ -100,8 +108,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             if (filterDeliveryDateEnd && matchesDeliveryDate) matchesDeliveryDate = new Date(c.dateLivraisonPrevue).getTime() <= new Date(filterDeliveryDateEnd).setHours(23,59,59);
 
             return matchesSearch && matchesArchive && matchesStatus && matchesTailor && matchesDeliveryDate;
-        }).sort((a, b) => new Date(a.dateLivraisonPrevue).getTime() - new Date(b.dateLivraisonPrevue).getTime());
-    }, [commandes, searchTerm, showArchived, filterStatus, filterTailor, filterDeliveryDateStart, filterDeliveryDateEnd]);
+        }).sort((a, b) => new Date(b.dateLivraisonPrevue).getTime() - new Date(a.dateLivraisonPrevue).getTime());
+    }, [commandes, searchTerm, showArchived, filterStatus, filterTailor, filterDeliveryDateStart, filterDeliveryDateEnd, viewMode]);
 
     // Calculate totals for form
     const montantTotalTTC = Math.max(0, prixBase - remise) + (applyTva ? Math.round(Math.max(0, prixBase - remise) * COMPANY_CONFIG.tvaRate) : 0);
@@ -143,6 +151,12 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         setRemise(cmd.remise || 0);
         setAvance(cmd.avance);
         setIsModalOpen(true);
+    };
+
+    const handleMarkAsDelivered = (orderId: string) => {
+        if(window.confirm("Marquer cette commande comme LIVRÉE ? Elle passera dans l'historique.")) {
+            onUpdateStatus(orderId, StatutCommande.LIVRE);
+        }
     };
 
     const handleSaveOrder = () => {
@@ -280,6 +294,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     <div className="flex bg-white border border-gray-200 p-1 rounded-lg">
                         <button onClick={() => setViewMode('KANBAN')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'KANBAN' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Columns size={14}/> Kanban</button>
                         <button onClick={() => setViewMode('ORDERS')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'ORDERS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><LayoutList size={14}/> Liste</button>
+                        <button onClick={() => setViewMode('HISTORY')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'HISTORY' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><History size={14}/> Historique</button>
                         <button onClick={() => setViewMode('TAILORS')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'TAILORS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Users size={14}/> Tailleurs</button>
                         <button onClick={() => setViewMode('PERFORMANCE')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'PERFORMANCE' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Trophy size={14}/> Stats</button>
                     </div>
@@ -290,7 +305,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             </div>
 
             {/* FILTERS */}
-            {(viewMode === 'ORDERS' || viewMode === 'KANBAN') && (
+            {(viewMode === 'ORDERS' || viewMode === 'KANBAN' || viewMode === 'HISTORY') && (
                 <div className="bg-white p-3 rounded-lg border border-gray-200 flex flex-wrap gap-3 items-center shrink-0">
                     <div className="relative flex-1 min-w-[200px]">
                         <Search className="absolute left-3 top-2.5 text-gray-400" size={16}/>
@@ -334,9 +349,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                 onDragStart={(e) => handleDragStart(e, cmd.id)}
                                             >
                                                 {/* Mini Quick Actions */}
-                                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 bg-white/90 rounded p-0.5">
-                                                    <button onClick={() => handleOpenEditModal(cmd)} className="p-1 hover:text-blue-600"><Edit2 size={12}/></button>
-                                                    <button onClick={() => {setQrOrder(cmd); setQrModalOpen(true);}} className="p-1 hover:text-brand-600"><QrCode size={12}/></button>
+                                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 bg-white/90 rounded p-0.5 z-10">
+                                                    <button onClick={() => handleOpenEditModal(cmd)} className="p-1 hover:text-blue-600" title="Modifier"><Edit2 size={12}/></button>
+                                                    <button onClick={() => {setQrOrder(cmd); setQrModalOpen(true);}} className="p-1 hover:text-brand-600" title="QR Code"><QrCode size={12}/></button>
+                                                    <button onClick={() => handleMarkAsDelivered(cmd.id)} className="p-1 hover:text-green-600" title="Marquer Livré (Archiver)"><CheckCircle size={12}/></button>
                                                 </div>
 
                                                 <div className="font-bold text-gray-800 text-sm mb-1">{cmd.clientNom}</div>
@@ -367,7 +383,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* VIEW: ORDERS (GRID) */}
+            {/* VIEW: ORDERS (GRID - ACTIVE ONLY) */}
             {viewMode === 'ORDERS' && (
                 <div className="flex-1 overflow-y-auto">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20">
@@ -379,7 +395,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                     <div className="absolute top-2 right-2 flex gap-1 z-10">
                                         <button onClick={() => {setQrOrder(cmd); setQrModalOpen(true);}} className="p-1.5 text-gray-400 hover:text-brand-600 bg-white/80 rounded-full hover:bg-gray-100"><QrCode size={16}/></button>
                                         {!showArchived && cmd.statut !== StatutCommande.LIVRE && cmd.statut !== StatutCommande.ANNULE && (
-                                            <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-gray-400 hover:text-blue-600 bg-white/80 rounded-full hover:bg-gray-100"><Edit2 size={16}/></button>
+                                            <>
+                                                <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-gray-400 hover:text-blue-600 bg-white/80 rounded-full hover:bg-gray-100"><Edit2 size={16}/></button>
+                                                <button onClick={() => handleMarkAsDelivered(cmd.id)} className="p-1.5 text-gray-400 hover:text-green-600 bg-white/80 rounded-full hover:bg-gray-100" title="Livrer"><CheckCircle size={16}/></button>
+                                            </>
                                         )}
                                         <button onClick={() => generatePrintContent(cmd)} className="p-1.5 text-gray-400 hover:text-gray-800 bg-white/80 rounded-full hover:bg-gray-100"><Printer size={16}/></button>
                                     </div>
@@ -426,6 +445,52 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 </div>
                             </div>
                         ))}
+                    </div>
+                </div>
+            )}
+
+            {/* VIEW: HISTORY (DELIVERED / CANCELLED) */}
+            {viewMode === 'HISTORY' && (
+                <div className="flex-1 overflow-y-auto">
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-100">
+                                <tr>
+                                    <th className="py-3 px-4">Date Livraison</th>
+                                    <th className="py-3 px-4">Client</th>
+                                    <th className="py-3 px-4">Description</th>
+                                    <th className="py-3 px-4 text-right">Montant</th>
+                                    <th className="py-3 px-4 text-center">Statut</th>
+                                    <th className="py-3 px-4 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {filteredCommandes.map(cmd => (
+                                    <tr key={cmd.id} className="hover:bg-gray-50">
+                                        <td className="py-3 px-4 text-gray-500">{new Date(cmd.dateLivraisonPrevue).toLocaleDateString()}</td>
+                                        <td className="py-3 px-4 font-bold text-gray-800">{cmd.clientNom}</td>
+                                        <td className="py-3 px-4 text-gray-600">{cmd.description}</td>
+                                        <td className="py-3 px-4 text-right font-medium">{cmd.prixTotal.toLocaleString()} F</td>
+                                        <td className="py-3 px-4 text-center">
+                                            <span className={`px-2 py-1 rounded text-xs font-bold ${cmd.statut === StatutCommande.LIVRE ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                                {cmd.statut}
+                                            </span>
+                                        </td>
+                                        <td className="py-3 px-4 text-center">
+                                            <div className="flex justify-center gap-2">
+                                                <button onClick={() => generatePrintContent(cmd)} className="text-gray-500 hover:text-gray-800 p-1" title="Réimprimer"><Printer size={16}/></button>
+                                                <button onClick={() => handleOpenEditModal(cmd)} className="text-gray-500 hover:text-blue-600 p-1" title="Voir/Modifier"><Eye size={16}/></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {filteredCommandes.length === 0 && (
+                                    <tr>
+                                        <td colSpan={6} className="py-8 text-center text-gray-400 italic">Aucune commande dans l'historique.</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             )}
