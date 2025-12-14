@@ -65,6 +65,31 @@ const HRView: React.FC<HRViewProps> = ({
     const [historyModalOpen, setHistoryModalOpen] = useState(false);
     const [selectedEmployeeForHistory, setSelectedEmployeeForHistory] = useState<Employe | null>(null);
 
+    // Edit/Delete Transaction Logic
+    const [actionTransactionModalOpen, setActionTransactionModalOpen] = useState(false);
+    const [currentActionTransaction, setCurrentActionTransaction] = useState<TransactionPaie | null>(null);
+    const [actionType, setActionType] = useState<'EDIT' | 'DELETE'>('DELETE');
+    const [refundAccountId, setRefundAccountId] = useState('');
+    const [newEditAmount, setNewEditAmount] = useState<number>(0);
+
+    // Pointage Logic
+    const [pointageDate, setPointageDate] = useState(new Date().toISOString().split('T')[0]);
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [attendanceHistoryModalOpen, setAttendanceHistoryModalOpen] = useState(false);
+    const [selectedEmployeeForAttendance, setSelectedEmployeeForAttendance] = useState<Employe | null>(null);
+    
+    // Correction Pointage
+    const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
+    const [editingPointage, setEditingPointage] = useState<{
+        id: string | null,
+        employeId: string,
+        employeNom: string,
+        date: string,
+        heureArrivee: string,
+        heureDepart: string,
+        statut: 'PRESENT' | 'RETARD' | 'ABSENT' | 'CONGE'
+    } | null>(null);
+
     // QR Badge
     const [badgeEmployee, setBadgeEmployee] = useState<Employe | null>(null);
     const [showBatchBadges, setShowBatchBadges] = useState(false);
@@ -76,7 +101,99 @@ const HRView: React.FC<HRViewProps> = ({
         return showArchived ? matchesSearch && e.actif === false : matchesSearch && e.actif !== false;
     });
 
-    // --- ACTIONS ---
+    const dailyPointages = pointages.filter(p => p.date === pointageDate);
+
+    // --- ACTIONS POINTAGE ---
+
+    const getPointageStatusColor = (status: string) => {
+        switch(status) {
+            case 'PRESENT': return 'bg-green-100 text-green-800';
+            case 'RETARD': return 'bg-orange-100 text-orange-800';
+            case 'ABSENT': return 'bg-red-100 text-red-800';
+            case 'CONGE': return 'bg-blue-100 text-blue-800';
+            default: return 'bg-gray-100';
+        }
+    };
+
+    const handleClockIn = (employeId: string) => {
+        const now = new Date();
+        const timeString = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        onAddPointage({
+            id: `PT_${Date.now()}`,
+            employeId,
+            date: pointageDate,
+            heureArrivee: timeString,
+            statut: 'PRESENT' 
+        });
+    };
+
+    const handleClockOut = (pt: Pointage) => {
+        const now = new Date();
+        const timeString = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        onUpdatePointage({ ...pt, heureDepart: timeString });
+    };
+
+    const handleMarkAbsent = (employeId: string) => {
+        onAddPointage({
+            id: `PT_${Date.now()}`,
+            employeId,
+            date: pointageDate,
+            statut: 'ABSENT' 
+        });
+    };
+
+    const handleScanAttendance = (scannedText: string) => {
+        const employe = employes.find(e => e.id === scannedText);
+        if (!employe) { alert("Badge inconnu !"); return; }
+
+        const today = new Date().toISOString().split('T')[0];
+        if (pointageDate !== today) {
+            if(!window.confirm(`Vous scannez pour le ${today}, mais l'affichage est sur le ${pointageDate}. Basculer à aujourd'hui ?`)) return;
+            setPointageDate(today);
+        }
+
+        const existingPt = pointages.find(p => p.employeId === employe.id && p.date === today);
+
+        if (!existingPt) {
+            handleClockIn(employe.id);
+            alert(`✅ ${employe.nom} : Arrivée enregistrée !`);
+        } else if (!existingPt.heureDepart && existingPt.statut !== 'ABSENT') {
+            handleClockOut(existingPt);
+            alert(`👋 ${employe.nom} : Départ enregistré !`);
+        } else {
+            alert(`⚠️ ${employe.nom} a déjà terminé sa journée ou est absent.`);
+        }
+    };
+
+    const openCorrectionModal = (emp: Employe, pt?: Pointage) => {
+        setEditingPointage({
+            id: pt ? pt.id : null,
+            employeId: emp.id,
+            employeNom: emp.nom,
+            date: pt ? pt.date : pointageDate,
+            heureArrivee: pt?.heureArrivee || '',
+            heureDepart: pt?.heureDepart || '',
+            statut: pt?.statut || 'PRESENT'
+        });
+        setCorrectionModalOpen(true);
+    };
+
+    const handleSaveCorrection = () => {
+        if (!editingPointage) return;
+        const pt: Pointage = {
+            id: editingPointage.id || `PT_${Date.now()}`,
+            employeId: editingPointage.employeId,
+            date: editingPointage.date,
+            heureArrivee: editingPointage.heureArrivee,
+            heureDepart: editingPointage.heureDepart,
+            statut: editingPointage.statut
+        };
+        if (editingPointage.id) onUpdatePointage(pt);
+        else onAddPointage(pt);
+        setCorrectionModalOpen(false);
+    };
+
+    // --- ACTIONS PAIE / TRANSACTION ---
 
     const handleBulkTransport = () => {
         if (!transportAccountId) { alert("Veuillez choisir la caisse d'où sort l'argent."); return; }
@@ -84,7 +201,6 @@ const HRView: React.FC<HRViewProps> = ({
 
         const totalAmount = transportAmount * transportSelection.length;
         const account = comptes.find(c => c.id === transportAccountId);
-        
         if (account && account.solde < totalAmount) {
             alert(`Solde insuffisant sur ${account.nom}. Il faut ${totalAmount.toLocaleString()} F.`);
             return;
@@ -93,16 +209,11 @@ const HRView: React.FC<HRViewProps> = ({
         const dateIso = new Date().toISOString();
         const dateShort = dateIso.split('T')[0];
 
-        // NOTE IMPORTANTE : On ne met PAS à jour le compte manuellement via onUpdateComptes ici.
-        // La fonction onAddDepense (dans App.tsx) gère déjà la déduction du solde si un compteId est fourni.
-        
         transportSelection.forEach((empId, index) => {
             const emp = employes.find(e => e.id === empId);
             if (emp) {
-                // Utiliser un timestamp décalé pour éviter les collisions d'ID si exécution très rapide
                 const uniqueId = Date.now() + index;
-
-                // 1. Historique Employé (Juste pour info RH - Pas d'impact financier direct ici)
+                // 1. Historique Employé
                 const transaction: TransactionPaie = { 
                     id: `TR_TRANS_${uniqueId}_${empId}`, 
                     date: dateIso, 
@@ -110,14 +221,10 @@ const HRView: React.FC<HRViewProps> = ({
                     montant: transportAmount, 
                     description: `Transport Quotidien` 
                 };
-                
-                const updatedEmp = { 
-                    ...emp, 
-                    historiquePaie: [transaction, ...(emp.historiquePaie || [])] 
-                };
+                const updatedEmp = { ...emp, historiquePaie: [transaction, ...(emp.historiquePaie || [])] };
                 onUpdateEmploye(updatedEmp);
 
-                // 2. Création Dépense (C'est ICI que l'argent sort de la caisse via App.tsx)
+                // 2. Création Dépense (Débit Caisse via App.tsx)
                 onAddDepense({
                     id: `D_TRANS_${uniqueId}_${empId}`,
                     date: dateShort,
@@ -125,25 +232,19 @@ const HRView: React.FC<HRViewProps> = ({
                     categorie: 'SALAIRE',
                     description: `Transport ${emp.nom}`,
                     boutiqueId: emp.boutiqueId || 'ATELIER',
-                    compteId: transportAccountId // Déclenche la déduction automatique
+                    compteId: transportAccountId
                 });
             }
         });
-
         setTransportModalOpen(false);
-        alert(`Transport validé pour ${transportSelection.length} employés. La caisse a été débitée automatiquement.`);
+        alert(`Transport validé pour ${transportSelection.length} employés.`);
     };
 
     const handleSaveTransaction = () => {
         if (!selectedEmployeeForPay || transactionData.montant <= 0) return;
         
-        if (transactionData.type === 'ACOMPTE' && !paymentAccountId) {
-            alert("Veuillez sélectionner un compte de paiement.");
-            return;
-        }
-
-        // Vérification solde pour Acompte
         if (transactionData.type === 'ACOMPTE') {
+            if (!paymentAccountId) { alert("Veuillez sélectionner un compte de paiement."); return; }
             const account = comptes.find(c => c.id === paymentAccountId);
             if (account && account.solde < transactionData.montant) {
                 alert(`Solde insuffisant sur ${account.nom}.`);
@@ -162,8 +263,6 @@ const HRView: React.FC<HRViewProps> = ({
         const updatedEmp = { ...selectedEmployeeForPay, historiquePaie: [transaction, ...(selectedEmployeeForPay.historiquePaie || [])] };
         onUpdateEmploye(updatedEmp);
         
-        // Si c'est un acompte, on crée une dépense (qui débitera le compte via App.tsx)
-        // On ne fait PAS onUpdateComptes ici manuellement pour éviter le doublon
         if (transactionData.type === 'ACOMPTE') {
             onAddDepense({ 
                 id: `D_ACOMPTE_${Date.now()}`, 
@@ -172,7 +271,7 @@ const HRView: React.FC<HRViewProps> = ({
                 categorie: 'SALAIRE', 
                 description: `Acompte (${selectedEmployeeForPay.nom}): ${transactionData.note}`, 
                 boutiqueId: selectedEmployeeForPay.boutiqueId || 'ATELIER',
-                compteId: paymentAccountId // Déclenche le débit
+                compteId: paymentAccountId
             });
         }
 
@@ -181,6 +280,86 @@ const HRView: React.FC<HRViewProps> = ({
         alert("Opération enregistrée !");
     };
 
+    const openActionTransactionModal = (t: TransactionPaie, action: 'EDIT' | 'DELETE') => {
+        if (t.type === 'SALAIRE_NET') {
+            alert("Les salaires nets validés ne peuvent pas être modifiés directement.");
+            return;
+        }
+        setCurrentActionTransaction(t);
+        setActionType(action);
+        setRefundAccountId('');
+        setNewEditAmount(t.montant);
+        setActionTransactionModalOpen(true);
+    };
+
+    const handleProcessTransactionAction = () => {
+        if (!currentActionTransaction || !selectedEmployeeForHistory || !refundAccountId) {
+            alert("Veuillez sélectionner un compte pour la régularisation financière.");
+            return;
+        }
+
+        const account = comptes.find(c => c.id === refundAccountId);
+        if (!account) return;
+
+        let amountDiff = 0;
+        let descLog = '';
+
+        if (actionType === 'DELETE') {
+            // Remboursement total (Annulation)
+            amountDiff = currentActionTransaction.montant; // On remet l'argent dans la caisse
+            descLog = `Annulation ${currentActionTransaction.type} - ${selectedEmployeeForHistory.nom}`;
+            
+            // Mise à jour employé
+            const newHistory = selectedEmployeeForHistory.historiquePaie?.filter(t => t.id !== currentActionTransaction.id) || [];
+            const updatedEmp = { ...selectedEmployeeForHistory, historiquePaie: newHistory };
+            onUpdateEmploye(updatedEmp);
+            setSelectedEmployeeForHistory(updatedEmp);
+
+        } else if (actionType === 'EDIT') {
+            const oldAmount = currentActionTransaction.montant;
+            const newAmount = newEditAmount;
+            amountDiff = oldAmount - newAmount; // Si on baisse l'acompte, on rend l'argent (positif). Si on augmente, on prend (négatif).
+
+            if (amountDiff < 0 && account.solde < Math.abs(amountDiff)) {
+                alert(`Solde insuffisant pour ajouter ${(Math.abs(amountDiff)).toLocaleString()} F.`);
+                return;
+            }
+
+            descLog = `Correction ${currentActionTransaction.type} (${oldAmount} -> ${newAmount}) - ${selectedEmployeeForHistory.nom}`;
+
+            // Mise à jour employé
+            const newHistory = selectedEmployeeForHistory.historiquePaie?.map(t => 
+                t.id === currentActionTransaction.id ? { ...t, montant: newAmount, description: t.description + ' (Modifié)' } : t
+            ) || [];
+            const updatedEmp = { ...selectedEmployeeForHistory, historiquePaie: newHistory };
+            onUpdateEmploye(updatedEmp);
+            setSelectedEmployeeForHistory(updatedEmp);
+        }
+
+        // Création Transaction de Régularisation Financière
+        if (amountDiff !== 0) {
+            const transac: TransactionTresorerie = {
+                id: `TR_CORRECT_${Date.now()}`,
+                date: new Date().toISOString(),
+                type: amountDiff > 0 ? 'ENCAISSEMENT' : 'DECAISSEMENT',
+                montant: Math.abs(amountDiff),
+                compteId: refundAccountId,
+                description: descLog,
+                categorie: 'SALAIRE_CORRECTION'
+            };
+            onAddTransaction(transac);
+            
+            // Mise à jour solde compte
+            const updatedComptes = comptes.map(c => c.id === refundAccountId ? { ...c, solde: c.solde + amountDiff } : c);
+            onUpdateComptes(updatedComptes);
+        }
+
+        alert("Opération effectuée avec succès.");
+        setActionTransactionModalOpen(false);
+        setCurrentActionTransaction(null);
+    };
+
+    // --- MODALS & STATE SETTERS ---
     const handleSaveEmployee = () => {
         if (!formData.nom) return;
         if (editingEmployee) {
@@ -219,6 +398,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             </div>
 
+            {/* TAB EMPLOYEES */}
             {activeTab === 'EMPLOYEES' && !isPointageOnly && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
                     <div className="p-4 border-b border-gray-100 flex gap-4">
@@ -261,9 +441,65 @@ const HRView: React.FC<HRViewProps> = ({
 
             {/* TAB POINTAGE */}
             {activeTab === 'POINTAGE' && (
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center text-gray-500">
-                    <Clock size={48} className="mx-auto mb-4 opacity-20" />
-                    <p>Module de pointage en cours de développement.</p>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
+                    <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                        <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2 bg-white border border-gray-300 rounded px-3 py-1.5">
+                                <Calendar size={18} className="text-gray-500"/>
+                                <input type="date" value={pointageDate} onChange={(e) => setPointageDate(e.target.value)} className="bg-transparent border-none font-bold text-gray-700 focus:ring-0 text-sm"/>
+                            </div>
+                            <button 
+                                onClick={() => setIsScannerOpen(true)}
+                                className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded font-bold text-sm flex items-center gap-2"
+                            >
+                                <Camera size={16} /> Scanner Pointage
+                            </button>
+                        </div>
+                        {!isPointageOnly && <div className="text-xs text-gray-500 font-bold">Présents: {dailyPointages.filter(p => p.statut === 'PRESENT' || p.statut === 'RETARD').length}</div>}
+                    </div>
+                    <div className="overflow-x-auto flex-1">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-white text-gray-600 font-medium border-b border-gray-100"><tr><th className="py-3 px-4">Employé</th><th className="py-3 px-4 text-center">Statut</th><th className="py-3 px-4 text-center">Arrivée</th><th className="py-3 px-4 text-center">Départ</th><th className="py-3 px-4 text-center">Action</th></tr></thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {employes.filter(e => e.actif !== false).map(emp => {
+                                    const pt = dailyPointages.find(p => p.employeId === emp.id);
+                                    return (
+                                        <tr key={emp.id} className="hover:bg-gray-50">
+                                            <td className="py-3 px-4 font-bold text-gray-800">{emp.nom} <span className="text-xs text-gray-400 font-normal">({emp.role})</span></td>
+                                            <td className="py-3 px-4 text-center">{pt ? <span className={`px-2 py-1 rounded text-xs font-bold ${getPointageStatusColor(pt.statut)}`}>{pt.statut}</span> : <span className="text-gray-400 text-xs">NON POINTÉ</span>}</td>
+                                            <td className="py-3 px-4 text-center">{pt?.heureArrivee || '-'}</td>
+                                            <td className="py-3 px-4 text-center">{pt?.heureDepart || '-'}</td>
+                                            <td className="py-3 px-4 text-center">
+                                                {!pt ? (
+                                                    <div className="flex justify-center gap-2"><button onClick={() => handleClockIn(emp.id)} className="bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700">Arrivée</button><button onClick={() => handleMarkAbsent(emp.id)} className="bg-red-100 text-red-600 px-3 py-1 rounded text-xs hover:bg-red-200">Absent</button></div>
+                                                ) : (
+                                                    <div className="flex justify-center gap-2">
+                                                        {pt.statut !== 'ABSENT' && !pt.heureDepart && (<button onClick={() => handleClockOut(pt)} className="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700">Départ</button>)}
+                                                        {!isPointageOnly && (<button onClick={() => openCorrectionModal(emp, pt)} className="text-gray-400 hover:text-gray-600 bg-white border border-gray-300 rounded p-1"><Edit2 size={14}/></button>)}
+                                                    </div>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL CORRECTION POINTAGE */}
+            {correctionModalOpen && editingPointage && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
+                        <h3 className="text-lg font-bold mb-4">Correction Pointage: {editingPointage.employeNom}</h3>
+                        <div className="space-y-3">
+                            <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Statut</label><select className="w-full p-2 border rounded" value={editingPointage.statut} onChange={e => setEditingPointage({...editingPointage, statut: e.target.value as any})}><option value="PRESENT">Présent</option><option value="RETARD">Retard</option><option value="ABSENT">Absent</option><option value="CONGE">Congé</option></select></div>
+                            <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Heure Arrivée</label><input type="time" className="w-full p-2 border rounded" value={editingPointage.heureArrivee} onChange={e => setEditingPointage({...editingPointage, heureArrivee: e.target.value})}/></div>
+                            <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Heure Départ</label><input type="time" className="w-full p-2 border rounded" value={editingPointage.heureDepart} onChange={e => setEditingPointage({...editingPointage, heureDepart: e.target.value})}/></div>
+                        </div>
+                        <div className="flex justify-end gap-3 mt-6"><button onClick={() => setCorrectionModalOpen(false)} className="px-4 py-2 text-gray-600 bg-gray-100 rounded">Annuler</button><button onClick={handleSaveCorrection} className="px-4 py-2 bg-blue-600 text-white rounded font-bold">Corriger</button></div>
+                    </div>
                 </div>
             )}
 
@@ -313,6 +549,22 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
+            {/* MODAL ACTION TRANSACTION (EDIT/DELETE) */}
+            {actionTransactionModalOpen && currentActionTransaction && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
+                        <div className="flex items-center gap-3 text-gray-800 mb-4 border-b border-gray-100 pb-3">
+                            {actionType === 'DELETE' ? <Trash2 className="text-red-600" size={24}/> : <Edit2 className="text-blue-600" size={24}/>}
+                            <h3 className="text-lg font-bold">{actionType === 'DELETE' ? 'Annuler Transaction' : 'Modifier Transaction'}</h3>
+                        </div>
+                        <div className="mb-4 text-sm bg-gray-50 p-3 rounded text-gray-700"><p><strong>Type :</strong> {currentActionTransaction.type}</p><p><strong>Montant Actuel :</strong> {currentActionTransaction.montant.toLocaleString()} F</p></div>
+                        {actionType === 'EDIT' && (<div className="mb-4"><label className="block text-sm font-medium text-gray-700 mb-1">Nouveau Montant</label><input type="number" value={newEditAmount} onChange={e => setNewEditAmount(parseInt(e.target.value) || 0)} className="w-full p-2 border border-gray-300 rounded font-bold"/></div>)}
+                        <div className="mb-6"><label className="block text-sm font-medium text-gray-700 mb-1">{actionType === 'DELETE' ? 'Rembourser (créditer) sur le compte :' : 'Ajuster différence sur le compte :'}</label><select className="w-full p-2 border border-gray-300 rounded bg-blue-50 border-blue-200 text-sm" value={refundAccountId} onChange={(e) => setRefundAccountId(e.target.value)}><option value="">-- Choisir Caisse / Banque --</option>{comptes.map(acc => (<option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>))}</select><p className="text-[10px] text-gray-500 mt-1">{actionType === 'DELETE' ? "Le montant sera rajouté au solde de ce compte." : "La différence sera débitée ou créditée sur ce compte."}</p></div>
+                        <div className="flex justify-end gap-3"><button onClick={() => setActionTransactionModalOpen(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg font-medium">Annuler</button><button onClick={handleProcessTransactionAction} disabled={!refundAccountId} className={`px-4 py-2 text-white rounded-lg font-bold shadow-md disabled:opacity-50 ${actionType === 'DELETE' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>Confirmer</button></div>
+                    </div>
+                </div>
+            )}
+
             {/* MODAL PAIE INDIVIDUELLE */}
             {payModalOpen && selectedEmployeeForPay && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center p-4">
@@ -346,6 +598,46 @@ const HRView: React.FC<HRViewProps> = ({
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* MODAL HISTORIQUE PAIE AVEC ACTIONS */}
+            {historyModalOpen && selectedEmployeeForHistory && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="bg-gray-800 text-white p-4 flex justify-between items-center shrink-0"><h3 className="font-bold">Historique: {selectedEmployeeForHistory.nom}</h3><button onClick={() => setHistoryModalOpen(false)}><X size={20}/></button></div>
+                        <div className="p-6 overflow-y-auto flex-1">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-gray-50 font-medium"><tr><th className="p-2">Date</th><th className="p-2">Type</th><th className="p-2">Description</th><th className="p-2 text-right">Montant</th><th className="p-2 text-center">Action</th></tr></thead>
+                                <tbody>
+                                    {selectedEmployeeForHistory.historiquePaie?.map(tr => (
+                                        <tr key={tr.id} className="border-b">
+                                            <td className="p-2">{new Date(tr.date).toLocaleDateString()}</td>
+                                            <td className="p-2"><span className={`px-2 py-0.5 rounded text-xs font-bold ${tr.type === 'SALAIRE_NET' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>{tr.type}</span></td>
+                                            <td className="p-2 text-gray-600 truncate max-w-[150px]">{tr.description}</td>
+                                            <td className="p-2 text-right font-bold">{tr.montant.toLocaleString()} F</td>
+                                            <td className="p-2 text-center">
+                                                {tr.type !== 'SALAIRE_NET' && (
+                                                    <div className="flex justify-center gap-2">
+                                                        <button onClick={() => openActionTransactionModal(tr, 'EDIT')} className="text-blue-500 hover:text-blue-700" title="Modifier"><Edit2 size={14}/></button>
+                                                        <button onClick={() => openActionTransactionModal(tr, 'DELETE')} className="text-red-500 hover:text-red-700" title="Supprimer"><Trash2 size={14}/></button>
+                                                    </div>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {(!selectedEmployeeForHistory.historiquePaie || selectedEmployeeForHistory.historiquePaie.length === 0) && (
+                                        <tr><td colSpan={5} className="p-4 text-center text-gray-400">Aucun historique.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL SCANNER */}
+            {isScannerOpen && (
+                <QRScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScan={handleScanAttendance} />
             )}
 
             {/* MODAL BATCH BADGES */}
@@ -392,33 +684,6 @@ const HRView: React.FC<HRViewProps> = ({
                             <div><label className="block text-sm font-medium mb-1">Affectation</label><select className="w-full p-2 border rounded" value={formData.boutiqueId || ''} onChange={e => setFormData({...formData, boutiqueId: e.target.value})}><option value="">-- Aucune --</option><option value="ATELIER">Atelier Central</option>{boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}</select></div>
                         </div>
                         <div className="flex justify-end gap-3 mt-6"><button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 bg-gray-100 rounded">Annuler</button><button onClick={handleSaveEmployee} className="px-4 py-2 bg-brand-600 text-white rounded font-bold">Enregistrer</button></div>
-                    </div>
-                </div>
-            )}
-
-            {/* MODAL HISTORIQUE PAIE */}
-            {historyModalOpen && selectedEmployeeForHistory && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-                        <div className="bg-gray-800 text-white p-4 flex justify-between items-center shrink-0"><h3 className="font-bold">Historique: {selectedEmployeeForHistory.nom}</h3><button onClick={() => setHistoryModalOpen(false)}><X size={20}/></button></div>
-                        <div className="p-6 overflow-y-auto flex-1">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-gray-50 font-medium"><tr><th className="p-2">Date</th><th className="p-2">Type</th><th className="p-2">Description</th><th className="p-2 text-right">Montant</th></tr></thead>
-                                <tbody>
-                                    {selectedEmployeeForHistory.historiquePaie?.map(tr => (
-                                        <tr key={tr.id} className="border-b">
-                                            <td className="p-2">{new Date(tr.date).toLocaleDateString()}</td>
-                                            <td className="p-2"><span className={`px-2 py-0.5 rounded text-xs font-bold ${tr.type === 'SALAIRE_NET' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>{tr.type}</span></td>
-                                            <td className="p-2 text-gray-600 truncate max-w-[200px]">{tr.description}</td>
-                                            <td className="p-2 text-right font-bold">{tr.montant.toLocaleString()} F</td>
-                                        </tr>
-                                    ))}
-                                    {(!selectedEmployeeForHistory.historiquePaie || selectedEmployeeForHistory.historiquePaie.length === 0) && (
-                                        <tr><td colSpan={4} className="p-4 text-center text-gray-400">Aucun historique.</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
                     </div>
                 </div>
             )}
