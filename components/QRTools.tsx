@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
@@ -90,49 +89,68 @@ interface QRScannerModalProps {
 
 export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose, onScan }) => {
     const [scanError, setScanError] = useState<string | null>(null);
+    const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+    const isMounted = useRef(false);
 
     useEffect(() => {
-        if (!isOpen) return;
+        isMounted.current = true;
+        let timeoutId: any;
 
-        let scanner: Html5QrcodeScanner | null = null;
-
-        // Small timeout to ensure DOM is ready
-        const timeoutId = setTimeout(() => {
-            try {
-                scanner = new Html5QrcodeScanner(
-                    "reader",
-                    { 
-                        fps: 10, 
-                        qrbox: { width: 250, height: 250 },
-                        aspectRatio: 1.0
-                    },
-                    /* verbose= */ false
-                );
-
-                scanner.render(
-                    (decodedText) => {
-                        onScan(decodedText);
-                        // Optional: close immediately or let parent handle it
-                        // onClose(); 
-                        if (scanner) scanner.clear().catch(console.error);
-                    },
-                    (errorMessage) => {
-                        // ignore scan errors, they happen every frame no QR is detected
+        if (isOpen) {
+            // Wait slightly for DOM to be ready
+            timeoutId = setTimeout(() => {
+                if (!isMounted.current) return;
+                
+                try {
+                    // Ensure previous instance is cleared if any
+                    if (scannerRef.current) {
+                        scannerRef.current.clear().catch(() => {});
+                        scannerRef.current = null;
                     }
-                );
-            } catch (err) {
-                console.error("Scanner init error", err);
-                setScanError("Impossible d'initialiser la caméra. Vérifiez les permissions.");
-            }
-        }, 100);
+
+                    const scanner = new Html5QrcodeScanner(
+                        "reader",
+                        { 
+                            fps: 10, 
+                            qrbox: { width: 250, height: 250 },
+                            aspectRatio: 1.0,
+                            rememberLastUsedCamera: true
+                        },
+                        /* verbose= */ false
+                    );
+                    
+                    scannerRef.current = scanner;
+
+                    scanner.render(
+                        (decodedText) => {
+                            if (isMounted.current) {
+                                onScan(decodedText);
+                                // Optional: pause scanning after success if needed
+                                // scanner.pause(); 
+                            }
+                        },
+                        (errorMessage) => {
+                            // ignore routine scan errors
+                        }
+                    );
+                } catch (err) {
+                    console.error("Scanner init error", err);
+                    if (isMounted.current) {
+                        setScanError("Impossible d'initialiser la caméra.");
+                    }
+                }
+            }, 100);
+        }
 
         return () => {
+            isMounted.current = false;
             clearTimeout(timeoutId);
-            if (scanner) {
-                scanner.clear().catch(console.error);
+            if (scannerRef.current) {
+                scannerRef.current.clear().catch(err => console.warn("Scanner clear error", err));
+                scannerRef.current = null;
             }
         };
-    }, [isOpen, onScan]);
+    }, [isOpen]); // Removed onScan from deps to avoid re-init loops
 
     if (!isOpen) return null;
 
@@ -144,7 +162,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose,
                     <button onClick={onClose}><X size={24} /></button>
                 </div>
                 
-                <div className="p-4 bg-black">
+                <div className="p-4 bg-black min-h-[300px] flex flex-col justify-center">
                     <div id="reader" className="w-full bg-white rounded-lg overflow-hidden"></div>
                     {scanError && (
                         <div className="mt-4 p-3 bg-red-100 text-red-700 rounded text-sm flex items-center gap-2">
@@ -154,7 +172,8 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose,
                 </div>
 
                 <div className="p-4 bg-gray-50 text-center text-sm text-gray-500">
-                    Placez le QR Code devant la caméra.
+                    <p>Placez le QR Code devant la caméra.</p>
+                    <p className="text-xs mt-2 text-gray-400">Si demandé, veuillez autoriser l'accès à la caméra.</p>
                 </div>
             </div>
         </div>

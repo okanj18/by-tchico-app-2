@@ -443,6 +443,7 @@ const HRView: React.FC<HRViewProps> = ({
 
     return (
         <div className="h-[calc(100vh-8rem)] flex flex-col space-y-6">
+            {/* ... (Header and other tabs content remain the same) ... */}
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Briefcase className="text-brand-600" /> Ressources Humaines</h2>
                 <div className="flex gap-2">
@@ -572,6 +573,48 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
+            {/* MODAL SCANNER */}
+            {isScannerOpen && (
+                <QRScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScan={handleScanAttendance} />
+            )}
+
+            {/* MODAL SINGLE BADGE (Ajouté) */}
+            {badgeEmployee && (
+                <QRGeneratorModal 
+                    isOpen={!!badgeEmployee} 
+                    onClose={() => setBadgeEmployee(null)} 
+                    value={badgeEmployee.id} 
+                    title={badgeEmployee.nom} 
+                    subtitle={badgeEmployee.role}
+                />
+            )}
+
+            {/* MODAL BATCH BADGES */}
+            {showBatchBadges && (
+                <div className="fixed inset-0 bg-white z-[100] overflow-auto">
+                    <div className="p-4 bg-gray-900 text-white flex justify-between items-center print:hidden sticky top-0">
+                        <h3 className="font-bold flex items-center gap-2"><QrCode size={20}/> Planche Badges</h3>
+                        <div className="flex gap-2">
+                            <button onClick={() => window.print()} className="bg-brand-600 px-4 py-2 rounded font-bold flex items-center gap-2"><Printer size={16}/> Imprimer</button>
+                            <button onClick={() => setShowBatchBadges(false)} className="bg-gray-700 px-4 py-2 rounded"><X size={16}/></button>
+                        </div>
+                    </div>
+                    <div className="p-8 grid grid-cols-2 md:grid-cols-3 gap-8 print:grid-cols-2">
+                        {filteredEmployes.map(emp => (
+                            <div key={emp.id} className="border-2 border-black rounded-xl p-6 flex flex-col items-center text-center break-inside-avoid">
+                                <h2 className="font-bold text-xl uppercase mb-4 tracking-widest border-b-2 border-black w-full pb-2">BY TCHICO</h2>
+                                <QRCodeCanvas value={emp.id} size={150} level="H" />
+                                <div className="mt-4 w-full">
+                                    <p className="font-bold text-2xl uppercase truncate">{emp.nom}</p>
+                                    <p className="text-sm font-bold uppercase mt-1 bg-black text-white inline-block px-3 py-1 rounded">{emp.role}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* ... Other modals (Employee, Correction, Transport, Transaction, Pay) remain unchanged ... */}
             {/* MODAL CORRECTION POINTAGE */}
             {correctionModalOpen && editingPointage && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
@@ -760,36 +803,6 @@ const HRView: React.FC<HRViewProps> = ({
                                 </tbody>
                             </table>
                         </div>
-                    </div>
-                </div>
-            )}
-
-            {/* MODAL SCANNER */}
-            {isScannerOpen && (
-                <QRScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScan={handleScanAttendance} />
-            )}
-
-            {/* MODAL BATCH BADGES */}
-            {showBatchBadges && (
-                <div className="fixed inset-0 bg-white z-[100] overflow-auto">
-                    <div className="p-4 bg-gray-900 text-white flex justify-between items-center print:hidden sticky top-0">
-                        <h3 className="font-bold flex items-center gap-2"><QrCode size={20}/> Planche Badges</h3>
-                        <div className="flex gap-2">
-                            <button onClick={() => window.print()} className="bg-brand-600 px-4 py-2 rounded font-bold flex items-center gap-2"><Printer size={16}/> Imprimer</button>
-                            <button onClick={() => setShowBatchBadges(false)} className="bg-gray-700 px-4 py-2 rounded"><X size={16}/></button>
-                        </div>
-                    </div>
-                    <div className="p-8 grid grid-cols-2 md:grid-cols-3 gap-8 print:grid-cols-2">
-                        {filteredEmployes.map(emp => (
-                            <div key={emp.id} className="border-2 border-black rounded-xl p-6 flex flex-col items-center text-center break-inside-avoid">
-                                <h2 className="font-bold text-xl uppercase mb-4 tracking-widest border-b-2 border-black w-full pb-2">BY TCHICO</h2>
-                                <QRCodeCanvas value={emp.id} size={150} level="H" />
-                                <div className="mt-4 w-full">
-                                    <p className="font-bold text-2xl uppercase truncate">{emp.nom}</p>
-                                    <p className="text-sm font-bold uppercase mt-1 bg-black text-white inline-block px-3 py-1 rounded">{emp.role}</p>
-                                </div>
-                            </div>
-                        ))}
                     </div>
                 </div>
             )}
