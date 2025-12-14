@@ -84,6 +84,8 @@ export interface Employe {
     id: string;
     nom: string;
     numeroCNI?: string;
+    cniRecto?: string;
+    cniVerso?: string;
     role: RoleEmploye;
     telephone: string;
     email?: string;

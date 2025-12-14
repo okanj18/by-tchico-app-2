@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie, Absence } from '../types';
-import { Users, Calendar, DollarSign, Plus, Edit2, Trash2, CheckCircle, XCircle, Search, Clock, Briefcase, Wallet, X, Bus, CheckSquare, History, UserMinus, AlertTriangle, Printer, Lock, RotateCcw, Banknote, QrCode, Camera, Archive, Calculator, ChevronRight, FileText, PieChart, TrendingUp, AlertOctagon, CreditCard } from 'lucide-react';
+import { Users, Calendar, DollarSign, Plus, Edit2, Trash2, CheckCircle, XCircle, Search, Clock, Briefcase, Wallet, X, Bus, CheckSquare, History, UserMinus, AlertTriangle, Printer, Lock, RotateCcw, Banknote, QrCode, Camera, Archive, Calculator, ChevronRight, FileText, PieChart, TrendingUp, AlertOctagon, CreditCard, Upload, Image as ImageIcon, Loader, Eye } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 import { QRCodeCanvas } from 'qrcode.react';
+import { uploadImageToCloud } from '../services/storageService';
 
 interface HRViewProps {
     employes: Employe[];
@@ -42,8 +43,10 @@ const HRView: React.FC<HRViewProps> = ({
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingEmployee, setEditingEmployee] = useState<Employe | null>(null);
     const [formData, setFormData] = useState<Partial<Employe>>({
-        nom: '', role: RoleEmploye.STAGIAIRE, telephone: '', salaireBase: 0, typeContrat: 'STAGE', numeroCNI: ''
+        nom: '', role: RoleEmploye.STAGIAIRE, telephone: '', salaireBase: 0, typeContrat: 'STAGE', numeroCNI: '', cniRecto: '', cniVerso: ''
     });
+    const [isUploading, setIsUploading] = useState(false);
+    const [previewImage, setPreviewImage] = useState<string | null>(null);
 
     // Transport Bulk
     const [transportModalOpen, setTransportModalOpen] = useState(false);
@@ -547,11 +550,46 @@ const HRView: React.FC<HRViewProps> = ({
         setIsModalOpen(false);
     };
 
-    const openEditModal = (e: Employe) => { setEditingEmployee(e); setFormData(e); setIsModalOpen(true); };
-    const openAddModal = () => { setEditingEmployee(null); setFormData({ nom: '', role: RoleEmploye.TAILLEUR, numeroCNI: '' }); setIsModalOpen(true); };
+    const openEditModal = (e: Employe) => { 
+        setEditingEmployee(e); 
+        setFormData(e); 
+        setIsModalOpen(true); 
+    };
+    
+    const openAddModal = () => { 
+        setEditingEmployee(null); 
+        setFormData({ nom: '', role: RoleEmploye.TAILLEUR, numeroCNI: '', cniRecto: '', cniVerso: '' }); 
+        setIsModalOpen(true); 
+    };
+    
     const openPayModal = (e: Employe) => { setSelectedEmployeeForPay(e); setPayTab('TRANSACTION'); setPaymentAccountId(''); setTransactionData({ date: new Date().toISOString().split('T')[0], type: 'ACOMPTE', montant: 0, note: '' }); setPayModalOpen(true); };
     const toggleTransportSelection = (id: string) => setTransportSelection(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
     const selectAllTransport = () => setTransportSelection(transportSelection.length === filteredEmployes.length ? [] : filteredEmployes.map(e => e.id));
+
+    // IMAGE UPLOAD HANDLER
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'cniRecto' | 'cniVerso') => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setIsUploading(true);
+            try {
+                const url = await uploadImageToCloud(file, 'hr_documents');
+                if (url) {
+                    setFormData(prev => ({ ...prev, [field]: url }));
+                }
+            } catch (error) {
+                console.error("Upload failed", error);
+                alert("Erreur lors de l'upload de l'image.");
+            } finally {
+                setIsUploading(false);
+            }
+        }
+    };
+
+    const handleRemoveImage = (field: 'cniRecto' | 'cniVerso') => {
+        if(window.confirm("Supprimer cette image ?")) {
+            setFormData(prev => ({ ...prev, [field]: '' }));
+        }
+    };
 
     return (
         <div className="h-[calc(100vh-8rem)] flex flex-col space-y-6">
@@ -631,7 +669,21 @@ const HRView: React.FC<HRViewProps> = ({
                                     <tr key={emp.id} className="hover:bg-gray-50">
                                         <td className="py-3 px-4">
                                             <div className="font-bold text-gray-800">{emp.nom}</div>
-                                            {emp.numeroCNI && <div className="text-[10px] text-gray-500 font-mono flex items-center gap-1"><CreditCard size={10}/> {emp.numeroCNI}</div>}
+                                            <div className="flex gap-2 mt-1">
+                                                {emp.cniRecto && (
+                                                    <button onClick={() => setPreviewImage(emp.cniRecto || '')} className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-200 flex items-center gap-1 hover:bg-blue-100">
+                                                        <CreditCard size={10}/> CNI R.
+                                                    </button>
+                                                )}
+                                                {emp.cniVerso && (
+                                                    <button onClick={() => setPreviewImage(emp.cniVerso || '')} className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-200 flex items-center gap-1 hover:bg-blue-100">
+                                                        <CreditCard size={10}/> CNI V.
+                                                    </button>
+                                                )}
+                                                {!emp.cniRecto && !emp.cniVerso && emp.numeroCNI && (
+                                                    <span className="text-[10px] text-gray-400 font-mono flex items-center gap-1"><CreditCard size={10}/> {emp.numeroCNI}</span>
+                                                )}
+                                            </div>
                                         </td>
                                         <td className="py-3 px-4"><span className="bg-brand-50 text-brand-800 px-2 py-1 rounded text-xs">{emp.role}</span></td>
                                         <td className="py-3 px-4 text-gray-600">{emp.telephone}</td>
@@ -1108,17 +1160,66 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
+            {/* PREVIEW IMAGE MODAL */}
+            {previewImage && (
+                <div className="fixed inset-0 bg-black bg-opacity-90 z-[100] flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
+                    <div className="relative max-w-4xl max-h-[90vh]">
+                        <img src={previewImage} alt="Preview" className="max-w-full max-h-[90vh] rounded-lg shadow-2xl" />
+                        <button onClick={() => setPreviewImage(null)} className="absolute -top-4 -right-4 bg-white rounded-full p-1 shadow-lg hover:bg-gray-100">
+                            <X size={24} className="text-black" />
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* MODAL EMPLOYEE ADD/EDIT */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in zoom-in duration-200">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in zoom-in duration-200 overflow-y-auto max-h-[90vh]">
                         <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold">{editingEmployee ? 'Modifier Employé' : 'Nouvel Employé'}</h3><button onClick={() => setIsModalOpen(false)}><X size={24}/></button></div>
                         <div className="space-y-4">
                             <div><label className="block text-sm font-medium mb-1">Nom Complet</label><input type="text" className="w-full p-2 border rounded" value={formData.nom} onChange={e => setFormData({...formData, nom: e.target.value})}/></div>
+                            
+                            {/* SECTION CNI RECTO / VERSO */}
                             <div>
-                                <label className="block text-sm font-medium mb-1">Numéro CNI (Carte d'Identité)</label>
-                                <input type="text" className="w-full p-2 border rounded font-mono text-sm" value={formData.numeroCNI} onChange={e => setFormData({...formData, numeroCNI: e.target.value})} placeholder="Numéro d'identification nationale"/>
+                                <label className="block text-sm font-medium mb-2">Pièce d'Identité (CNI)</label>
+                                <div className="grid grid-cols-2 gap-4">
+                                    {/* RECTO */}
+                                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 flex flex-col items-center justify-center text-center relative hover:bg-gray-50 transition-colors">
+                                        {formData.cniRecto ? (
+                                            <>
+                                                <img src={formData.cniRecto} alt="Recto" className="w-full h-24 object-cover rounded mb-2" onClick={() => setPreviewImage(formData.cniRecto || '')} />
+                                                <button onClick={() => handleRemoveImage('cniRecto')} className="text-xs text-red-600 hover:underline flex items-center gap-1"><Trash2 size={10}/> Supprimer</button>
+                                                <span className="absolute top-2 left-2 bg-black/50 text-white text-[10px] px-1 rounded">Recto</span>
+                                            </>
+                                        ) : (
+                                            <label className="cursor-pointer flex flex-col items-center w-full h-full justify-center">
+                                                {isUploading ? <Loader className="animate-spin text-brand-600 mb-2"/> : <Upload className="text-gray-400 mb-2" />}
+                                                <span className="text-xs text-gray-500 font-medium">Ajouter Recto</span>
+                                                <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'cniRecto')} disabled={isUploading} />
+                                            </label>
+                                        )}
+                                    </div>
+
+                                    {/* VERSO */}
+                                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 flex flex-col items-center justify-center text-center relative hover:bg-gray-50 transition-colors">
+                                        {formData.cniVerso ? (
+                                            <>
+                                                <img src={formData.cniVerso} alt="Verso" className="w-full h-24 object-cover rounded mb-2" onClick={() => setPreviewImage(formData.cniVerso || '')} />
+                                                <button onClick={() => handleRemoveImage('cniVerso')} className="text-xs text-red-600 hover:underline flex items-center gap-1"><Trash2 size={10}/> Supprimer</button>
+                                                <span className="absolute top-2 left-2 bg-black/50 text-white text-[10px] px-1 rounded">Verso</span>
+                                            </>
+                                        ) : (
+                                            <label className="cursor-pointer flex flex-col items-center w-full h-full justify-center">
+                                                {isUploading ? <Loader className="animate-spin text-brand-600 mb-2"/> : <Upload className="text-gray-400 mb-2" />}
+                                                <span className="text-xs text-gray-500 font-medium">Ajouter Verso</span>
+                                                <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'cniVerso')} disabled={isUploading} />
+                                            </label>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="block text-sm font-medium mb-1">Rôle</label><select className="w-full p-2 border rounded" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as any})}>{Object.values(RoleEmploye).map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                                 <div><label className="block text-sm font-medium mb-1">Contrat</label><select className="w-full p-2 border rounded" value={formData.typeContrat} onChange={e => setFormData({...formData, typeContrat: e.target.value})}><option value="CDI">CDI</option><option value="CDD">CDD</option><option value="STAGE">Stage</option><option value="PRESTATAIRE">Prestataire</option></select></div>
@@ -1130,7 +1231,7 @@ const HRView: React.FC<HRViewProps> = ({
                             <div><label className="block text-sm font-medium mb-1">Salaire de Base</label><input type="number" className="w-full p-2 border rounded" value={formData.salaireBase} onChange={e => setFormData({...formData, salaireBase: parseInt(e.target.value)||0})}/></div>
                             <div><label className="block text-sm font-medium mb-1">Affectation</label><select className="w-full p-2 border rounded" value={formData.boutiqueId || ''} onChange={e => setFormData({...formData, boutiqueId: e.target.value})}><option value="">-- Aucune --</option><option value="ATELIER">Atelier Central</option>{boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}</select></div>
                         </div>
-                        <div className="flex justify-end gap-3 mt-6"><button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 bg-gray-100 rounded">Annuler</button><button onClick={handleSaveEmployee} className="px-4 py-2 bg-brand-600 text-white rounded font-bold">Enregistrer</button></div>
+                        <div className="flex justify-end gap-3 mt-6"><button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 bg-gray-100 rounded">Annuler</button><button onClick={handleSaveEmployee} className="px-4 py-2 bg-brand-600 text-white rounded font-bold" disabled={isUploading}>{isUploading ? 'Chargement...' : 'Enregistrer'}</button></div>
                     </div>
                 </div>
             )}
