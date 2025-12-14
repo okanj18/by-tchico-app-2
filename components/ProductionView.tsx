@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye } from 'lucide-react';
+import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
@@ -38,6 +38,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [filterTailor, setFilterTailor] = useState('ALL');
     const [filterDeliveryDateStart, setFilterDeliveryDateStart] = useState('');
     const [filterDeliveryDateEnd, setFilterDeliveryDateEnd] = useState('');
+    const [historyFilterDebt, setHistoryFilterDebt] = useState(false); // New filter for unpaid delivered items
     
     // MODALS
     const [qrModalOpen, setQrModalOpen] = useState(false);
@@ -85,6 +86,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             const isCompleted = c.statut === StatutCommande.LIVRE || c.statut === StatutCommande.ANNULE;
             if (viewMode === 'HISTORY') {
                 if (!isCompleted) return false;
+                // Sub-filter for history: Show only unpaid debts
+                if (historyFilterDebt && c.reste <= 0) return false;
             } else if (viewMode === 'KANBAN' || viewMode === 'ORDERS' || viewMode === 'TAILORS') {
                 if (isCompleted) return false; // Hide completed in active views
             }
@@ -109,7 +112,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
             return matchesSearch && matchesArchive && matchesStatus && matchesTailor && matchesDeliveryDate;
         }).sort((a, b) => new Date(b.dateLivraisonPrevue).getTime() - new Date(a.dateLivraisonPrevue).getTime());
-    }, [commandes, searchTerm, showArchived, filterStatus, filterTailor, filterDeliveryDateStart, filterDeliveryDateEnd, viewMode]);
+    }, [commandes, searchTerm, showArchived, filterStatus, filterTailor, filterDeliveryDateStart, filterDeliveryDateEnd, viewMode, historyFilterDebt]);
 
     // Calculate totals for form
     const montantTotalTTC = Math.max(0, prixBase - remise) + (applyTva ? Math.round(Math.max(0, prixBase - remise) * COMPANY_CONFIG.tvaRate) : 0);
@@ -154,7 +157,19 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     };
 
     const handleMarkAsDelivered = (orderId: string) => {
-        if(window.confirm("Marquer cette commande comme LIVRÉE ? Elle passera dans l'historique.")) {
+        const order = commandes.find(c => c.id === orderId);
+        if (!order) return;
+
+        let message = "Confirmer la livraison (Sortie Atelier) de cette commande ?";
+        
+        // Logique de dette à la livraison
+        if (order.reste > 0) {
+            message = `⚠️ ATTENTION : Ce client doit encore ${order.reste.toLocaleString()} F.\n\nÊtes-vous sûr de vouloir livrer la commande SANS encaisser le solde maintenant ?\n\nSi oui, la commande ira dans l'historique avec le statut 'Non Soldé'.`;
+        } else {
+            message = "La commande est soldée. Confirmer la livraison au client ?";
+        }
+
+        if(window.confirm(message)) {
             onUpdateStatus(orderId, StatutCommande.LIVRE);
         }
     };
@@ -352,7 +367,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 bg-white/90 rounded p-0.5 z-10">
                                                     <button onClick={() => handleOpenEditModal(cmd)} className="p-1 hover:text-blue-600" title="Modifier"><Edit2 size={12}/></button>
                                                     <button onClick={() => {setQrOrder(cmd); setQrModalOpen(true);}} className="p-1 hover:text-brand-600" title="QR Code"><QrCode size={12}/></button>
-                                                    <button onClick={() => handleMarkAsDelivered(cmd.id)} className="p-1 hover:text-green-600" title="Marquer Livré (Archiver)"><CheckCircle size={12}/></button>
+                                                    <button onClick={() => handleMarkAsDelivered(cmd.id)} className="p-1 hover:text-green-600" title="Marquer Livré"><CheckCircle size={12}/></button>
                                                 </div>
 
                                                 <div className="font-bold text-gray-800 text-sm mb-1">{cmd.clientNom}</div>
@@ -451,15 +466,34 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
             {/* VIEW: HISTORY (DELIVERED / CANCELLED) */}
             {viewMode === 'HISTORY' && (
-                <div className="flex-1 overflow-y-auto">
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="flex-1 flex flex-col overflow-hidden bg-white rounded-xl shadow-sm border border-gray-200">
+                    <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                        <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                            <History size={18} /> Historique des Livraisons
+                        </h3>
+                        <div className="flex items-center gap-2">
+                            <label className="flex items-center gap-2 cursor-pointer select-none text-sm font-medium text-gray-700 bg-white px-3 py-1.5 rounded border border-gray-300 shadow-sm hover:bg-gray-50">
+                                <input 
+                                    type="checkbox" 
+                                    checked={historyFilterDebt} 
+                                    onChange={e => setHistoryFilterDebt(e.target.checked)} 
+                                    className="rounded text-brand-600 focus:ring-brand-500"
+                                />
+                                <AlertOctagon size={16} className={historyFilterDebt ? "text-red-500" : "text-gray-400"} />
+                                Afficher Dettes Uniquement
+                            </label>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto">
                         <table className="w-full text-sm text-left">
-                            <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-100">
+                            <thead className="bg-white text-gray-600 font-medium border-b border-gray-100 sticky top-0 z-10">
                                 <tr>
                                     <th className="py-3 px-4">Date Livraison</th>
                                     <th className="py-3 px-4">Client</th>
                                     <th className="py-3 px-4">Description</th>
                                     <th className="py-3 px-4 text-right">Montant</th>
+                                    <th className="py-3 px-4 text-right">Payé</th>
+                                    <th className="py-3 px-4 text-right">Reste</th>
                                     <th className="py-3 px-4 text-center">Statut</th>
                                     <th className="py-3 px-4 text-center">Actions</th>
                                 </tr>
@@ -471,6 +505,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         <td className="py-3 px-4 font-bold text-gray-800">{cmd.clientNom}</td>
                                         <td className="py-3 px-4 text-gray-600">{cmd.description}</td>
                                         <td className="py-3 px-4 text-right font-medium">{cmd.prixTotal.toLocaleString()} F</td>
+                                        <td className="py-3 px-4 text-right text-green-600">{cmd.avance.toLocaleString()} F</td>
+                                        <td className={`py-3 px-4 text-right font-bold ${cmd.reste > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                                            {cmd.reste > 0 ? `${cmd.reste.toLocaleString()} F` : '-'}
+                                        </td>
                                         <td className="py-3 px-4 text-center">
                                             <span className={`px-2 py-1 rounded text-xs font-bold ${cmd.statut === StatutCommande.LIVRE ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                                 {cmd.statut}
@@ -478,6 +516,15 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         </td>
                                         <td className="py-3 px-4 text-center">
                                             <div className="flex justify-center gap-2">
+                                                {canSeeFinance && cmd.reste > 0 && (
+                                                    <button 
+                                                        onClick={() => openPaymentModal(cmd)}
+                                                        className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs font-bold shadow-sm transition-colors"
+                                                        title="Encaisser le reste"
+                                                    >
+                                                        <Wallet size={12}/> Encaisser
+                                                    </button>
+                                                )}
                                                 <button onClick={() => generatePrintContent(cmd)} className="text-gray-500 hover:text-gray-800 p-1" title="Réimprimer"><Printer size={16}/></button>
                                                 <button onClick={() => handleOpenEditModal(cmd)} className="text-gray-500 hover:text-blue-600 p-1" title="Voir/Modifier"><Eye size={16}/></button>
                                             </div>
@@ -486,7 +533,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 ))}
                                 {filteredCommandes.length === 0 && (
                                     <tr>
-                                        <td colSpan={6} className="py-8 text-center text-gray-400 italic">Aucune commande dans l'historique.</td>
+                                        <td colSpan={8} className="py-8 text-center text-gray-400 italic">Aucune commande trouvée dans l'historique.</td>
                                     </tr>
                                 )}
                             </tbody>
