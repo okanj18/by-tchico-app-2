@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard } from 'lucide-react';
+import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
@@ -25,7 +25,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     onUpdateStatus, onCreateOrder, onUpdateOrder, onAddPayment, onArchiveOrder, comptes, companyAssets 
 }) => {
     // --- STATE ---
-    const [viewMode, setViewMode] = useState<'ORDERS' | 'TAILORS' | 'PERFORMANCE' | 'KANBAN' | 'HISTORY'>('KANBAN');
+    const [viewMode, setViewMode] = useState<'ORDERS' | 'TAILORS' | 'PERFORMANCE' | 'KANBAN' | 'HISTORY' | 'PLANNING'>('KANBAN');
     const [showArchived, setShowArchived] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     
@@ -92,7 +92,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 if (!isCompleted) return false;
                 // Sub-filter for history: Show only unpaid debts
                 if (historyFilterDebt && c.reste <= 0) return false;
-            } else if (viewMode === 'KANBAN' || viewMode === 'ORDERS' || viewMode === 'TAILORS') {
+            } else if (['KANBAN', 'ORDERS', 'TAILORS', 'PLANNING'].includes(viewMode)) {
                 if (isCompleted) return false; // Hide completed in active views
             }
 
@@ -117,6 +117,21 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             return matchesSearch && matchesArchive && matchesStatus && matchesTailor && matchesDeliveryDate;
         }).sort((a, b) => new Date(b.dateLivraisonPrevue).getTime() - new Date(a.dateLivraisonPrevue).getTime());
     }, [commandes, searchTerm, showArchived, filterStatus, filterTailor, filterDeliveryDateStart, filterDeliveryDateEnd, viewMode, historyFilterDebt]);
+
+    // Planning Data
+    const planningData = useMemo(() => {
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        
+        // Generate next 7 days
+        const days = Array.from({length: 7}, (_, i) => {
+            const d = new Date(today);
+            d.setDate(today.getDate() + i);
+            return d;
+        });
+
+        return { days, today };
+    }, []);
 
     // Calculate totals for form
     const montantTotalTTC = Math.max(0, prixBase - remise) + (applyTva ? Math.round(Math.max(0, prixBase - remise) * COMPANY_CONFIG.tvaRate) : 0);
@@ -349,6 +364,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
                     <div className="flex bg-white border border-gray-200 p-1 rounded-lg">
                         <button onClick={() => setViewMode('KANBAN')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'KANBAN' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Columns size={14}/> Kanban</button>
+                        <button onClick={() => setViewMode('PLANNING')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'PLANNING' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><CalendarRange size={14}/> Planning</button>
                         <button onClick={() => setViewMode('ORDERS')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'ORDERS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><LayoutList size={14}/> Liste</button>
                         <button onClick={() => setViewMode('HISTORY')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'HISTORY' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><History size={14}/> Historique</button>
                         <button onClick={() => setViewMode('TAILORS')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'TAILORS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Users size={14}/> Tailleurs</button>
@@ -361,7 +377,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             </div>
 
             {/* FILTERS */}
-            {(viewMode === 'ORDERS' || viewMode === 'KANBAN' || viewMode === 'HISTORY') && (
+            {viewMode !== 'PERFORMANCE' && viewMode !== 'TAILORS' && (
                 <div className="bg-white p-3 rounded-lg border border-gray-200 flex flex-wrap gap-3 items-center shrink-0">
                     <div className="relative flex-1 min-w-[200px]">
                         <Search className="absolute left-3 top-2.5 text-gray-400" size={16}/>
@@ -376,6 +392,112 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             <input type="date" className="p-2 border rounded text-sm" value={filterDeliveryDateEnd} onChange={e => setFilterDeliveryDateEnd(e.target.value)} />
                         </div>
                     )}
+                </div>
+            )}
+
+            {/* VIEW: PLANNING (GANTT SIMPLIFIÉ) */}
+            {viewMode === 'PLANNING' && (
+                <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
+                    <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+                        <h3 className="font-bold text-gray-700 flex items-center gap-2"><CalendarRange size={18}/> Planning de Charge (7 Jours)</h3>
+                        <div className="text-xs text-gray-500 flex gap-4">
+                            <div className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-100 border border-red-300"></span> En Retard</div>
+                            <div className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-100 border border-blue-300"></span> À faire</div>
+                            <div className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-100 border border-green-300"></span> Prêt</div>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-x-auto overflow-y-auto">
+                        <div className="min-w-[1000px]">
+                            {/* Header Dates */}
+                            <div className="flex border-b border-gray-200 bg-white sticky top-0 z-10 shadow-sm">
+                                <div className="w-48 p-3 font-bold text-gray-600 border-r border-gray-100 sticky left-0 bg-white z-20">Tailleur</div>
+                                <div className="w-32 p-3 font-bold text-red-600 bg-red-50 border-r border-red-100 text-center shrink-0">
+                                    En Retard
+                                </div>
+                                {planningData.days.map(d => (
+                                    <div key={d.toISOString()} className="flex-1 min-w-[120px] p-2 text-center border-r border-gray-100">
+                                        <div className="text-xs text-gray-500 uppercase">{d.toLocaleDateString(undefined, {weekday: 'short'})}</div>
+                                        <div className="font-bold text-gray-800">{d.getDate()}</div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Rows */}
+                            {tailleurs.map(t => {
+                                const activeTasks = filteredCommandes.filter(c => c.tailleursIds.includes(t.id));
+                                const overdueTasks = activeTasks.filter(c => new Date(c.dateLivraisonPrevue).setHours(0,0,0,0) < planningData.today.getTime() && c.statut !== StatutCommande.PRET);
+                                
+                                return (
+                                    <div key={t.id} className="flex border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                        <div className="w-48 p-3 border-r border-gray-100 sticky left-0 bg-white z-10 flex items-center gap-2">
+                                            <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-xs">{t.nom.charAt(0)}</div>
+                                            <div className="truncate font-medium text-sm text-gray-700">{t.nom}</div>
+                                        </div>
+                                        
+                                        {/* Overdue Column */}
+                                        <div className="w-32 p-2 border-r border-red-100 bg-red-50/30 shrink-0 flex flex-col gap-1">
+                                            {overdueTasks.map(task => (
+                                                <div 
+                                                    key={task.id} 
+                                                    onClick={() => handleOpenEditModal(task)}
+                                                    className="bg-white border-l-2 border-red-500 p-1.5 rounded shadow-sm text-[10px] cursor-pointer hover:shadow-md transition-shadow"
+                                                >
+                                                    <div className="font-bold truncate">{task.clientNom}</div>
+                                                    <div className="text-gray-500 truncate">{task.description}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        {/* Days Columns */}
+                                        {planningData.days.map(d => {
+                                            const dayTasks = activeTasks.filter(c => {
+                                                const dTask = new Date(c.dateLivraisonPrevue);
+                                                dTask.setHours(0,0,0,0);
+                                                return dTask.getTime() === d.getTime();
+                                            });
+
+                                            return (
+                                                <div key={d.toISOString()} className="flex-1 min-w-[120px] p-2 border-r border-gray-100 flex flex-col gap-1">
+                                                    {dayTasks.map(task => (
+                                                        <div 
+                                                            key={task.id} 
+                                                            onClick={() => handleOpenEditModal(task)}
+                                                            className={`p-1.5 rounded shadow-sm text-[10px] cursor-pointer hover:shadow-md transition-shadow border-l-2 ${task.statut === StatutCommande.PRET ? 'bg-green-50 border-green-500' : 'bg-blue-50 border-blue-500'}`}
+                                                        >
+                                                            <div className="font-bold truncate text-gray-800">{task.clientNom}</div>
+                                                            <div className="text-gray-500 truncate">{task.description}</div>
+                                                            <div className="mt-1 inline-block px-1 rounded bg-white/50 text-[9px] font-bold text-gray-600">{task.statut}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })}
+                            
+                            {/* Unassigned Row */}
+                            <div className="flex border-b border-gray-100 bg-gray-50/50">
+                                <div className="w-48 p-3 border-r border-gray-100 sticky left-0 bg-gray-50 z-10 font-bold text-gray-500 text-sm italic">
+                                    Non Assigné
+                                </div>
+                                <div className="w-32 border-r border-red-100 bg-red-50/30"></div>
+                                {planningData.days.map(d => {
+                                    const unassignedTasks = filteredCommandes.filter(c => c.tailleursIds.length === 0 && new Date(c.dateLivraisonPrevue).setHours(0,0,0,0) === d.getTime());
+                                    return (
+                                        <div key={d.toISOString()} className="flex-1 min-w-[120px] p-2 border-r border-gray-100 flex flex-col gap-1">
+                                            {unassignedTasks.map(task => (
+                                                <div key={task.id} onClick={() => handleOpenEditModal(task)} className="bg-gray-200 p-1.5 rounded text-[10px] text-gray-600 cursor-pointer border-l-2 border-gray-400">
+                                                    <div className="font-bold">{task.clientNom}</div>
+                                                    <div>{task.description}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
 
