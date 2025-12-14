@@ -945,7 +945,7 @@ const HRView: React.FC<HRViewProps> = ({
                                     {transactionData.type === 'ACOMPTE' && (
                                         <div><label className="block text-xs font-bold mb-1">Compte Caisse</label><select className="w-full p-2 border rounded" value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)}><option value="">-- Choisir --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
                                     )}
-                                    <div><label className="block text-xs font-bold mb-1">Montant</label><input type="number" className="w-full p-2 border rounded font-bold" value={transactionData.montant} onChange={e => setTransactionData({...transactionData, montant: parseInt(e.target.value)||0})}/></div>
+                                    <div><label className="block text-xs font-bold mb-1">Montant</label><input type="number" className="w-full p-2 border rounded font-bold" value={transactionData.montant || ''} placeholder="0" onChange={e => setTransactionData({...transactionData, montant: parseInt(e.target.value)||0})}/></div>
                                     <div><label className="block text-xs font-bold mb-1">Note</label><input type="text" className="w-full p-2 border rounded" value={transactionData.note} onChange={e => setTransactionData({...transactionData, note: e.target.value})}/></div>
                                     <button onClick={handleSaveTransaction} className="w-full bg-brand-600 text-white p-2 rounded font-bold mt-2">Enregistrer</button>
                                 </div>

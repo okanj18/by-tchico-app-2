@@ -1,5 +1,5 @@
 
-export type RoleEmploye = 'ADMIN' | 'GERANT' | 'CHEF_ATELIER' | 'TAILLEUR' | 'VENDEUR' | 'STAGIAIRE' | 'GARDIEN';
+export type RoleEmploye = 'ADMIN' | 'GERANT' | 'CHEF_ATELIER' | 'TAILLEUR' | 'VENDEUR' | 'STAGIAIRE' | 'GARDIEN' | 'ASSISTANT' | 'LIVREUR' | 'CHAUFFEUR';
 
 export const RoleEmploye = {
     ADMIN: 'ADMIN' as RoleEmploye,
@@ -8,7 +8,10 @@ export const RoleEmploye = {
     TAILLEUR: 'TAILLEUR' as RoleEmploye,
     VENDEUR: 'VENDEUR' as RoleEmploye,
     STAGIAIRE: 'STAGIAIRE' as RoleEmploye,
-    GARDIEN: 'GARDIEN' as RoleEmploye
+    GARDIEN: 'GARDIEN' as RoleEmploye,
+    ASSISTANT: 'ASSISTANT' as RoleEmploye,
+    LIVREUR: 'LIVREUR' as RoleEmploye,
+    CHAUFFEUR: 'CHAUFFEUR' as RoleEmploye
 };
 
 export enum StatutCommande {
