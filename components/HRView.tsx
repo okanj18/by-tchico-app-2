@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie, Absence } from '../types';
-import { Users, Calendar, DollarSign, Plus, Edit2, Trash2, CheckCircle, XCircle, Search, Clock, Briefcase, Wallet, X, Bus, CheckSquare, History, UserMinus, AlertTriangle, Printer, Lock, RotateCcw, Banknote, QrCode, Camera, Archive, Calculator, ChevronRight, FileText, PieChart } from 'lucide-react';
+import { Users, Calendar, DollarSign, Plus, Edit2, Trash2, CheckCircle, XCircle, Search, Clock, Briefcase, Wallet, X, Bus, CheckSquare, History, UserMinus, AlertTriangle, Printer, Lock, RotateCcw, Banknote, QrCode, Camera, Archive, Calculator, ChevronRight, FileText, PieChart, TrendingUp, AlertOctagon } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 import { QRCodeCanvas } from 'qrcode.react';
 
@@ -109,6 +109,33 @@ const HRView: React.FC<HRViewProps> = ({
     });
 
     const dailyPointages = pointages.filter(p => p.date === pointageDate);
+
+    // --- DASHBOARD STATISTICS ---
+    const hrStats = useMemo(() => {
+        const activeEmployees = employes.filter(e => e.actif !== false);
+        const totalBaseSalary = activeEmployees.reduce((acc, e) => acc + (e.salaireBase || 0), 0);
+        
+        const today = new Date().toISOString().split('T')[0];
+        const presentToday = pointages.filter(p => p.date === today && (p.statut === 'PRESENT' || p.statut === 'RETARD')).length;
+        
+        const currentMonth = new Date().toISOString().slice(0, 7);
+        const paidThisMonth = employes.reduce((acc, emp) => {
+            const empMonthPay = emp.historiquePaie
+                ?.filter(t => t.date.startsWith(currentMonth))
+                .reduce((sum, t) => sum + t.montant, 0) || 0;
+            return acc + empMonthPay;
+        }, 0);
+
+        const latesThisMonth = pointages.filter(p => p.date.startsWith(currentMonth) && p.statut === 'RETARD').length;
+
+        return {
+            totalBaseSalary,
+            presentToday,
+            totalActive: activeEmployees.length,
+            paidThisMonth,
+            latesThisMonth
+        };
+    }, [employes, pointages]);
 
     // --- CALCUL SALAIRE ---
     const calculateSalaryDetails = (emp: Employe, monthStr: string) => {
@@ -547,6 +574,46 @@ const HRView: React.FC<HRViewProps> = ({
                     )}
                 </div>
             </div>
+
+            {/* DASHBOARD SUMMARY (NEW) */}
+            {activeTab === 'EMPLOYEES' && !isPointageOnly && !showArchived && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                        <div>
+                            <p className="text-xs text-gray-500 uppercase font-bold">Présents Auj.</p>
+                            <div className="flex items-baseline gap-1">
+                                <p className="text-2xl font-bold text-gray-900">{hrStats.presentToday}</p>
+                                <span className="text-xs text-gray-400">/ {hrStats.totalActive}</span>
+                            </div>
+                        </div>
+                        <div className="p-2 bg-blue-50 text-blue-600 rounded-full"><Users size={20}/></div>
+                    </div>
+                    
+                    <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                        <div>
+                            <p className="text-xs text-gray-500 uppercase font-bold">Retards (Mois)</p>
+                            <p className="text-2xl font-bold text-orange-600">{hrStats.latesThisMonth}</p>
+                        </div>
+                        <div className="p-2 bg-orange-50 text-orange-600 rounded-full"><Clock size={20}/></div>
+                    </div>
+
+                    <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                        <div>
+                            <p className="text-xs text-gray-500 uppercase font-bold">Masse Salariale</p>
+                            <p className="text-2xl font-bold text-gray-900">{(hrStats.totalBaseSalary/1000).toFixed(0)}k <span className="text-xs font-normal">F</span></p>
+                        </div>
+                        <div className="p-2 bg-gray-100 text-gray-600 rounded-full"><TrendingUp size={20}/></div>
+                    </div>
+
+                    <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                        <div>
+                            <p className="text-xs text-gray-500 uppercase font-bold">Payé (Mois)</p>
+                            <p className="text-2xl font-bold text-green-600">{(hrStats.paidThisMonth/1000).toFixed(0)}k <span className="text-xs font-normal">F</span></p>
+                        </div>
+                        <div className="p-2 bg-green-50 text-green-600 rounded-full"><Banknote size={20}/></div>
+                    </div>
+                </div>
+            )}
 
             {/* TAB EMPLOYEES */}
             {activeTab === 'EMPLOYEES' && !isPointageOnly && (
