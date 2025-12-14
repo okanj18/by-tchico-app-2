@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie, Absence } from '../types';
-import { Users, Calendar, DollarSign, Plus, Edit2, Trash2, CheckCircle, XCircle, Search, Clock, Briefcase, Wallet, X, Bus, CheckSquare, History, UserMinus, AlertTriangle, Printer, Lock, RotateCcw, Banknote, QrCode, Camera, Archive, Calculator, ChevronRight } from 'lucide-react';
+import { Users, Calendar, DollarSign, Plus, Edit2, Trash2, CheckCircle, XCircle, Search, Clock, Briefcase, Wallet, X, Bus, CheckSquare, History, UserMinus, AlertTriangle, Printer, Lock, RotateCcw, Banknote, QrCode, Camera, Archive, Calculator, ChevronRight, FileText, PieChart } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 import { QRCodeCanvas } from 'qrcode.react';
 
@@ -34,6 +34,10 @@ const HRView: React.FC<HRViewProps> = ({
     const [searchTerm, setSearchTerm] = useState('');
     const [showArchived, setShowArchived] = useState(false);
     
+    // Config horaires
+    const WORK_START_HOUR = 10;
+    const TOLERANCE_MINUTES = 15;
+
     // Employee Modal
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingEmployee, setEditingEmployee] = useState<Employe | null>(null);
@@ -73,6 +77,10 @@ const HRView: React.FC<HRViewProps> = ({
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [manualBadgeId, setManualBadgeId] = useState('');
     
+    // Report Modal
+    const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+    const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+
     // Correction Pointage
     const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
     const [editingPointage, setEditingPointage] = useState<{
@@ -118,6 +126,46 @@ const HRView: React.FC<HRViewProps> = ({
         return { salaireBase, acomptes, primes, dejaPaye, netAPayer, monthTransactions };
     };
 
+    // --- REPORT GENERATION ---
+    const generateMonthlyStats = () => {
+        return employes.filter(e => e.actif !== false).map(emp => {
+            const empPointages = pointages.filter(p => 
+                p.employeId === emp.id && 
+                p.date.startsWith(reportMonth)
+            );
+
+            const presentCount = empPointages.filter(p => p.statut === 'PRESENT').length;
+            const retardCount = empPointages.filter(p => p.statut === 'RETARD').length;
+            const absentCount = empPointages.filter(p => p.statut === 'ABSENT').length;
+            const congeCount = empPointages.filter(p => p.statut === 'CONGE').length;
+
+            return {
+                id: emp.id,
+                nom: emp.nom,
+                present: presentCount,
+                retard: retardCount,
+                absent: absentCount,
+                conge: congeCount,
+                total: presentCount + retardCount + absentCount + congeCount
+            };
+        });
+    };
+
+    const handlePrintReport = () => {
+        const content = document.getElementById('attendance-report')?.innerHTML;
+        const printWindow = window.open('', '', 'height=600,width=800');
+        if (printWindow && content) {
+            printWindow.document.write('<html><head><title>Rapport Pointage</title>');
+            printWindow.document.write('<style>body{font-family: sans-serif;} table{width:100%; border-collapse:collapse;} th, td{border:1px solid #ddd; padding:8px; text-align:left;} th{background-color:#f2f2f2;} .text-red-600{color:red;} .text-orange-600{color:orange;} .font-bold{font-weight:bold;}</style>');
+            printWindow.document.write('</head><body>');
+            printWindow.document.write(`<h2>Rapport de Présence - ${new Date(reportMonth).toLocaleDateString('fr-FR', {month: 'long', year: 'numeric'})}</h2>`);
+            printWindow.document.write(content);
+            printWindow.document.write('</body></html>');
+            printWindow.document.close();
+            printWindow.print();
+        }
+    };
+
     // --- ACTIONS POINTAGE ---
 
     const getPointageStatusColor = (status: string) => {
@@ -133,12 +181,29 @@ const HRView: React.FC<HRViewProps> = ({
     const handleClockIn = (employeId: string) => {
         const now = new Date();
         const timeString = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        
+        // AUTO-CALCUL DU STATUT RETARD
+        // Règle: Travail commence à 10h00. Tolérance 15 min (donc jusqu'à 10h15 inclus c'est OK).
+        const currentHour = now.getHours();
+        const currentMinute = now.getMinutes();
+        
+        let calculatedStatut: 'PRESENT' | 'RETARD' = 'PRESENT';
+        
+        // Si il est plus de 10h
+        if (currentHour > WORK_START_HOUR) {
+            calculatedStatut = 'RETARD';
+        } 
+        // Si il est 10h mais que les minutes dépassent la tolérance
+        else if (currentHour === WORK_START_HOUR && currentMinute > TOLERANCE_MINUTES) {
+            calculatedStatut = 'RETARD';
+        }
+
         onAddPointage({
             id: `PT_${Date.now()}`,
             employeId,
             date: pointageDate,
             heureArrivee: timeString,
-            statut: 'PRESENT' 
+            statut: calculatedStatut 
         });
     };
 
@@ -443,7 +508,6 @@ const HRView: React.FC<HRViewProps> = ({
 
     return (
         <div className="h-[calc(100vh-8rem)] flex flex-col space-y-6">
-            {/* ... (Header and other tabs content remain the same) ... */}
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Briefcase className="text-brand-600" /> Ressources Humaines</h2>
                 <div className="flex gap-2">
@@ -520,6 +584,14 @@ const HRView: React.FC<HRViewProps> = ({
                             >
                                 <Camera size={16} /> Scanner Badge
                             </button>
+                            {!isPointageOnly && (
+                                <button
+                                    onClick={() => setIsReportModalOpen(true)}
+                                    className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-1.5 rounded font-medium text-sm flex items-center gap-2"
+                                >
+                                    <PieChart size={16} /> Rapports
+                                </button>
+                            )}
                         </div>
                         
                         {/* SAISIE MANUELLE BADGE */}
@@ -573,48 +645,63 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL SCANNER */}
-            {isScannerOpen && (
-                <QRScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScan={handleScanAttendance} />
-            )}
-
-            {/* MODAL SINGLE BADGE (Ajouté) */}
-            {badgeEmployee && (
-                <QRGeneratorModal 
-                    isOpen={!!badgeEmployee} 
-                    onClose={() => setBadgeEmployee(null)} 
-                    value={badgeEmployee.id} 
-                    title={badgeEmployee.nom} 
-                    subtitle={badgeEmployee.role}
-                />
-            )}
-
-            {/* MODAL BATCH BADGES */}
-            {showBatchBadges && (
-                <div className="fixed inset-0 bg-white z-[100] overflow-auto">
-                    <div className="p-4 bg-gray-900 text-white flex justify-between items-center print:hidden sticky top-0">
-                        <h3 className="font-bold flex items-center gap-2"><QrCode size={20}/> Planche Badges</h3>
-                        <div className="flex gap-2">
-                            <button onClick={() => window.print()} className="bg-brand-600 px-4 py-2 rounded font-bold flex items-center gap-2"><Printer size={16}/> Imprimer</button>
-                            <button onClick={() => setShowBatchBadges(false)} className="bg-gray-700 px-4 py-2 rounded"><X size={16}/></button>
+            {/* MODAL REPORT MENSUEL */}
+            {isReportModalOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[90] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl p-6 flex flex-col max-h-[90vh]">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-bold flex items-center gap-2 text-gray-800">
+                                <PieChart className="text-brand-600" /> Rapport Mensuel des Présences
+                            </h3>
+                            <button onClick={() => setIsReportModalOpen(false)}><X size={24} className="text-gray-500 hover:text-gray-700"/></button>
                         </div>
-                    </div>
-                    <div className="p-8 grid grid-cols-2 md:grid-cols-3 gap-8 print:grid-cols-2">
-                        {filteredEmployes.map(emp => (
-                            <div key={emp.id} className="border-2 border-black rounded-xl p-6 flex flex-col items-center text-center break-inside-avoid">
-                                <h2 className="font-bold text-xl uppercase mb-4 tracking-widest border-b-2 border-black w-full pb-2">BY TCHICO</h2>
-                                <QRCodeCanvas value={emp.id} size={150} level="H" />
-                                <div className="mt-4 w-full">
-                                    <p className="font-bold text-2xl uppercase truncate">{emp.nom}</p>
-                                    <p className="text-sm font-bold uppercase mt-1 bg-black text-white inline-block px-3 py-1 rounded">{emp.role}</p>
-                                </div>
+
+                        <div className="flex items-center gap-4 mb-4 bg-gray-50 p-3 rounded-lg border border-gray-100">
+                            <label className="text-sm font-bold text-gray-600">Sélectionner le Mois :</label>
+                            <input 
+                                type="month" 
+                                value={reportMonth} 
+                                onChange={(e) => setReportMonth(e.target.value)} 
+                                className="border rounded p-2 text-sm font-bold"
+                            />
+                            <div className="flex-1 text-right">
+                                <button onClick={handlePrintReport} className="bg-gray-800 text-white px-3 py-2 rounded text-sm font-bold flex items-center gap-2 ml-auto hover:bg-gray-900">
+                                    <Printer size={16}/> Imprimer
+                                </button>
                             </div>
-                        ))}
+                        </div>
+
+                        <div className="flex-1 overflow-auto border rounded-lg" id="attendance-report">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-gray-100 text-gray-700 font-bold sticky top-0">
+                                    <tr>
+                                        <th className="p-3">Employé</th>
+                                        <th className="p-3 text-center">Présence (Jours)</th>
+                                        <th className="p-3 text-center text-orange-700">Retards (Jours)</th>
+                                        <th className="p-3 text-center text-red-700">Absences (Jours)</th>
+                                        <th className="p-3 text-center">Congés (Jours)</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200">
+                                    {generateMonthlyStats().map(stat => (
+                                        <tr key={stat.id} className="hover:bg-gray-50">
+                                            <td className="p-3 font-medium">{stat.nom}</td>
+                                            <td className="p-3 text-center font-bold text-green-600">{stat.present}</td>
+                                            <td className={`p-3 text-center font-bold ${stat.retard > 0 ? 'text-orange-600 bg-orange-50' : 'text-gray-400'}`}>{stat.retard}</td>
+                                            <td className={`p-3 text-center font-bold ${stat.absent > 0 ? 'text-red-600 bg-red-50' : 'text-gray-400'}`}>{stat.absent}</td>
+                                            <td className="p-3 text-center text-blue-600">{stat.conge}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            <div className="p-4 text-xs text-gray-500 italic mt-2 border-t border-gray-100">
+                                * Retard : Arrivée après {WORK_START_HOUR}h{TOLERANCE_MINUTES}.
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
 
-            {/* ... Other modals (Employee, Correction, Transport, Transaction, Pay) remain unchanged ... */}
             {/* MODAL CORRECTION POINTAGE */}
             {correctionModalOpen && editingPointage && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
@@ -803,6 +890,36 @@ const HRView: React.FC<HRViewProps> = ({
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL SCANNER */}
+            {isScannerOpen && (
+                <QRScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScan={handleScanAttendance} />
+            )}
+
+            {/* MODAL BATCH BADGES */}
+            {showBatchBadges && (
+                <div className="fixed inset-0 bg-white z-[100] overflow-auto">
+                    <div className="p-4 bg-gray-900 text-white flex justify-between items-center print:hidden sticky top-0">
+                        <h3 className="font-bold flex items-center gap-2"><QrCode size={20}/> Planche Badges</h3>
+                        <div className="flex gap-2">
+                            <button onClick={() => window.print()} className="bg-brand-600 px-4 py-2 rounded font-bold flex items-center gap-2"><Printer size={16}/> Imprimer</button>
+                            <button onClick={() => setShowBatchBadges(false)} className="bg-gray-700 px-4 py-2 rounded"><X size={16}/></button>
+                        </div>
+                    </div>
+                    <div className="p-8 grid grid-cols-2 md:grid-cols-3 gap-8 print:grid-cols-2">
+                        {filteredEmployes.map(emp => (
+                            <div key={emp.id} className="border-2 border-black rounded-xl p-6 flex flex-col items-center text-center break-inside-avoid">
+                                <h2 className="font-bold text-xl uppercase mb-4 tracking-widest border-b-2 border-black w-full pb-2">BY TCHICO</h2>
+                                <QRCodeCanvas value={emp.id} size={150} level="H" />
+                                <div className="mt-4 w-full">
+                                    <p className="font-bold text-2xl uppercase truncate">{emp.nom}</p>
+                                    <p className="text-sm font-bold uppercase mt-1 bg-black text-white inline-block px-3 py-1 rounded">{emp.role}</p>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}
