@@ -11,18 +11,12 @@ export const mockBoutiques: Boutique[] = [
     { id: 'B3', nom: 'Stand Foire FIDAK', lieu: 'CICES' }
 ];
 
-// ... (le reste du fichier mockData.ts doit être conservé, je n'ajoute que ce qui manque à la fin ou j'exporte tout)
-// Pour simplifier l'exemple ici, je réexporte tout le contenu existant et j'ajoute mockCompanyAssets à la fin.
-// Assumez que le contenu précédent est préservé.
-
-// ... (Contenu existant de mockData.ts ...)
-
 export const mockEmployes: Employe[] = [
-    { id: 'E1', nom: 'Moussa Diop', role: RoleEmploye.CHEF_ATELIER, telephone: '770000001', salaireBase: 150000, typeContrat: 'CDI', boutiqueId: 'ATELIER', historiquePaie: [], absences: [] },
-    { id: 'E2', nom: 'Fatou Ndiaye', role: RoleEmploye.TAILLEUR, telephone: '770000002', salaireBase: 100000, typeContrat: 'PRESTATAIRE', boutiqueId: 'ATELIER', historiquePaie: [], absences: [] },
-    { id: 'E3', nom: 'Amadou Sow', role: RoleEmploye.TAILLEUR, telephone: '770000003', salaireBase: 100000, typeContrat: 'PRESTATAIRE', boutiqueId: 'ATELIER', historiquePaie: [], absences: [] },
-    { id: 'E4', nom: 'Sophie Gueye', role: RoleEmploye.VENDEUR, boutiqueId: 'B1', telephone: '770000004', salaireBase: 75000, typeContrat: 'CDD', historiquePaie: [], absences: [] },
-    { id: 'E5', nom: 'Ibrahima Fall', role: RoleEmploye.STAGIAIRE, telephone: '770000005', salaireBase: 30000, typeContrat: 'STAGE', boutiqueId: 'ATELIER', historiquePaie: [], absences: [] }
+    { id: 'E1', nom: 'Moussa Diop', numeroCNI: '1752199001234', role: RoleEmploye.CHEF_ATELIER, telephone: '770000001', salaireBase: 150000, typeContrat: 'CDI', boutiqueId: 'ATELIER', historiquePaie: [], absences: [] },
+    { id: 'E2', nom: 'Fatou Ndiaye', numeroCNI: '1752199505678', role: RoleEmploye.TAILLEUR, telephone: '770000002', salaireBase: 100000, typeContrat: 'PRESTATAIRE', boutiqueId: 'ATELIER', historiquePaie: [], absences: [] },
+    { id: 'E3', nom: 'Amadou Sow', numeroCNI: '2752198809012', role: RoleEmploye.TAILLEUR, telephone: '770000003', salaireBase: 100000, typeContrat: 'PRESTATAIRE', boutiqueId: 'ATELIER', historiquePaie: [], absences: [] },
+    { id: 'E4', nom: 'Sophie Gueye', numeroCNI: '2752200003456', role: RoleEmploye.VENDEUR, boutiqueId: 'B1', telephone: '770000004', salaireBase: 75000, typeContrat: 'CDD', historiquePaie: [], absences: [] },
+    { id: 'E5', nom: 'Ibrahima Fall', numeroCNI: '1752200207890', role: RoleEmploye.STAGIAIRE, telephone: '770000005', salaireBase: 30000, typeContrat: 'STAGE', boutiqueId: 'ATELIER', historiquePaie: [], absences: [] }
 ];
 
 export const mockPointages: Pointage[] = [

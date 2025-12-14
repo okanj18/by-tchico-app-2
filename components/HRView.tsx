@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie, Absence } from '../types';
-import { Users, Calendar, DollarSign, Plus, Edit2, Trash2, CheckCircle, XCircle, Search, Clock, Briefcase, Wallet, X, Bus, CheckSquare, History, UserMinus, AlertTriangle, Printer, Lock, RotateCcw, Banknote, QrCode, Camera, Archive, Calculator, ChevronRight, FileText, PieChart, TrendingUp, AlertOctagon } from 'lucide-react';
+import { Users, Calendar, DollarSign, Plus, Edit2, Trash2, CheckCircle, XCircle, Search, Clock, Briefcase, Wallet, X, Bus, CheckSquare, History, UserMinus, AlertTriangle, Printer, Lock, RotateCcw, Banknote, QrCode, Camera, Archive, Calculator, ChevronRight, FileText, PieChart, TrendingUp, AlertOctagon, CreditCard } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 import { QRCodeCanvas } from 'qrcode.react';
 
@@ -42,7 +42,7 @@ const HRView: React.FC<HRViewProps> = ({
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingEmployee, setEditingEmployee] = useState<Employe | null>(null);
     const [formData, setFormData] = useState<Partial<Employe>>({
-        nom: '', role: RoleEmploye.STAGIAIRE, telephone: '', salaireBase: 0, typeContrat: 'STAGE'
+        nom: '', role: RoleEmploye.STAGIAIRE, telephone: '', salaireBase: 0, typeContrat: 'STAGE', numeroCNI: ''
     });
 
     // Transport Bulk
@@ -548,13 +548,14 @@ const HRView: React.FC<HRViewProps> = ({
     };
 
     const openEditModal = (e: Employe) => { setEditingEmployee(e); setFormData(e); setIsModalOpen(true); };
-    const openAddModal = () => { setEditingEmployee(null); setFormData({ nom: '', role: RoleEmploye.TAILLEUR }); setIsModalOpen(true); };
+    const openAddModal = () => { setEditingEmployee(null); setFormData({ nom: '', role: RoleEmploye.TAILLEUR, numeroCNI: '' }); setIsModalOpen(true); };
     const openPayModal = (e: Employe) => { setSelectedEmployeeForPay(e); setPayTab('TRANSACTION'); setPaymentAccountId(''); setTransactionData({ date: new Date().toISOString().split('T')[0], type: 'ACOMPTE', montant: 0, note: '' }); setPayModalOpen(true); };
     const toggleTransportSelection = (id: string) => setTransportSelection(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
     const selectAllTransport = () => setTransportSelection(transportSelection.length === filteredEmployes.length ? [] : filteredEmployes.map(e => e.id));
 
     return (
         <div className="h-[calc(100vh-8rem)] flex flex-col space-y-6">
+            {/* ... (Header, Dashboard, and Stats Cards remain unchanged) ... */}
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Briefcase className="text-brand-600" /> Ressources Humaines</h2>
                 <div className="flex gap-2">
@@ -575,7 +576,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             </div>
 
-            {/* DASHBOARD SUMMARY (NEW) */}
+            {/* DASHBOARD SUMMARY */}
             {activeTab === 'EMPLOYEES' && !isPointageOnly && !showArchived && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
@@ -628,7 +629,10 @@ const HRView: React.FC<HRViewProps> = ({
                             <tbody className="divide-y divide-gray-100">
                                 {filteredEmployes.map(emp => (
                                     <tr key={emp.id} className="hover:bg-gray-50">
-                                        <td className="py-3 px-4 font-bold text-gray-800">{emp.nom}</td>
+                                        <td className="py-3 px-4">
+                                            <div className="font-bold text-gray-800">{emp.nom}</div>
+                                            {emp.numeroCNI && <div className="text-[10px] text-gray-500 font-mono flex items-center gap-1"><CreditCard size={10}/> {emp.numeroCNI}</div>}
+                                        </td>
                                         <td className="py-3 px-4"><span className="bg-brand-50 text-brand-800 px-2 py-1 rounded text-xs">{emp.role}</span></td>
                                         <td className="py-3 px-4 text-gray-600">{emp.telephone}</td>
                                         <td className="py-3 px-4 text-gray-600">{emp.typeContrat}</td>
@@ -661,7 +665,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* TAB POINTAGE */}
+            {/* TAB POINTAGE (Unchanged) */}
             {activeTab === 'POINTAGE' && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
                     <div className="p-4 border-b border-gray-100 flex flex-wrap justify-between items-center bg-gray-50 gap-4">
@@ -686,7 +690,6 @@ const HRView: React.FC<HRViewProps> = ({
                             )}
                         </div>
                         
-                        {/* SAISIE MANUELLE BADGE */}
                         <div className="flex items-center gap-2">
                             <input 
                                 type="text" 
@@ -737,12 +740,14 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL SCANNER */}
+            {/* ... (Modals: Scanner, Badge, Batch Badge, Presence Report, Monthly Report, Correction Pointage, Transport, Action Transaction, Pay Modal, History Modal remain unchanged) ... */}
+            
+            {/* ... MODAL SCANNER ... */}
             {isScannerOpen && (
                 <QRScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScan={handleScanAttendance} />
             )}
 
-            {/* MODAL SINGLE BADGE (Ajouté) */}
+            {/* ... MODAL SINGLE BADGE ... */}
             {badgeEmployee && (
                 <QRGeneratorModal 
                     isOpen={!!badgeEmployee} 
@@ -753,7 +758,7 @@ const HRView: React.FC<HRViewProps> = ({
                 />
             )}
 
-            {/* MODAL BATCH BADGES */}
+            {/* ... MODAL BATCH BADGES ... */}
             {showBatchBadges && (
                 <div className="fixed inset-0 bg-white z-[100] overflow-auto">
                     <div className="p-4 bg-gray-900 text-white flex justify-between items-center print:hidden sticky top-0">
@@ -778,7 +783,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL INDIVIDUAL PRESENCE REPORT */}
+            {/* ... MODAL INDIVIDUAL PRESENCE REPORT ... */}
             {selectedEmployeeForPresence && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[90] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl p-6 flex flex-col max-h-[90vh]">
@@ -855,7 +860,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL REPORT MENSUEL */}
+            {/* ... MODAL REPORT MENSUEL ... */}
             {isReportModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[90] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl p-6 flex flex-col max-h-[90vh]">
@@ -912,7 +917,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL CORRECTION POINTAGE */}
+            {/* ... MODAL CORRECTION POINTAGE ... */}
             {correctionModalOpen && editingPointage && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
@@ -927,7 +932,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL TRANSPORT GROUPÉ */}
+            {/* ... MODAL TRANSPORT ... */}
             {transportModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[75] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 flex flex-col max-h-[90vh]">
@@ -973,7 +978,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL ACTION TRANSACTION (EDIT/DELETE) */}
+            {/* ... MODAL ACTION TRANSACTION ... */}
             {actionTransactionModalOpen && currentActionTransaction && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
@@ -989,7 +994,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL PAIE INDIVIDUELLE */}
+            {/* ... MODAL PAIE INDIVIDUELLE ... */}
             {payModalOpen && selectedEmployeeForPay && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in duration-200">
@@ -1028,7 +1033,6 @@ const HRView: React.FC<HRViewProps> = ({
                                         />
                                     </div>
                                     
-                                    {/* CALCULATOR */}
                                     {(() => {
                                         const stats = calculateSalaryDetails(selectedEmployeeForPay, salaryMonth);
                                         return (
@@ -1069,7 +1073,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL HISTORIQUE PAIE AVEC ACTIONS */}
+            {/* ... MODAL HISTORIQUE PAIE ... */}
             {historyModalOpen && selectedEmployeeForHistory && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -1111,6 +1115,10 @@ const HRView: React.FC<HRViewProps> = ({
                         <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold">{editingEmployee ? 'Modifier Employé' : 'Nouvel Employé'}</h3><button onClick={() => setIsModalOpen(false)}><X size={24}/></button></div>
                         <div className="space-y-4">
                             <div><label className="block text-sm font-medium mb-1">Nom Complet</label><input type="text" className="w-full p-2 border rounded" value={formData.nom} onChange={e => setFormData({...formData, nom: e.target.value})}/></div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Numéro CNI (Carte d'Identité)</label>
+                                <input type="text" className="w-full p-2 border rounded font-mono text-sm" value={formData.numeroCNI} onChange={e => setFormData({...formData, numeroCNI: e.target.value})} placeholder="Numéro d'identification nationale"/>
+                            </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="block text-sm font-medium mb-1">Rôle</label><select className="w-full p-2 border rounded" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as any})}>{Object.values(RoleEmploye).map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                                 <div><label className="block text-sm font-medium mb-1">Contrat</label><select className="w-full p-2 border rounded" value={formData.typeContrat} onChange={e => setFormData({...formData, typeContrat: e.target.value})}><option value="CDI">CDI</option><option value="CDD">CDD</option><option value="STAGE">Stage</option><option value="PRESTATAIRE">Prestataire</option></select></div>

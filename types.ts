@@ -83,6 +83,7 @@ export interface Absence {
 export interface Employe {
     id: string;
     nom: string;
+    numeroCNI?: string;
     role: RoleEmploye;
     telephone: string;
     email?: string;
