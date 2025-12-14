@@ -1,8 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets } from '../types';
+import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange } from 'lucide-react';
+import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange, ChevronLeft } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
@@ -25,7 +25,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     onUpdateStatus, onCreateOrder, onUpdateOrder, onAddPayment, onArchiveOrder, comptes, companyAssets 
 }) => {
     // --- STATE ---
-    const [viewMode, setViewMode] = useState<'ORDERS' | 'TAILORS' | 'PERFORMANCE' | 'KANBAN' | 'HISTORY' | 'PLANNING'>('KANBAN');
+    const [viewMode, setViewMode] = useState<'ORDERS' | 'TAILORS' | 'PERFORMANCE' | 'KANBAN' | 'HISTORY' | 'PLANNING'>('PLANNING');
     const [showArchived, setShowArchived] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     
@@ -58,6 +58,11 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [paymentHistoryModalOpen, setPaymentHistoryModalOpen] = useState(false);
     const [selectedOrderForHistory, setSelectedOrderForHistory] = useState<Commande | null>(null);
     
+    // NEW: TASK PLANNING MODAL
+    const [taskModalOpen, setTaskModalOpen] = useState(false);
+    const [planningTarget, setPlanningTarget] = useState<{ tailorId: string, tailorName: string, date: Date } | null>(null);
+    const [newTaskData, setNewTaskData] = useState<{ orderId: string, description: string }>({ orderId: '', description: '' });
+
     // FORM ORDER
     const [selectedClientId, setSelectedClientId] = useState('');
     const [description, setDescription] = useState('');
@@ -123,8 +128,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         const today = new Date();
         today.setHours(0,0,0,0);
         
-        // Generate next 7 days
-        const days = Array.from({length: 7}, (_, i) => {
+        // Generate next 6 days
+        const days = Array.from({length: 6}, (_, i) => {
             const d = new Date(today);
             d.setDate(today.getDate() + i);
             return d;
@@ -164,6 +169,23 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             case 'ESPECE': return 'bg-green-50 text-green-700 border-green-200';
             default: return 'bg-gray-100 text-gray-700 border-gray-200';
         }
+    };
+
+    // Récupérer les tâches planifiées pour un tailleur et une date donnée
+    const getTasksForTailor = (tailorId: string, date: Date) => {
+        const dateStr = date.toISOString().split('T')[0];
+        const tasks: { task: TacheProduction, order: Commande }[] = [];
+
+        commandes.forEach(order => {
+            if (order.taches) {
+                order.taches.forEach(t => {
+                    if (t.tailleurId === tailorId && t.date === dateStr) {
+                        tasks.push({ task: t, order });
+                    }
+                });
+            }
+        });
+        return tasks;
     };
 
     // --- ACTIONS ---
@@ -232,7 +254,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             remise, avance, reste: Math.max(0, montantTotalTTC - avance),
             type: 'SUR_MESURE',
             paiements: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.paiements || []) : [],
-            consommations: consommations.map(c => ({ articleId: c.articleId, variante: c.variante, quantite: c.quantite }))
+            consommations: consommations.map(c => ({ articleId: c.articleId, variante: c.variante, quantite: c.quantite })),
+            taches: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.taches || []) : []
         };
 
         // Si c'est une création et qu'il y a une avance, on ajoute le paiement initial à l'historique
@@ -274,6 +297,57 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         onAddPayment(selectedOrderForPayment.id, paymentAmount, paymentMethod, "Paiement Production", new Date().toISOString(), paymentAccountId);
         setPaymentModalOpen(false);
         setSelectedOrderForPayment(null);
+    };
+
+    // --- PLANNING HANDLERS ---
+    
+    const openTaskModal = (tailorId: string, date: Date) => {
+        const tailor = tailleurs.find(t => t.id === tailorId);
+        if (!tailor) return;
+        
+        setPlanningTarget({ tailorId, tailorName: tailor.nom, date });
+        setNewTaskData({ orderId: '', description: 'Avancement' });
+        setTaskModalOpen(true);
+    };
+
+    const handleSaveTask = () => {
+        if (!planningTarget || !newTaskData.orderId) return;
+        
+        const order = commandes.find(c => c.id === newTaskData.orderId);
+        if (!order) return;
+
+        const newTask: TacheProduction = {
+            id: `TASK_${Date.now()}`,
+            commandeId: order.id,
+            description: newTaskData.description || 'Travail sur commande',
+            date: planningTarget.date.toISOString().split('T')[0],
+            tailleurId: planningTarget.tailorId,
+            statut: 'A_FAIRE'
+        };
+
+        // Update the order with the new task
+        const updatedOrder = {
+            ...order,
+            taches: [...(order.taches || []), newTask]
+        };
+
+        onUpdateOrder(updatedOrder);
+        setTaskModalOpen(false);
+    };
+
+    const handleToggleTaskStatus = (task: TacheProduction, order: Commande) => {
+        const newStatus: 'A_FAIRE' | 'FAIT' = task.statut === 'A_FAIRE' ? 'FAIT' : 'A_FAIRE';
+        const updatedTasks = order.taches?.map(t => t.id === task.id ? { ...t, statut: newStatus } : t);
+        const updatedOrder = { ...order, taches: updatedTasks };
+        onUpdateOrder(updatedOrder);
+    };
+
+    const handleDeleteTask = (task: TacheProduction, order: Commande) => {
+        if (window.confirm("Supprimer cette tâche du planning ?")) {
+            const updatedTasks = order.taches?.filter(t => t.id !== task.id);
+            const updatedOrder = { ...order, taches: updatedTasks };
+            onUpdateOrder(updatedOrder);
+        }
     };
 
     const generatePrintContent = (orderData: Partial<Commande>) => {
@@ -364,7 +438,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
                     <div className="flex bg-white border border-gray-200 p-1 rounded-lg">
                         <button onClick={() => setViewMode('KANBAN')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'KANBAN' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Columns size={14}/> Kanban</button>
-                        <button onClick={() => setViewMode('PLANNING')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'PLANNING' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><CalendarRange size={14}/> Planning</button>
+                        <button onClick={() => setViewMode('PLANNING')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'PLANNING' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><CalendarRange size={14}/> Agenda</button>
                         <button onClick={() => setViewMode('ORDERS')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'ORDERS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><LayoutList size={14}/> Liste</button>
                         <button onClick={() => setViewMode('HISTORY')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'HISTORY' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><History size={14}/> Historique</button>
                         <button onClick={() => setViewMode('TAILORS')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'TAILORS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Users size={14}/> Tailleurs</button>
@@ -395,15 +469,14 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* VIEW: PLANNING (GANTT SIMPLIFIÉ) */}
+            {/* VIEW: AGENDA (NEW PLANNING) */}
             {viewMode === 'PLANNING' && (
                 <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
                     <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-                        <h3 className="font-bold text-gray-700 flex items-center gap-2"><CalendarRange size={18}/> Planning de Charge (7 Jours)</h3>
+                        <h3 className="font-bold text-gray-700 flex items-center gap-2"><CalendarRange size={18}/> Agenda Quotidien</h3>
                         <div className="text-xs text-gray-500 flex gap-4">
-                            <div className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-100 border border-red-300"></span> En Retard</div>
-                            <div className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-100 border border-blue-300"></span> À faire</div>
-                            <div className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-100 border border-green-300"></span> Prêt</div>
+                            <div className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-100 border border-blue-300"></span> À Faire</div>
+                            <div className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-100 border border-green-300"></span> Fait</div>
                         </div>
                     </div>
                     <div className="flex-1 overflow-x-auto overflow-y-auto">
@@ -411,96 +484,71 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             {/* Header Dates */}
                             <div className="flex border-b border-gray-200 bg-white sticky top-0 z-10 shadow-sm">
                                 <div className="w-48 p-3 font-bold text-gray-600 border-r border-gray-100 sticky left-0 bg-white z-20">Tailleur</div>
-                                <div className="w-32 p-3 font-bold text-red-600 bg-red-50 border-r border-red-100 text-center shrink-0">
-                                    En Retard
-                                </div>
-                                {planningData.days.map(d => (
-                                    <div key={d.toISOString()} className="flex-1 min-w-[120px] p-2 text-center border-r border-gray-100">
-                                        <div className="text-xs text-gray-500 uppercase">{d.toLocaleDateString(undefined, {weekday: 'short'})}</div>
-                                        <div className="font-bold text-gray-800">{d.getDate()}</div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Rows */}
-                            {tailleurs.map(t => {
-                                const activeTasks = filteredCommandes.filter(c => c.tailleursIds.includes(t.id));
-                                const overdueTasks = activeTasks.filter(c => new Date(c.dateLivraisonPrevue).setHours(0,0,0,0) < planningData.today.getTime() && c.statut !== StatutCommande.PRET);
-                                
-                                return (
-                                    <div key={t.id} className="flex border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                                        <div className="w-48 p-3 border-r border-gray-100 sticky left-0 bg-white z-10 flex items-center gap-2">
-                                            <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-xs">{t.nom.charAt(0)}</div>
-                                            <div className="truncate font-medium text-sm text-gray-700">{t.nom}</div>
-                                        </div>
-                                        
-                                        {/* Overdue Column */}
-                                        <div className="w-32 p-2 border-r border-red-100 bg-red-50/30 shrink-0 flex flex-col gap-1">
-                                            {overdueTasks.map(task => (
-                                                <div 
-                                                    key={task.id} 
-                                                    onClick={() => handleOpenEditModal(task)}
-                                                    className="bg-white border-l-2 border-red-500 p-1.5 rounded shadow-sm text-[10px] cursor-pointer hover:shadow-md transition-shadow"
-                                                >
-                                                    <div className="font-bold truncate">{task.clientNom}</div>
-                                                    <div className="text-gray-500 truncate">{task.description}</div>
-                                                </div>
-                                            ))}
-                                        </div>
-
-                                        {/* Days Columns */}
-                                        {planningData.days.map(d => {
-                                            const dayTasks = activeTasks.filter(c => {
-                                                const dTask = new Date(c.dateLivraisonPrevue);
-                                                dTask.setHours(0,0,0,0);
-                                                return dTask.getTime() === d.getTime();
-                                            });
-
-                                            return (
-                                                <div key={d.toISOString()} className="flex-1 min-w-[120px] p-2 border-r border-gray-100 flex flex-col gap-1">
-                                                    {dayTasks.map(task => (
-                                                        <div 
-                                                            key={task.id} 
-                                                            onClick={() => handleOpenEditModal(task)}
-                                                            className={`p-1.5 rounded shadow-sm text-[10px] cursor-pointer hover:shadow-md transition-shadow border-l-2 ${task.statut === StatutCommande.PRET ? 'bg-green-50 border-green-500' : 'bg-blue-50 border-blue-500'}`}
-                                                        >
-                                                            <div className="font-bold truncate text-gray-800">{task.clientNom}</div>
-                                                            <div className="text-gray-500 truncate">{task.description}</div>
-                                                            <div className="mt-1 inline-block px-1 rounded bg-white/50 text-[9px] font-bold text-gray-600">{task.statut}</div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                );
-                            })}
-                            
-                            {/* Unassigned Row */}
-                            <div className="flex border-b border-gray-100 bg-gray-50/50">
-                                <div className="w-48 p-3 border-r border-gray-100 sticky left-0 bg-gray-50 z-10 font-bold text-gray-500 text-sm italic">
-                                    Non Assigné
-                                </div>
-                                <div className="w-32 border-r border-red-100 bg-red-50/30"></div>
                                 {planningData.days.map(d => {
-                                    const unassignedTasks = filteredCommandes.filter(c => c.tailleursIds.length === 0 && new Date(c.dateLivraisonPrevue).setHours(0,0,0,0) === d.getTime());
+                                    const isToday = d.toDateString() === planningData.today.toDateString();
                                     return (
-                                        <div key={d.toISOString()} className="flex-1 min-w-[120px] p-2 border-r border-gray-100 flex flex-col gap-1">
-                                            {unassignedTasks.map(task => (
-                                                <div key={task.id} onClick={() => handleOpenEditModal(task)} className="bg-gray-200 p-1.5 rounded text-[10px] text-gray-600 cursor-pointer border-l-2 border-gray-400">
-                                                    <div className="font-bold">{task.clientNom}</div>
-                                                    <div>{task.description}</div>
-                                                </div>
-                                            ))}
+                                        <div key={d.toISOString()} className={`flex-1 min-w-[140px] p-2 text-center border-r border-gray-100 ${isToday ? 'bg-brand-50' : ''}`}>
+                                            <div className={`text-xs uppercase ${isToday ? 'text-brand-600 font-bold' : 'text-gray-500'}`}>{d.toLocaleDateString(undefined, {weekday: 'short'})}</div>
+                                            <div className={`font-bold ${isToday ? 'text-brand-800' : 'text-gray-800'}`}>{d.toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}</div>
                                         </div>
                                     )
                                 })}
                             </div>
+
+                            {/* Rows */}
+                            {tailleurs.map(t => (
+                                <div key={t.id} className="flex border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                    <div className="w-48 p-3 border-r border-gray-100 sticky left-0 bg-white z-10 flex items-center gap-2">
+                                        <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-xs">{t.nom.charAt(0)}</div>
+                                        <div className="truncate font-medium text-sm text-gray-700">{t.nom}</div>
+                                    </div>
+                                    
+                                    {/* Days Columns */}
+                                    {planningData.days.map(d => {
+                                        const tasks = getTasksForTailor(t.id, d);
+                                        const isToday = d.toDateString() === planningData.today.toDateString();
+
+                                        return (
+                                            <div 
+                                                key={d.toISOString()} 
+                                                className={`flex-1 min-w-[140px] p-2 border-r border-gray-100 flex flex-col gap-1 min-h-[80px] group cursor-pointer transition-colors ${isToday ? 'bg-brand-50/30' : ''} hover:bg-gray-100`}
+                                                onClick={() => openTaskModal(t.id, d)}
+                                            >
+                                                {/* Tasks List */}
+                                                {tasks.map(({task, order}) => (
+                                                    <div 
+                                                        key={task.id} 
+                                                        onClick={(e) => { e.stopPropagation(); handleToggleTaskStatus(task, order); }}
+                                                        className={`p-2 rounded shadow-sm text-xs cursor-pointer border-l-2 relative group/task ${task.statut === 'FAIT' ? 'bg-green-50 border-green-500 opacity-60 line-through decoration-gray-400' : 'bg-white border-blue-500 hover:shadow-md'}`}
+                                                    >
+                                                        <div className="font-bold truncate text-gray-800">{order.clientNom}</div>
+                                                        <div className="text-gray-500 truncate">{task.description}</div>
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); handleDeleteTask(task, order); }}
+                                                            className="absolute top-1 right-1 text-red-400 opacity-0 group-hover/task:opacity-100 hover:text-red-600 p-0.5"
+                                                        >
+                                                            <Trash2 size={10} />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                                
+                                                {/* Add Button visible on hover */}
+                                                <div className="mt-auto pt-2 flex justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button className="text-[10px] text-gray-400 bg-white border border-gray-200 px-2 py-0.5 rounded-full flex items-center gap-1 hover:text-brand-600 hover:border-brand-300 shadow-sm">
+                                                        <Plus size={10} /> Ajouter
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </div>
             )}
 
+            {/* ... KANBAN, ORDERS, HISTORY, TAILORS, PERFORMANCE VIEWS UNCHANGED ... */}
             {/* VIEW: KANBAN */}
             {viewMode === 'KANBAN' && (
                 <div className="flex-1 overflow-x-auto overflow-y-hidden pb-2">
@@ -955,6 +1003,54 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
                             <button onClick={() => setPaymentModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Annuler</button>
                             <button onClick={handleConfirmPayment} disabled={!paymentAccountId || paymentAmount <= 0} className="px-4 py-2 bg-green-600 text-white rounded font-bold hover:bg-green-700 disabled:opacity-50">Valider</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL TASK PLANNING */}
+            {taskModalOpen && planningTarget && (
+                <div className="fixed inset-0 bg-black bg-opacity-70 z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-xl font-bold text-gray-800">Assigner Tâche</h3>
+                            <button onClick={() => setTaskModalOpen(false)}><X size={20}/></button>
+                        </div>
+                        
+                        <div className="bg-gray-50 p-3 rounded mb-4 text-sm text-gray-600">
+                            <p><strong>Tailleur :</strong> {planningTarget.tailorName}</p>
+                            <p><strong>Date :</strong> {planningTarget.date.toLocaleDateString(undefined, {weekday: 'long', day: 'numeric', month: 'long'})}</p>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Commande à traiter</label>
+                                <select 
+                                    className="w-full p-2 border border-gray-300 rounded" 
+                                    value={newTaskData.orderId} 
+                                    onChange={e => setNewTaskData({...newTaskData, orderId: e.target.value})}
+                                >
+                                    <option value="">-- Choisir Commande --</option>
+                                    {filteredCommandes.filter(c => c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE).map(c => (
+                                        <option key={c.id} value={c.id}>{c.clientNom} - {c.description}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Tâche à effectuer</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full p-2 border border-gray-300 rounded" 
+                                    value={newTaskData.description} 
+                                    onChange={e => setNewTaskData({...newTaskData, description: e.target.value})}
+                                    placeholder="Ex: Coupe, Montage, Finition..."
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-3 mt-6">
+                            <button onClick={() => setTaskModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Annuler</button>
+                            <button onClick={handleSaveTask} disabled={!newTaskData.orderId} className="px-4 py-2 bg-brand-600 text-white rounded font-bold hover:bg-brand-700 disabled:opacity-50">Assigner</button>
                         </div>
                     </div>
                 </div>

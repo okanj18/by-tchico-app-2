@@ -141,6 +141,15 @@ export interface Consommation {
     quantite: number;
 }
 
+export interface TacheProduction {
+    id: string;
+    commandeId: string;
+    description: string;
+    date: string; // YYYY-MM-DD
+    tailleurId: string;
+    statut: 'A_FAIRE' | 'FAIT';
+}
+
 export interface Commande {
     id: string;
     clientId: string;
@@ -166,6 +175,7 @@ export interface Commande {
     cancelledBy?: string;
     cancelledAt?: string;
     archived?: boolean;
+    taches?: TacheProduction[]; // Planning détaillé
 }
 
 export interface Depense {
