@@ -31,8 +31,8 @@ export const mockClients: Client[] = [
 ];
 
 export const mockCommandes: Commande[] = [
-    { id: 'CMD001', clientId: 'C1', clientNom: 'Aissatou Ba', boutiqueId: 'B1', description: 'Robe en Soie Brodé', dateCommande: '2023-10-25', dateLivraisonPrevue: '2023-11-05', statut: StatutCommande.COUTURE, tailleursIds: ['E2', 'E5'], prixTotal: 150000, avance: 100000, reste: 50000, type: 'SUR_MESURE' },
-    { id: 'CMD002', clientId: 'C2', clientNom: 'Jean Michel', boutiqueId: 'B2', description: 'Costume 3 pièces', dateCommande: '2023-10-28', dateLivraisonPrevue: '2023-11-10', statut: StatutCommande.EN_COUPE, tailleursIds: ['E1'], prixTotal: 250000, avance: 250000, reste: 0, type: 'SUR_MESURE' }
+    { id: 'CMD001', clientId: 'C1', clientNom: 'Aissatou Ba', boutiqueId: 'B1', description: 'Robe en Soie Brodé', dateCommande: '2023-10-25', dateLivraisonPrevue: '2023-11-05', statut: StatutCommande.COUTURE, tailleursIds: ['E2', 'E5'], prixTotal: 150000, avance: 100000, reste: 50000, type: 'SUR_MESURE', quantite: 1 },
+    { id: 'CMD002', clientId: 'C2', clientNom: 'Jean Michel', boutiqueId: 'B2', description: 'Costume 3 pièces', dateCommande: '2023-10-28', dateLivraisonPrevue: '2023-11-10', statut: StatutCommande.EN_COUPE, tailleursIds: ['E1'], prixTotal: 250000, avance: 250000, reste: 0, type: 'SUR_MESURE', quantite: 1 }
 ];
 
 export const mockDepenses: Depense[] = [

@@ -148,6 +148,7 @@ const App: React.FC = () => {
             avance: saleData.montantRecu,
             reste: Math.max(0, saleData.total - saleData.montantRecu),
             type: 'PRET_A_PORTER',
+            quantite: saleData.items.reduce((acc: number, item: any) => acc + (item.quantite || 0), 0),
             tva: saleData.tva,
             tvaRate: saleData.tvaRate,
             remise: saleData.remise,

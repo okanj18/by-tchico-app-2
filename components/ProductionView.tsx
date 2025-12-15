@@ -1,8 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction } from '../types';
+import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange, ChevronLeft, Zap } from 'lucide-react';
+import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange, ChevronLeft, Zap, PenTool } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
@@ -19,6 +19,15 @@ interface ProductionViewProps {
     comptes: CompteFinancier[];
     companyAssets?: CompanyAssets;
 }
+
+const PRODUCTION_ACTIONS: { id: ActionProduction, label: string, icon: any, color: string }[] = [
+    { id: 'COUPE', label: 'Coupe', icon: Scissors, color: 'text-blue-600 bg-blue-50 border-blue-200' },
+    { id: 'COUTURE', label: 'Couture / Montage', icon: Shirt, color: 'text-indigo-600 bg-indigo-50 border-indigo-200' },
+    { id: 'BRODERIE', label: 'Broderie', icon: PenTool, color: 'text-amber-600 bg-amber-50 border-amber-200' },
+    { id: 'FINITION', label: 'Finition', icon: CheckCircle, color: 'text-purple-600 bg-purple-50 border-purple-200' },
+    { id: 'REPASSAGE', label: 'Repassage', icon: Zap, color: 'text-orange-600 bg-orange-50 border-orange-200' },
+    { id: 'AUTRE', label: 'Autre', icon: FileText, color: 'text-gray-600 bg-gray-50 border-gray-200' },
+];
 
 const ProductionView: React.FC<ProductionViewProps> = ({ 
     commandes, employes, clients, articles, userRole, 
@@ -61,7 +70,14 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     // NEW: TASK PLANNING MODAL
     const [taskModalOpen, setTaskModalOpen] = useState(false);
     const [planningTarget, setPlanningTarget] = useState<{ tailorId: string, tailorName: string, date: Date } | null>(null);
-    const [newTaskData, setNewTaskData] = useState<{ orderId: string, description: string }>({ orderId: '', description: '' });
+    
+    // Updated Task Data State
+    const [newTaskData, setNewTaskData] = useState<{ 
+        orderId: string, 
+        action: ActionProduction, 
+        quantite: number, 
+        note: string 
+    }>({ orderId: '', action: 'COUTURE', quantite: 1, note: '' });
 
     // FORM ORDER
     const [selectedClientId, setSelectedClientId] = useState('');
@@ -306,7 +322,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         if (!tailor) return;
         
         setPlanningTarget({ tailorId, tailorName: tailor.nom, date });
-        setNewTaskData({ orderId: '', description: 'Avancement' });
+        setNewTaskData({ orderId: '', action: 'COUTURE', quantite: 1, note: '' });
         setTaskModalOpen(true);
     };
 
@@ -316,10 +332,17 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         const order = commandes.find(c => c.id === newTaskData.orderId);
         if (!order) return;
 
+        // Auto description based on action if no note
+        const actionLabel = PRODUCTION_ACTIONS.find(a => a.id === newTaskData.action)?.label || newTaskData.action;
+        const desc = newTaskData.note ? `${actionLabel} - ${newTaskData.note}` : actionLabel;
+
         const newTask: TacheProduction = {
             id: `TASK_${Date.now()}`,
             commandeId: order.id,
-            description: newTaskData.description || 'Travail sur commande',
+            description: desc,
+            action: newTaskData.action,
+            quantite: newTaskData.quantite,
+            note: newTaskData.note,
             date: planningTarget.date.toISOString().split('T')[0],
             tailleurId: planningTarget.tailorId,
             statut: 'A_FAIRE'
@@ -415,6 +438,17 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             case StatutCommande.ANNULE: return 'bg-red-100 text-red-700';
             default: return 'bg-gray-50';
         }
+    };
+
+    const getActionStyle = (actionId: string) => {
+        const action = PRODUCTION_ACTIONS.find(a => a.id === actionId);
+        return action ? action.color : 'text-gray-600 bg-gray-50 border-gray-200';
+    };
+
+    const getActionIcon = (actionId: string) => {
+        const action = PRODUCTION_ACTIONS.find(a => a.id === actionId);
+        const Icon = action ? action.icon : FileText;
+        return <Icon size={12} />;
     };
 
     return (
@@ -525,15 +559,22 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                     // VISUAL SYNC: If global order is delivered/ready, mark task visually as done even if subtask status isn't updated
                                                     const isGlobalDone = order.statut === StatutCommande.LIVRE || order.statut === StatutCommande.PRET;
                                                     const isDone = task.statut === 'FAIT' || isGlobalDone;
+                                                    const style = isDone ? 'bg-green-50 border-green-500 opacity-60 line-through decoration-gray-400' : getActionStyle(task.action || 'AUTRE');
 
                                                     return (
                                                         <div 
                                                             key={task.id} 
                                                             onClick={(e) => { e.stopPropagation(); handleToggleTaskStatus(task, order); }}
-                                                            className={`p-2 rounded shadow-sm text-xs cursor-pointer border-l-2 relative group/task ${isDone ? 'bg-green-50 border-green-500 opacity-60 line-through decoration-gray-400' : 'bg-white border-blue-500 hover:shadow-md'}`}
+                                                            className={`p-2 rounded shadow-sm text-xs cursor-pointer border-l-4 relative group/task ${style} border`}
                                                         >
                                                             <div className="font-bold truncate text-gray-800">{order.clientNom}</div>
-                                                            <div className="text-gray-500 truncate">{task.description}</div>
+                                                            <div className="flex items-center gap-1 font-bold mt-0.5">
+                                                                {getActionIcon(task.action)} 
+                                                                <span>{task.action || 'Tâche'}</span>
+                                                                <span className="ml-auto bg-white/50 px-1 rounded text-[10px]">({task.quantite}/{order.quantite})</span>
+                                                            </div>
+                                                            {task.note && <div className="text-[10px] italic mt-1 truncate opacity-80">{task.note}</div>}
+                                                            
                                                             <button 
                                                                 onClick={(e) => { e.stopPropagation(); handleDeleteTask(task, order); }}
                                                                 className="absolute top-1 right-1 text-red-400 opacity-0 group-hover/task:opacity-100 hover:text-red-600 p-0.5"
@@ -560,6 +601,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
+            {/* ... KANBAN, ORDERS, HISTORY UNCHANGED ... */}
             {/* VIEW: KANBAN */}
             {viewMode === 'KANBAN' && (
                 <div className="flex-1 overflow-x-auto overflow-y-hidden pb-2">
@@ -794,9 +836,14 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         {todayTasks.length > 0 ? (
                                             <div className="space-y-1">
                                                 {todayTasks.map(({task, order}) => (
-                                                    <div key={task.id} className="bg-brand-50 border border-brand-100 p-2 rounded text-xs">
+                                                    <div key={task.id} className={`p-2 rounded text-xs border ${task.statut === 'FAIT' ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200 shadow-sm'}`}>
                                                         <div className="font-bold text-gray-800 truncate">{order.clientNom}</div>
-                                                        <div className="text-gray-600">{task.description}</div>
+                                                        <div className="flex items-center gap-1 text-gray-600 mt-0.5">
+                                                            {getActionIcon(task.action)} 
+                                                            <span className="font-medium">{task.action}</span>
+                                                            <span className="bg-gray-100 px-1 rounded text-[10px]">x{task.quantite}</span>
+                                                        </div>
+                                                        {task.note && <div className="text-[10px] italic text-gray-500 mt-1">{task.note}</div>}
                                                         {task.statut === 'FAIT' && <div className="text-green-600 font-bold text-[10px] mt-1 text-right">FAIT</div>}
                                                     </div>
                                                 ))}
@@ -1062,24 +1109,60 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 <select 
                                     className="w-full p-2 border border-gray-300 rounded" 
                                     value={newTaskData.orderId} 
-                                    onChange={e => setNewTaskData({...newTaskData, orderId: e.target.value})}
+                                    onChange={e => {
+                                        const ord = filteredCommandes.find(c => c.id === e.target.value);
+                                        setNewTaskData({
+                                            ...newTaskData, 
+                                            orderId: e.target.value,
+                                            quantite: ord ? ord.quantite : 1 
+                                        });
+                                    }}
                                 >
                                     <option value="">-- Choisir Commande --</option>
                                     {filteredCommandes.filter(c => c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE).map(c => (
-                                        <option key={c.id} value={c.id}>{c.clientNom} - {c.description}</option>
+                                        <option key={c.id} value={c.id}>{c.clientNom} - {c.description} (Total: {c.quantite})</option>
                                     ))}
                                 </select>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Tâche à effectuer</label>
-                                <input 
-                                    type="text" 
-                                    className="w-full p-2 border border-gray-300 rounded" 
-                                    value={newTaskData.description} 
-                                    onChange={e => setNewTaskData({...newTaskData, description: e.target.value})}
-                                    placeholder="Ex: Coupe, Montage, Finition..."
-                                />
-                            </div>
+
+                            {newTaskData.orderId && (
+                                <>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Action</label>
+                                            <select 
+                                                className="w-full p-2 border border-gray-300 rounded bg-white"
+                                                value={newTaskData.action}
+                                                onChange={e => setNewTaskData({...newTaskData, action: e.target.value as ActionProduction})}
+                                            >
+                                                {PRODUCTION_ACTIONS.map(act => (
+                                                    <option key={act.id} value={act.id}>{act.label}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Quantité concernée</label>
+                                            <input 
+                                                type="number" 
+                                                className="w-full p-2 border border-gray-300 rounded font-bold text-center"
+                                                value={newTaskData.quantite}
+                                                min={1}
+                                                onChange={e => setNewTaskData({...newTaskData, quantite: parseInt(e.target.value) || 1})}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Note (Optionnel)</label>
+                                        <input 
+                                            type="text" 
+                                            className="w-full p-2 border border-gray-300 rounded" 
+                                            value={newTaskData.note} 
+                                            onChange={e => setNewTaskData({...newTaskData, note: e.target.value})}
+                                            placeholder="Détails spécifiques..."
+                                        />
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         <div className="flex justify-end gap-3 mt-6">

@@ -141,13 +141,18 @@ export interface Consommation {
     quantite: number;
 }
 
+export type ActionProduction = 'COUPE' | 'COUTURE' | 'BRODERIE' | 'FINITION' | 'REPASSAGE' | 'AUTRE';
+
 export interface TacheProduction {
     id: string;
     commandeId: string;
-    description: string;
+    action: ActionProduction; // Type d'action standardisé
+    quantite: number; // Combien de pièces sont concernées
+    note?: string; // Détails optionnels
     date: string; // YYYY-MM-DD
     tailleurId: string;
     statut: 'A_FAIRE' | 'FAIT';
+    description?: string; // Backward compatibility
 }
 
 export interface Commande {
@@ -168,7 +173,7 @@ export interface Commande {
     tva?: number;
     tvaRate?: number;
     remise?: number;
-    quantite?: number;
+    quantite: number; // Changed to mandatory number, defaulting to 1
     consommations?: Consommation[];
     detailsVente?: LigneCommande[];
     notes?: string;
