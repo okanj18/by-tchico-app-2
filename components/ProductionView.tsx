@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction } from '../types';
+import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction, ElementCommande } from '../types';
 import { COMPANY_CONFIG } from '../config';
 import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange, ChevronLeft, Zap, PenTool } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
@@ -76,18 +76,20 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         orderId: string, 
         action: ActionProduction, 
         quantite: number, 
-        note: string 
-    }>({ orderId: '', action: 'COUTURE', quantite: 1, note: '' });
+        note: string,
+        elementNom: string 
+    }>({ orderId: '', action: 'COUTURE', quantite: 1, note: '', elementNom: '' });
 
     // FORM ORDER
     const [selectedClientId, setSelectedClientId] = useState('');
-    const [description, setDescription] = useState('');
     const [notes, setNotes] = useState('');
     const [dateLivraison, setDateLivraison] = useState('');
-    const [quantite, setQuantite] = useState(1);
     const [selectedTailleurs, setSelectedTailleurs] = useState<string[]>([]);
     const [consommations, setConsommations] = useState<{ id: string, articleId: string, variante: string, quantite: number }[]>([]);
     const [tempConso, setTempConso] = useState<{ articleId: string, variante: string, quantite: number }>({ articleId: '', variante: '', quantite: 0 });
+    
+    // Multi-Item Order State
+    const [orderElements, setOrderElements] = useState<{id: string, nom: string, quantite: number}[]>([{id: '1', nom: '', quantite: 1}]);
 
     // FINANCE FORM
     const [applyTva, setApplyTva] = useState(false);
@@ -212,25 +214,33 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
     const handleOpenCreateModal = () => {
         setIsEditingOrder(false); setSelectedOrderId(null);
-        setSelectedClientId(''); setDescription(''); setNotes('');
-        setDateLivraison(''); setQuantite(1); setSelectedTailleurs([]);
+        setSelectedClientId(''); setNotes('');
+        setDateLivraison(''); setSelectedTailleurs([]);
         setConsommations([]); setPrixBase(0); setRemise(0); setAvance(0);
         setApplyTva(false); setInitialAccountId('');
+        setOrderElements([{id: '1', nom: '', quantite: 1}]); // Reset elements
         setIsModalOpen(true);
     };
 
     const handleOpenEditModal = (cmd: Commande) => {
         setIsEditingOrder(true); setSelectedOrderId(cmd.id);
-        setSelectedClientId(cmd.clientId); setDescription(cmd.description);
+        setSelectedClientId(cmd.clientId); 
         setNotes(cmd.notes || '');
         setDateLivraison(cmd.dateLivraisonPrevue.split('T')[0]);
-        setQuantite(cmd.quantite || 1);
         setSelectedTailleurs(cmd.tailleursIds);
         setConsommations(cmd.consommations ? cmd.consommations.map(c => ({...c, id: `c_${Math.random()}`})) : []);
         setApplyTva(!!cmd.tva && cmd.tva > 0);
         setPrixBase((cmd.prixTotal || 0) - (cmd.tva || 0) + (cmd.remise || 0));
         setRemise(cmd.remise || 0);
         setAvance(cmd.avance);
+        
+        // Restore elements or fallback to description/quantite
+        if (cmd.elements && cmd.elements.length > 0) {
+            setOrderElements(cmd.elements.map((el, i) => ({ id: `el_${i}`, nom: el.nom, quantite: el.quantite })));
+        } else {
+            setOrderElements([{ id: '1', nom: cmd.description, quantite: cmd.quantite }]);
+        }
+
         setIsModalOpen(true);
     };
 
@@ -253,14 +263,26 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     };
 
     const handleSaveOrder = () => {
-        if (!selectedClientId || !description || !dateLivraison) { alert("Champs requis manquants."); return; }
-        
+        // Validation basic
+        if (!selectedClientId || !dateLivraison) { alert("Champs requis manquants."); return; }
+        // Validation elements
+        const validElements = orderElements.filter(e => e.nom.trim() !== '');
+        if (validElements.length === 0) { alert("Ajoutez au moins un article (ex: Robe, Bazin)."); return; }
+
         const client = clients.find(c => c.id === selectedClientId);
+        
+        // Generate description from elements
+        const descriptionStr = validElements.map(e => `${e.quantite} ${e.nom}`).join(', ');
+        const totalQuantite = validElements.reduce((acc, e) => acc + e.quantite, 0);
+
         const orderData: Commande = {
             id: selectedOrderId || `CMD${Date.now()}`,
             clientId: selectedClientId,
             clientNom: client?.nom || 'Inconnu',
-            description, notes, quantite,
+            description: descriptionStr, 
+            notes, 
+            quantite: totalQuantite,
+            elements: validElements.map(e => ({ nom: e.nom, quantite: e.quantite })), // Save structure
             dateCommande: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.dateCommande || new Date().toISOString()) : new Date().toISOString(),
             dateLivraisonPrevue: dateLivraison,
             statut: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.statut || StatutCommande.EN_ATTENTE) : StatutCommande.EN_ATTENTE,
@@ -294,6 +316,20 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         setIsModalOpen(false);
     };
 
+    const handleAddOrderElement = () => {
+        setOrderElements([...orderElements, { id: `el_${Date.now()}`, nom: '', quantite: 1 }]);
+    };
+
+    const handleRemoveOrderElement = (id: string) => {
+        if (orderElements.length > 1) {
+            setOrderElements(orderElements.filter(e => e.id !== id));
+        }
+    };
+
+    const handleUpdateOrderElement = (id: string, field: 'nom' | 'quantite', value: any) => {
+        setOrderElements(orderElements.map(e => e.id === id ? { ...e, [field]: value } : e));
+    };
+
     const openPaymentModal = (cmd: Commande) => {
         setSelectedOrderForPayment(cmd);
         setPaymentAmount(cmd.reste);
@@ -322,7 +358,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         if (!tailor) return;
         
         setPlanningTarget({ tailorId, tailorName: tailor.nom, date });
-        setNewTaskData({ orderId: '', action: 'COUTURE', quantite: 1, note: '' });
+        setNewTaskData({ orderId: '', action: 'COUTURE', quantite: 1, note: '', elementNom: '' });
         setTaskModalOpen(true);
     };
 
@@ -343,6 +379,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             action: newTaskData.action,
             quantite: newTaskData.quantite,
             note: newTaskData.note,
+            elementNom: newTaskData.elementNom || undefined, // Save the specific item name
             date: planningTarget.date.toISOString().split('T')[0],
             tailleurId: planningTarget.tailorId,
             statut: 'A_FAIRE'
@@ -451,9 +488,12 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         return <Icon size={12} />;
     };
 
+    // Helper to get selected order object in task modal
+    const selectedTaskOrder = filteredCommandes.find(c => c.id === newTaskData.orderId);
+
     return (
         <div className="space-y-6 h-[calc(100vh-8rem)] flex flex-col">
-            {/* HEADER */}
+            {/* ... HEADER, FILTERS ... (Unchanged) */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                 <div>
                     <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier Production</h2>
@@ -568,11 +608,15 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                             className={`p-2 rounded shadow-sm text-xs cursor-pointer border-l-4 relative group/task ${style} border`}
                                                         >
                                                             <div className="font-bold truncate text-gray-800" title={order.clientNom}>{order.clientNom}</div>
-                                                            <div className="text-[10px] text-gray-600 truncate mb-0.5" title={order.description}>{order.description}</div>
+                                                            {/* Display specific article name if available, otherwise description */}
+                                                            <div className="text-[10px] text-gray-600 truncate mb-0.5 font-medium" title={task.elementNom || order.description}>
+                                                                {task.elementNom ? task.elementNom : order.description}
+                                                            </div>
                                                             <div className="flex items-center gap-1 font-bold mt-0.5">
                                                                 {getActionIcon(task.action)} 
                                                                 <span>{task.action || 'Tâche'}</span>
-                                                                <span className="ml-auto bg-white/50 px-1 rounded text-[10px]">({task.quantite}/{order.quantite})</span>
+                                                                {/* Only show qty if > 1 to save space */}
+                                                                {task.quantite > 1 && <span className="ml-auto bg-white/50 px-1 rounded text-[10px]">x{task.quantite}</span>}
                                                             </div>
                                                             {task.note && <div className="text-[10px] italic mt-1 truncate opacity-80">{task.note}</div>}
                                                             
@@ -603,7 +647,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             )}
 
             {/* ... KANBAN, ORDERS, HISTORY UNCHANGED ... */}
-            {/* VIEW: KANBAN */}
             {viewMode === 'KANBAN' && (
                 <div className="flex-1 overflow-x-auto overflow-y-hidden pb-2">
                     <div className="flex gap-4 h-full min-w-max">
@@ -688,11 +731,24 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                     </div>
                                     
                                     <span className={`inline-block text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wider mb-2 ${getStatusColor(cmd.statut)}`}>{cmd.statut}</span>
-                                    <p className="text-sm text-gray-600 mb-3 line-clamp-2">{cmd.description}</p>
+                                    
+                                    {/* DISPLAY BREAKDOWN OF ITEMS IF AVAILABLE */}
+                                    {cmd.elements && cmd.elements.length > 0 ? (
+                                        <div className="mb-3 space-y-1">
+                                            {cmd.elements.map((el, i) => (
+                                                <div key={i} className="text-sm text-gray-600 flex justify-between bg-gray-50 px-2 py-1 rounded">
+                                                    <span>{el.nom}</span>
+                                                    <span className="font-bold">x{el.quantite}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm text-gray-600 mb-3 line-clamp-2">{cmd.description}</p>
+                                    )}
                                     
                                     <div className="flex items-center gap-4 text-xs text-gray-500 mb-4">
                                         <div className="flex items-center gap-1"><Calendar size={12}/> {new Date(cmd.dateLivraisonPrevue).toLocaleDateString()}</div>
-                                        <div className="flex items-center gap-1"><Shirt size={12}/> Qté: {cmd.quantite}</div>
+                                        <div className="flex items-center gap-1"><Shirt size={12}/> Qté Total: {cmd.quantite}</div>
                                     </div>
 
                                     <div className="flex flex-wrap gap-1">
@@ -838,13 +894,13 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                             <div className="space-y-1">
                                                 {todayTasks.map(({task, order}) => (
                                                     <div key={task.id} className={`p-2 rounded text-xs border ${task.statut === 'FAIT' ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200 shadow-sm'}`}>
-                                                        <div className="font-bold text-gray-800 truncate" title={order.clientNom}>{order.clientNom}</div>
-                                                        <div className="text-[10px] text-gray-600 truncate mt-0.5" title={order.description}>{order.description}</div>
+                                                        <div className="font-bold text-gray-800 truncate">{order.clientNom}</div>
                                                         <div className="flex items-center gap-1 text-gray-600 mt-0.5">
                                                             {getActionIcon(task.action)} 
                                                             <span className="font-medium">{task.action}</span>
                                                             <span className="bg-gray-100 px-1 rounded text-[10px]">x{task.quantite}</span>
                                                         </div>
+                                                        {task.elementNom && <div className="text-[10px] font-medium text-brand-700 mt-0.5">{task.elementNom}</div>}
                                                         {task.note && <div className="text-[10px] italic text-gray-500 mt-1">{task.note}</div>}
                                                         {task.statut === 'FAIT' && <div className="text-green-600 font-bold text-[10px] mt-1 text-right">FAIT</div>}
                                                     </div>
@@ -860,7 +916,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         {tasks.length > 0 ? tasks.map(task => (
                                             <div key={task.id} className="p-2 bg-gray-50 rounded border border-gray-100 text-sm">
                                                 <div className="flex justify-between mb-1"><span className="font-bold text-gray-700">{task.clientNom}</span><span className={`text-[10px] px-1.5 rounded ${getStatusColor(task.statut)}`}>{task.statut}</span></div>
-                                                <p className="text-gray-500 text-xs mb-1">{task.description}</p>
+                                                <p className="text-gray-500 text-xs mb-1 line-clamp-1">{task.description}</p>
                                                 <div className="flex items-center gap-1 text-[10px] text-orange-600 font-medium"><Clock size={10}/> Livraison: {new Date(task.dateLivraisonPrevue).toLocaleDateString()}</div>
                                             </div>
                                         )) : <p className="text-center text-gray-400 text-xs italic py-4">Aucune autre tâche.</p>}
@@ -948,7 +1004,40 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 <div><label className="block text-sm font-medium mb-1">Client</label><select className="w-full p-2 border rounded" value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)}><option value="">-- Client --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div>
                                 <div><label className="block text-sm font-medium mb-1">Date Livraison</label><input type="date" className="w-full p-2 border rounded" value={dateLivraison} onChange={e => setDateLivraison(e.target.value)}/></div>
                             </div>
-                            <div><label className="block text-sm font-medium mb-1">Description</label><input type="text" className="w-full p-2 border rounded" value={description} onChange={e => setDescription(e.target.value)} placeholder="Ex: Robe Bazin..."/></div>
+                            
+                            {/* DÉTAIL DES ARTICLES (MULTI-ROWS) */}
+                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                                <h4 className="font-bold text-sm text-gray-700 mb-2">Détail des articles</h4>
+                                {orderElements.map((element, index) => (
+                                    <div key={element.id} className="flex gap-2 mb-2 items-center">
+                                        <input 
+                                            type="text" 
+                                            className="flex-1 p-2 border rounded text-sm" 
+                                            placeholder="Article (ex: Robe, Costume...)"
+                                            value={element.nom}
+                                            onChange={(e) => handleUpdateOrderElement(element.id, 'nom', e.target.value)}
+                                        />
+                                        <input 
+                                            type="number" 
+                                            className="w-20 p-2 border rounded text-sm text-center" 
+                                            min="1"
+                                            value={element.quantite}
+                                            onChange={(e) => handleUpdateOrderElement(element.id, 'quantite', parseInt(e.target.value) || 1)}
+                                        />
+                                        <button 
+                                            onClick={() => handleRemoveOrderElement(element.id)}
+                                            className="p-2 text-red-400 hover:text-red-600"
+                                            disabled={orderElements.length === 1}
+                                        >
+                                            <Trash2 size={16}/>
+                                        </button>
+                                    </div>
+                                ))}
+                                <button onClick={handleAddOrderElement} className="text-xs text-brand-600 font-bold flex items-center gap-1 mt-2">
+                                    <Plus size={14}/> Ajouter un autre article
+                                </button>
+                            </div>
+
                             <div><label className="block text-sm font-medium mb-1">Notes</label><textarea className="w-full p-2 border rounded" rows={2} value={notes} onChange={e => setNotes(e.target.value)}/></div>
                             
                             <div className="bg-gray-50 p-4 rounded border border-gray-200">
@@ -960,8 +1049,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-3 gap-4">
-                                <div><label className="block text-sm font-medium mb-1">Quantité</label><input type="number" className="w-full p-2 border rounded" value={quantite} onChange={e => setQuantite(parseInt(e.target.value) || 1)}/></div>
+                            <div className="grid grid-cols-2 gap-4">
                                 <div><label className="block text-sm font-medium mb-1">Prix TTC</label><input type="number" className="w-full p-2 border rounded font-bold" value={prixBase} onChange={e => setPrixBase(parseInt(e.target.value) || 0)}/></div>
                                 <div><label className="block text-sm font-medium mb-1">Avance</label><input type="number" className="w-full p-2 border rounded font-bold text-green-700" value={avance} onChange={e => setAvance(parseInt(e.target.value) || 0)}/></div>
                             </div>
@@ -1113,9 +1201,11 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                     value={newTaskData.orderId} 
                                     onChange={e => {
                                         const ord = filteredCommandes.find(c => c.id === e.target.value);
+                                        // Reset element selection when changing order
                                         setNewTaskData({
                                             ...newTaskData, 
                                             orderId: e.target.value,
+                                            elementNom: '',
                                             quantite: ord ? ord.quantite : 1 
                                         });
                                     }}
@@ -1129,6 +1219,29 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
                             {newTaskData.orderId && (
                                 <>
+                                    {selectedTaskOrder && selectedTaskOrder.elements && selectedTaskOrder.elements.length > 0 && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Article concerné</label>
+                                            <select
+                                                className="w-full p-2 border border-gray-300 rounded bg-blue-50 border-blue-200"
+                                                value={newTaskData.elementNom}
+                                                onChange={e => {
+                                                    const selectedEl = selectedTaskOrder.elements?.find(el => el.nom === e.target.value);
+                                                    setNewTaskData({
+                                                        ...newTaskData, 
+                                                        elementNom: e.target.value,
+                                                        quantite: selectedEl ? selectedEl.quantite : 1
+                                                    });
+                                                }}
+                                            >
+                                                <option value="">-- Tout / Général --</option>
+                                                {selectedTaskOrder.elements.map((el, i) => (
+                                                    <option key={i} value={el.nom}>{el.nom} (Qté: {el.quantite})</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Action</label>
@@ -1143,7 +1256,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Quantité concernée</label>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Quantité traitée</label>
                                             <input 
                                                 type="number" 
                                                 className="w-full p-2 border border-gray-300 rounded font-bold text-center"

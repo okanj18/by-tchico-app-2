@@ -146,13 +146,19 @@ export type ActionProduction = 'COUPE' | 'COUTURE' | 'BRODERIE' | 'FINITION' | '
 export interface TacheProduction {
     id: string;
     commandeId: string;
-    action: ActionProduction; // Type d'action standardisé
-    quantite: number; // Combien de pièces sont concernées
-    note?: string; // Détails optionnels
-    date: string; // YYYY-MM-DD
+    action: ActionProduction;
+    quantite: number;
+    note?: string;
+    elementNom?: string; // NEW: Specifies which item in the order (e.g. "Robe")
+    date: string;
     tailleurId: string;
     statut: 'A_FAIRE' | 'FAIT';
-    description?: string; // Backward compatibility
+    description?: string;
+}
+
+export interface ElementCommande {
+    nom: string; // ex: Robe, Pantalon
+    quantite: number;
 }
 
 export interface Commande {
@@ -173,14 +179,15 @@ export interface Commande {
     tva?: number;
     tvaRate?: number;
     remise?: number;
-    quantite: number; // Changed to mandatory number, defaulting to 1
+    quantite: number;
+    elements?: ElementCommande[]; // NEW: Detailed breakdown of custom order items
     consommations?: Consommation[];
     detailsVente?: LigneCommande[];
     notes?: string;
     cancelledBy?: string;
     cancelledAt?: string;
     archived?: boolean;
-    taches?: TacheProduction[]; // Planning détaillé
+    taches?: TacheProduction[];
 }
 
 export interface Depense {
