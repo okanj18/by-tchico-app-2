@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange, ChevronLeft } from 'lucide-react';
+import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange, ChevronLeft, Zap } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
@@ -325,9 +325,15 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             statut: 'A_FAIRE'
         };
 
-        // Update the order with the new task
+        // SYNC: Add Tailor to Order if not present
+        const updatedTailorIds = order.tailleursIds.includes(planningTarget.tailorId)
+            ? order.tailleursIds
+            : [...order.tailleursIds, planningTarget.tailorId];
+
+        // Update the order with the new task and new tailors list
         const updatedOrder = {
             ...order,
+            tailleursIds: updatedTailorIds,
             taches: [...(order.taches || []), newTask]
         };
 
@@ -515,22 +521,28 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                 onClick={() => openTaskModal(t.id, d)}
                                             >
                                                 {/* Tasks List */}
-                                                {tasks.map(({task, order}) => (
-                                                    <div 
-                                                        key={task.id} 
-                                                        onClick={(e) => { e.stopPropagation(); handleToggleTaskStatus(task, order); }}
-                                                        className={`p-2 rounded shadow-sm text-xs cursor-pointer border-l-2 relative group/task ${task.statut === 'FAIT' ? 'bg-green-50 border-green-500 opacity-60 line-through decoration-gray-400' : 'bg-white border-blue-500 hover:shadow-md'}`}
-                                                    >
-                                                        <div className="font-bold truncate text-gray-800">{order.clientNom}</div>
-                                                        <div className="text-gray-500 truncate">{task.description}</div>
-                                                        <button 
-                                                            onClick={(e) => { e.stopPropagation(); handleDeleteTask(task, order); }}
-                                                            className="absolute top-1 right-1 text-red-400 opacity-0 group-hover/task:opacity-100 hover:text-red-600 p-0.5"
+                                                {tasks.map(({task, order}) => {
+                                                    // VISUAL SYNC: If global order is delivered/ready, mark task visually as done even if subtask status isn't updated
+                                                    const isGlobalDone = order.statut === StatutCommande.LIVRE || order.statut === StatutCommande.PRET;
+                                                    const isDone = task.statut === 'FAIT' || isGlobalDone;
+
+                                                    return (
+                                                        <div 
+                                                            key={task.id} 
+                                                            onClick={(e) => { e.stopPropagation(); handleToggleTaskStatus(task, order); }}
+                                                            className={`p-2 rounded shadow-sm text-xs cursor-pointer border-l-2 relative group/task ${isDone ? 'bg-green-50 border-green-500 opacity-60 line-through decoration-gray-400' : 'bg-white border-blue-500 hover:shadow-md'}`}
                                                         >
-                                                            <Trash2 size={10} />
-                                                        </button>
-                                                    </div>
-                                                ))}
+                                                            <div className="font-bold truncate text-gray-800">{order.clientNom}</div>
+                                                            <div className="text-gray-500 truncate">{task.description}</div>
+                                                            <button 
+                                                                onClick={(e) => { e.stopPropagation(); handleDeleteTask(task, order); }}
+                                                                className="absolute top-1 right-1 text-red-400 opacity-0 group-hover/task:opacity-100 hover:text-red-600 p-0.5"
+                                                            >
+                                                                <Trash2 size={10} />
+                                                            </button>
+                                                        </div>
+                                                    )
+                                                })}
                                                 
                                                 {/* Add Button visible on hover */}
                                                 <div className="mt-auto pt-2 flex justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -548,7 +560,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* ... KANBAN, ORDERS, HISTORY, TAILORS, PERFORMANCE VIEWS UNCHANGED ... */}
             {/* VIEW: KANBAN */}
             {viewMode === 'KANBAN' && (
                 <div className="flex-1 overflow-x-auto overflow-y-hidden pb-2">
@@ -765,22 +776,45 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 <div className="flex-1 overflow-y-auto">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20">
                         {tailleurs.map(t => {
+                            const today = new Date();
+                            const todayTasks = getTasksForTailor(t.id, today);
                             const tasks = commandes.filter(c => c.tailleursIds.includes(t.id) && c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE && !c.archived);
+                            
                             return (
-                                <div key={t.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                                <div key={t.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col h-full">
                                     <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
                                         <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center font-bold text-lg">{t.nom.charAt(0)}</div>
                                         <div><h3 className="font-bold text-gray-800">{t.nom}</h3><p className="text-xs text-gray-500">{t.role}</p></div>
-                                        <span className="ml-auto bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-bold">{tasks.length} Tâches</span>
+                                        <span className="ml-auto bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-bold">{tasks.length} Cmds</span>
                                     </div>
-                                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
+
+                                    {/* AGENDA DU JOUR */}
+                                    <div className="mb-4">
+                                        <h4 className="text-xs font-bold text-brand-600 uppercase mb-2 flex items-center gap-1"><Zap size={12}/> Planning du Jour</h4>
+                                        {todayTasks.length > 0 ? (
+                                            <div className="space-y-1">
+                                                {todayTasks.map(({task, order}) => (
+                                                    <div key={task.id} className="bg-brand-50 border border-brand-100 p-2 rounded text-xs">
+                                                        <div className="font-bold text-gray-800 truncate">{order.clientNom}</div>
+                                                        <div className="text-gray-600">{task.description}</div>
+                                                        {task.statut === 'FAIT' && <div className="text-green-600 font-bold text-[10px] mt-1 text-right">FAIT</div>}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="text-xs text-gray-400 italic p-2 bg-gray-50 rounded border border-dashed border-gray-200">Rien de prévu spécifiquement aujourd'hui.</div>
+                                        )}
+                                    </div>
+
+                                    <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Toutes les commandes</h4>
+                                    <div className="space-y-2 flex-1 overflow-y-auto max-h-[200px] custom-scrollbar">
                                         {tasks.length > 0 ? tasks.map(task => (
                                             <div key={task.id} className="p-2 bg-gray-50 rounded border border-gray-100 text-sm">
                                                 <div className="flex justify-between mb-1"><span className="font-bold text-gray-700">{task.clientNom}</span><span className={`text-[10px] px-1.5 rounded ${getStatusColor(task.statut)}`}>{task.statut}</span></div>
                                                 <p className="text-gray-500 text-xs mb-1">{task.description}</p>
                                                 <div className="flex items-center gap-1 text-[10px] text-orange-600 font-medium"><Clock size={10}/> Livraison: {new Date(task.dateLivraisonPrevue).toLocaleDateString()}</div>
                                             </div>
-                                        )) : <p className="text-center text-gray-400 text-xs italic py-4">Aucune tâche en cours.</p>}
+                                        )) : <p className="text-center text-gray-400 text-xs italic py-4">Aucune autre tâche.</p>}
                                     </div>
                                 </div>
                             );
