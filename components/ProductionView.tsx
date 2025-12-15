@@ -567,7 +567,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                             onClick={(e) => { e.stopPropagation(); handleToggleTaskStatus(task, order); }}
                                                             className={`p-2 rounded shadow-sm text-xs cursor-pointer border-l-4 relative group/task ${style} border`}
                                                         >
-                                                            <div className="font-bold truncate text-gray-800">{order.clientNom}</div>
+                                                            <div className="font-bold truncate text-gray-800" title={order.clientNom}>{order.clientNom}</div>
+                                                            <div className="text-[10px] text-gray-600 truncate mb-0.5" title={order.description}>{order.description}</div>
                                                             <div className="flex items-center gap-1 font-bold mt-0.5">
                                                                 {getActionIcon(task.action)} 
                                                                 <span>{task.action || 'Tâche'}</span>
@@ -837,7 +838,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                             <div className="space-y-1">
                                                 {todayTasks.map(({task, order}) => (
                                                     <div key={task.id} className={`p-2 rounded text-xs border ${task.statut === 'FAIT' ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200 shadow-sm'}`}>
-                                                        <div className="font-bold text-gray-800 truncate">{order.clientNom}</div>
+                                                        <div className="font-bold text-gray-800 truncate" title={order.clientNom}>{order.clientNom}</div>
+                                                        <div className="text-[10px] text-gray-600 truncate mt-0.5" title={order.description}>{order.description}</div>
                                                         <div className="flex items-center gap-1 text-gray-600 mt-0.5">
                                                             {getActionIcon(task.action)} 
                                                             <span className="font-medium">{task.action}</span>
