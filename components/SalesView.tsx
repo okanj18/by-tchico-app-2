@@ -151,7 +151,7 @@ const SalesView: React.FC<SalesViewProps> = ({ articles, boutiques, clients, onM
                     </div>
                     
                     <div className="flex gap-2">
-                        <input type="number" placeholder="Remise" className="text-xs p-2 border rounded w-1/2" value={remise || ''} onChange={(e) => setRemise(parseInt(e.target.value) || 0)}/>
+                        <input type="number" className="text-xs p-2 border rounded w-1/2" value={remise || ''} placeholder="0" onChange={(e) => setRemise(parseInt(e.target.value) || 0)}/>
                         <div className="text-right flex-1">
                             <p className="text-xs text-gray-500">Sous-Total: {cartTotal.toLocaleString()} F</p>
                             {tvaEnabled && <p className="text-xs text-gray-500">TVA: {tvaAmount.toLocaleString()} F</p>}
@@ -173,7 +173,7 @@ const SalesView: React.FC<SalesViewProps> = ({ articles, boutiques, clients, onM
                                 <option value="VIREMENT">Virement</option>
                                 <option value="CHEQUE">Chèque</option>
                             </select>
-                            <input type="number" className="flex-1 p-2 border rounded text-sm font-bold text-right" placeholder="Montant Reçu" value={amountPaid || ''} onChange={(e) => setAmountPaid(parseInt(e.target.value) || 0)}/>
+                            <input type="number" className="flex-1 p-2 border rounded text-sm font-bold text-right" value={amountPaid || ''} placeholder="0" onChange={(e) => setAmountPaid(parseInt(e.target.value) || 0)}/>
                         </div>
                         <select className="w-full p-2 border border-gray-300 rounded text-sm" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
                             <option value="">-- Compte d'encaissement --</option>
