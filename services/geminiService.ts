@@ -1,25 +1,18 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { COMPANY_CONFIG } from "../config";
 
-// Initialize Gemini with Vite env variable
-// Fix: cast import.meta to any and use optional chaining to avoid runtime error
-const apiKey = (import.meta as any).env?.VITE_API_KEY || '';
-let ai: GoogleGenAI | null = null;
-
-if (apiKey) {
-    ai = new GoogleGenAI({ apiKey });
-}
+// Initialize Gemini with process.env.API_KEY string directly per coding guidelines.
+// Assume this variable is pre-configured and valid in the execution context.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const getAIAnalysis = async (contextData: string, userPrompt: string): Promise<string> => {
     try {
-        if (!ai) return "Clé API non configurée (Mode Démo)";
-
-        const model = 'gemini-2.5-flash';
+        // Use gemini-3-flash-preview for Basic Text Tasks like data analysis and Q&A.
+        const model = 'gemini-3-flash-preview';
         
         const systemInstruction = `
             Tu es un assistant expert en gestion d'entreprise pour "${COMPANY_CONFIG.name}", ${COMPANY_CONFIG.aiContext}.
-            Ta mission est d'aider le gérant à optimiser la production, suivre les ventes, et gérer les dépenses.
+            Ta mission est d'aider le gérant à optimiser la production, suivre les ventes, et gérer les denses.
             Réponds toujours de manière professionnelle, concise et en Français.
             Utilise le contexte JSON fourni pour baser tes analyses.
             La devise est le ${COMPANY_CONFIG.currency}.
@@ -42,6 +35,8 @@ export const getAIAnalysis = async (contextData: string, userPrompt: string): Pr
             }
         });
 
+        // The simplest and most direct way to get the generated text content is by accessing the .text property.
+        // Do not use response.text() as it is deprecated.
         return response.text || "Désolé, je n'ai pas pu générer une analyse pour le moment.";
     } catch (error) {
         console.error("Erreur Gemini:", error);
@@ -51,15 +46,14 @@ export const getAIAnalysis = async (contextData: string, userPrompt: string): Pr
 
 export const draftClientMessage = async (clientName: string, orderDescription: string, status: string): Promise<string> => {
      try {
-        if (!ai) return `Bonjour ${clientName}, votre commande est au statut : ${status}.`;
-
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3-flash-preview',
             contents: `Rédige un message WhatsApp court et poli pour le client ${clientName}.
             Sa commande "${orderDescription}" est actuellement au statut : "${status}".
             Si c'est "Prêt", invite-le à passer à la boutique ${COMPANY_CONFIG.name}.
             Utilise un ton chaleureux.`,
         });
+        // Access text via the .text property directly.
         return response.text || "";
      } catch (e) {
          return "Bonjour, votre commande est mise à jour.";
@@ -68,10 +62,8 @@ export const draftClientMessage = async (clientName: string, orderDescription: s
 
 export const parseMeasurementsFromText = async (text: string): Promise<Record<string, number>> => {
     try {
-        if (!ai) return {};
-
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3-flash-preview',
             contents: `
                 Analyse le texte suivant qui contient des mesures de couture dictées vocalement.
                 Texte : "${text}"
@@ -96,6 +88,7 @@ export const parseMeasurementsFromText = async (text: string): Promise<Record<st
             }
         });
         
+        // Access text via the .text property directly.
         const jsonText = response.text || "{}";
         return JSON.parse(jsonText);
     } catch (error) {

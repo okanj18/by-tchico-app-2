@@ -1,8 +1,7 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction, ElementCommande } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange, ChevronLeft, Zap, PenTool } from 'lucide-react';
+import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange, ChevronLeft, Zap, PenTool, XCircle } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
@@ -558,7 +557,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* --- VIEW: AGENDA (WITH TEMPORAL NAVIGATION) --- */}
+            {/* --- VIEW: AGENDA (FIXED ALIGNMENT) --- */}
             {viewMode === 'PLANNING' && (
                 <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
                     <div className="p-4 bg-gray-50 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -593,14 +592,14 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         </div>
                     </div>
                     <div className="flex-1 overflow-x-auto overflow-y-auto">
-                        <div className="min-w-[1000px]">
+                        <div className="inline-block min-w-full">
                             {/* Header Dates */}
                             <div className="flex border-b border-gray-200 bg-white sticky top-0 z-10 shadow-sm">
-                                <div className="w-48 p-3 font-bold text-gray-600 border-r border-gray-100 sticky left-0 bg-white z-20">Tailleur</div>
+                                <div className="w-48 shrink-0 p-3 font-bold text-gray-600 border-r border-gray-100 sticky left-0 bg-white z-20">Tailleur</div>
                                 {planningData.days.map(d => {
                                     const isToday = d.toDateString() === planningData.today.toDateString();
                                     return (
-                                        <div key={d.toISOString()} className={`flex-1 min-w-[140px] p-2 text-center border-r border-gray-100 ${isToday ? 'bg-brand-50' : ''}`}>
+                                        <div key={d.toISOString()} className={`w-[160px] shrink-0 p-2 text-center border-r border-gray-100 ${isToday ? 'bg-brand-50' : ''}`}>
                                             <div className={`text-xs uppercase ${isToday ? 'text-brand-600 font-bold' : 'text-gray-500'}`}>{d.toLocaleDateString(undefined, {weekday: 'short'})}</div>
                                             <div className={`font-bold ${isToday ? 'text-brand-800' : 'text-gray-800'}`}>{d.toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}</div>
                                         </div>
@@ -611,8 +610,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             {/* Rows */}
                             {tailleurs.map(t => (
                                 <div key={t.id} className="flex border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                                    <div className="w-48 p-3 border-r border-gray-100 sticky left-0 bg-white z-10 flex items-center gap-2">
-                                        <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-xs">{t.nom.charAt(0)}</div>
+                                    <div className="w-48 shrink-0 p-3 border-r border-gray-100 sticky left-0 bg-white z-10 flex items-center gap-2">
+                                        <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-xs shrink-0">{t.nom.charAt(0)}</div>
                                         <div className="truncate font-medium text-sm text-gray-700">{t.nom}</div>
                                     </div>
                                     
@@ -624,7 +623,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         return (
                                             <div 
                                                 key={d.toISOString()} 
-                                                className={`flex-1 min-w-[140px] p-2 border-r border-gray-100 flex flex-col gap-1 min-h-[80px] group cursor-pointer transition-colors ${isToday ? 'bg-brand-50/30' : ''} hover:bg-gray-100`}
+                                                className={`w-[160px] shrink-0 p-2 border-r border-gray-100 flex flex-col gap-1 min-h-[80px] group cursor-pointer transition-colors ${isToday ? 'bg-brand-50/30' : ''} hover:bg-gray-100`}
                                                 onClick={() => openTaskModal(t.id, d)}
                                             >
                                                 {/* Tasks List */}
@@ -775,7 +774,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* ... MODALS (RESTE DES MODALS IDENTIQUES) ... */}
+            {/* ... MODALS ... */}
             {qrOrder && (
                 <QRGeneratorModal isOpen={qrModalOpen} onClose={() => setQrModalOpen(false)} value={qrOrder.id} title={qrOrder.clientNom} subtitle={qrOrder.description} />
             )}
