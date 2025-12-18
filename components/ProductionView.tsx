@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction, ElementCommande, PaiementClient } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange, ChevronLeft, Zap, PenTool } from 'lucide-react';
+// Added PieChart to imports
+import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange, ChevronLeft, Zap, PenTool, PieChart } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
@@ -40,6 +41,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         return d;
     });
 
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditingOrder, setIsEditingOrder] = useState(false);
     const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
@@ -72,6 +74,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [orderElements, setOrderElements] = useState<{id: string, nom: string, quantite: number}[]>([{id: '1', nom: '', quantite: 1}]);
     const [prixBase, setPrixBase] = useState(0);
     const [avance, setAvance] = useState(0);
+    const [tvaEnabled, setTvaEnabled] = useState(false);
+    const [remise, setRemise] = useState(0);
     const [initialPaymentMethod, setInitialPaymentMethod] = useState<ModePaiement>('ESPECE');
     const [initialAccountId, setInitialAccountId] = useState('');
 
@@ -82,8 +86,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             if (c.type !== 'SUR_MESURE') return false; 
             const isCompleted = c.statut === StatutCommande.LIVRE || c.statut === StatutCommande.ANNULE;
             
-            // On affiche TOUTES les commandes dans l'historique maintenant
-            if (viewMode !== 'HISTORY') {
+            if (viewMode !== 'HISTORY' && viewMode !== 'PERFORMANCE') {
                  if (isCompleted) return false;
             }
 
@@ -125,8 +128,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         setSelectedClientId(cmd.clientId); setNotes(cmd.notes || '');
         setDateLivraison(cmd.dateLivraisonPrevue.split('T')[0]);
         setSelectedTailleurs(cmd.tailleursIds);
-        setPrixBase(cmd.prixTotal);
+        setPrixBase((cmd.prixTotal || 0) + (cmd.remise || 0) - (cmd.tva || 0));
         setAvance(cmd.avance);
+        setRemise(cmd.remise || 0);
+        setTvaEnabled(!!cmd.tva && cmd.tva > 0);
         if (cmd.elements && cmd.elements.length > 0) {
             setOrderElements(cmd.elements.map((el, i) => ({ id: `el_${i}`, nom: el.nom, quantite: el.quantite })));
         } else {
@@ -139,6 +144,11 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         if (!selectedClientId || !dateLivraison) return;
         const validElements = orderElements.filter(e => e.nom.trim() !== '');
         if (validElements.length === 0) return;
+        
+        const subTotal = prixBase;
+        const tvaAmount = tvaEnabled ? Math.round((subTotal - remise) * COMPANY_CONFIG.tvaRate) : 0;
+        const totalTTC = subTotal - remise + tvaAmount;
+
         const client = clients.find(c => c.id === selectedClientId);
         const orderData: Commande = {
             id: selectedOrderId || `CMD${Date.now()}`,
@@ -150,7 +160,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             dateLivraisonPrevue: dateLivraison,
             statut: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.statut || StatutCommande.EN_ATTENTE) : StatutCommande.EN_ATTENTE,
             tailleursIds: selectedTailleurs,
-            prixTotal: prixBase, avance, reste: prixBase - avance, type: 'SUR_MESURE',
+            prixTotal: totalTTC, avance, reste: totalTTC - avance, type: 'SUR_MESURE',
+            tva: tvaAmount, tvaRate: tvaEnabled ? (COMPANY_CONFIG.tvaRate * 100) : 0,
+            remise: remise,
             paiements: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.paiements || []) : [],
             taches: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.taches || []) : []
         };
@@ -159,40 +171,109 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         setIsModalOpen(false);
     };
 
-    const openPaymentModal = (order: Commande) => {
-        setSelectedOrderForPayment(order);
-        setPayAmount(order.reste);
-        setPayAccount('');
-        setPayDate(new Date().toISOString().split('T')[0]);
-        setPaymentModalOpen(true);
-    };
-
     const handleConfirmPayment = () => {
         if (!selectedOrderForPayment || payAmount <= 0) return;
         if (!payAccount) { alert("Veuillez choisir un compte d'encaissement."); return; }
-        onAddPayment(selectedOrderForPayment.id, payAmount, payMethod, "Versement suite historique", payDate, payAccount);
+        onAddPayment(selectedOrderForPayment.id, payAmount, payMethod, "Versement atelier", payDate, payAccount);
         setPaymentModalOpen(false);
     };
 
-    const openTaskModal = (tailorId: string, date: Date) => {
-        const tailor = tailleurs.find(t => t.id === tailorId);
-        if (!tailor) return;
-        setPlanningTarget({ tailorId, tailorName: tailor.nom, date });
-        setNewTaskData({ orderId: '', action: 'COUTURE', quantite: 1, note: '', elementNom: '' });
-        setTaskModalOpen(true);
-    };
-
+    // Fix: Implemented handleSaveTask to resolve missing function error
     const handleSaveTask = () => {
-        if (!planningTarget || !newTaskData.orderId) return;
+        if (!newTaskData.orderId || !planningTarget) return;
+        
         const order = commandes.find(c => c.id === newTaskData.orderId);
         if (!order) return;
+
         const newTask: TacheProduction = {
-            id: `TASK_${Date.now()}`, commandeId: order.id, action: newTaskData.action,
-            quantite: newTaskData.quantite, note: newTaskData.note, elementNom: newTaskData.elementNom || undefined,
-            date: planningTarget.date.toISOString().split('T')[0], tailleurId: planningTarget.tailorId, statut: 'A_FAIRE'
+            id: `TASK_${Date.now()}`,
+            commandeId: order.id,
+            action: newTaskData.action,
+            quantite: newTaskData.quantite,
+            note: newTaskData.note,
+            elementNom: newTaskData.elementNom,
+            date: planningTarget.date.toISOString().split('T')[0],
+            tailleurId: planningTarget.tailorId,
+            statut: 'A_FAIRE'
         };
-        onUpdateOrder({ ...order, taches: [...(order.taches || []), newTask] });
+
+        const updatedOrder: Commande = {
+            ...order,
+            taches: [...(order.taches || []), newTask]
+        };
+
+        onUpdateOrder(updatedOrder);
         setTaskModalOpen(false);
+        setNewTaskData({ orderId: '', action: 'COUTURE', quantite: 1, note: '', elementNom: '' });
+    };
+
+    const handlePrintInvoice = (order: Commande) => {
+        const printWindow = window.open('', '', 'width=400,height=600');
+        if (!printWindow) return;
+
+        const dateStr = new Date(order.dateCommande).toLocaleDateString();
+        const livraisonStr = new Date(order.dateLivraisonPrevue).toLocaleDateString();
+        const isPaid = order.reste <= 0;
+        const stampText = isPaid ? "PAYÉ" : "NON SOLDÉ";
+        const stampColor = isPaid ? "#16a34a" : "#dc2626";
+
+        const elementsHtml = order.elements?.map(el => `
+            <div style="display:flex; justify-content:space-between; margin-bottom: 5px;">
+                <span>${el.nom} x${el.quantite}</span>
+            </div>
+        `).join('') || `<div>${order.description}</div>`;
+
+        const logoUrl = companyAssets?.logoStr || `${window.location.origin}${COMPANY_CONFIG.logoUrl}`;
+
+        const html = `
+            <html>
+            <head>
+                <title>Facture #${order.id.slice(-6)}</title>
+                <style>
+                    body { font-family: 'Courier New', Courier, monospace; padding: 20px; font-size: 12px; max-width: 400px; margin: auto; }
+                    .header { text-align: center; margin-bottom: 20px; border-bottom: 1px dashed #000; padding-bottom: 10px; }
+                    .logo img { max-height: 60px; margin-bottom: 5px; }
+                    .info { margin-bottom: 15px; }
+                    .total { border-top: 1px dashed black; margin-top: 10px; padding-top: 5px; }
+                    .row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+                    .bold { font-weight: bold; }
+                    .stamp { text-align: center; font-size: 24px; color: ${stampColor}; font-weight: bold; border: 3px solid ${stampColor}; padding: 5px; margin: 20px 0; transform: rotate(-5deg); }
+                    .footer { text-align:center; margin-top: 20px; font-size: 10px; border-top: 1px dashed #000; padding-top: 10px; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <div class="logo"><img src="${logoUrl}" alt="Logo" onerror="this.style.display='none'"/></div>
+                    <h3>${COMPANY_CONFIG.name}</h3>
+                    <p>${COMPANY_CONFIG.address}<br/>${COMPANY_CONFIG.phone}</p>
+                    <p><strong>FACTURE SUR MESURE</strong></p>
+                </div>
+                <div class="info">
+                    <p><strong>CLIENT:</strong> ${order.clientNom}</p>
+                    <p><strong>DATE:</strong> ${dateStr}</p>
+                    <p><strong>LIVRAISON PRÉVUE:</strong> ${livraisonStr}</p>
+                    <p><strong>REF:</strong> #${order.id.slice(-6)}</p>
+                </div>
+                <div style="border-bottom: 1px solid #eee; margin-bottom: 10px; padding-bottom: 5px; font-weight:bold;">DESCRIPTION:</div>
+                <div class="items">${elementsHtml}</div>
+                <div class="total">
+                    <div class="row"><span>Sous-total</span><span>${((order.prixTotal||0) + (order.remise||0) - (order.tva||0)).toLocaleString()}</span></div>
+                    ${order.remise ? `<div class="row"><span>Remise</span><span>-${order.remise.toLocaleString()}</span></div>` : ''}
+                    ${order.tva ? `<div class="row"><span>TVA (${order.tvaRate}%)</span><span>${order.tva.toLocaleString()}</span></div>` : ''}
+                    <div class="row bold" style="font-size: 14px; margin-top: 5px;"><span>TOTAL TTC</span><span>${order.prixTotal?.toLocaleString()} F</span></div>
+                    <div class="row" style="margin-top: 8px;"><span>Déjà Versé</span><span style="color: green;">${order.avance.toLocaleString()} F</span></div>
+                    <div class="row bold"><span>RESTE À PAYER</span><span style="color: ${order.reste > 0 ? 'red' : 'green'};">${order.reste.toLocaleString()} F</span></div>
+                </div>
+                <div class="stamp">${stampText}</div>
+                <div class="footer">
+                    <p>Merci de votre confiance !<br/>Les mesures sont conservées 1 an.</p>
+                </div>
+                <script>setTimeout(() => { window.print(); window.close(); }, 500);</script>
+            </body>
+            </html>
+        `;
+        printWindow.document.write(html);
+        printWindow.document.close();
     };
 
     const getStatusColor = (s: string) => {
@@ -211,12 +292,18 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         <div className="space-y-6 h-[calc(100vh-8rem)] flex flex-col">
             {/* HEADER */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
-                <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier Production</h2>
+                <div className="flex items-center gap-4">
+                    <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier Production</h2>
+                    <div className="flex gap-2">
+                        <button onClick={() => setIsScannerOpen(true)} className="bg-gray-800 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs font-bold hover:bg-black transition-all shadow-sm"><Camera size={14}/> Scanner</button>
+                        <button onClick={() => { setIsEditingOrder(false); setOrderElements([{id: '1', nom: '', quantite: 1}]); setPrixBase(0); setAvance(0); setRemise(0); setTvaEnabled(false); setIsModalOpen(true); }} className="bg-brand-600 text-white px-4 py-1.5 rounded-lg flex items-center gap-2 text-xs font-bold hover:bg-brand-700 transition-all shadow-md"><Plus size={14}/> Créer</button>
+                    </div>
+                </div>
                 <div className="flex flex-wrap bg-white border p-1 rounded-lg">
                     <button onClick={() => setViewMode('PLANNING')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'PLANNING' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><CalendarRange size={14}/> Agenda</button>
                     <button onClick={() => setViewMode('KANBAN')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'KANBAN' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Columns size={14}/> Kanban</button>
                     <button onClick={() => setViewMode('ORDERS')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'ORDERS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><LayoutList size={14}/> Liste</button>
-                    <button onClick={() => setViewMode('HISTORY')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'HISTORY' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><History size={14}/> Historique Global</button>
+                    <button onClick={() => setViewMode('HISTORY')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'HISTORY' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><History size={14}/> Historique</button>
                     <button onClick={() => setViewMode('TAILORS')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'TAILORS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Users size={14}/> Tailleurs</button>
                     <button onClick={() => setViewMode('PERFORMANCE')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'PERFORMANCE' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Trophy size={14}/> Stats</button>
                 </div>
@@ -228,212 +315,312 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 <input type="text" className="w-full text-sm outline-none" placeholder="Rechercher une commande, un client..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
             </div>
 
-            {/* VIEW: AGENDA */}
-            {viewMode === 'PLANNING' && (
-                <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
-                    <div className="p-4 bg-gray-50 border-b flex justify-between items-center shrink-0">
-                        <div className="flex items-center gap-2">
+            {/* VIEWS */}
+            <div className="flex-1 overflow-hidden flex flex-col">
+                {viewMode === 'PLANNING' && (
+                    <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
+                        <div className="p-4 bg-gray-50 border-b flex justify-between items-center shrink-0">
                             <h3 className="font-bold text-gray-700">Planning de Production</h3>
-                            <div className="flex items-center bg-white border rounded-lg ml-4">
+                            <div className="flex items-center bg-white border rounded-lg">
                                 <button onClick={() => setAgendaBaseDate(new Date(agendaBaseDate.setDate(agendaBaseDate.getDate() - 7)))} className="p-1.5 hover:bg-gray-100"><ChevronLeft size={18}/></button>
                                 <button onClick={() => setAgendaBaseDate(new Date())} className="px-3 py-1 text-xs font-bold border-x">Aujourd'hui</button>
                                 <button onClick={() => setAgendaBaseDate(new Date(agendaBaseDate.setDate(agendaBaseDate.getDate() + 7)))} className="p-1.5 hover:bg-gray-100"><ChevronRight size={18}/></button>
                             </div>
                         </div>
-                    </div>
-                    <div className="flex-1 overflow-auto">
-                        <div className="inline-block min-w-max">
-                            <div className="flex border-b bg-gray-100 sticky top-0 z-20">
-                                <div className="w-64 shrink-0 p-4 font-bold text-gray-600 border-r bg-gray-100 sticky left-0 z-30">Tailleur</div>
-                                {planningData.days.map(d => (
-                                    <div key={d.toISOString()} className={`w-48 shrink-0 p-3 text-center border-r ${d.toDateString() === planningData.today.toDateString() ? 'bg-brand-50' : ''}`}>
-                                        <div className="text-[10px] uppercase text-gray-400 font-bold">{d.toLocaleDateString(undefined, {weekday: 'short'})}</div>
-                                        <div className="font-bold text-gray-800">{d.toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}</div>
+                        <div className="flex-1 overflow-auto">
+                            <div className="inline-block min-w-max">
+                                <div className="flex border-b bg-gray-100 sticky top-0 z-20">
+                                    <div className="w-64 shrink-0 p-4 font-bold text-gray-600 border-r bg-gray-100 sticky left-0 z-30">Tailleur</div>
+                                    {planningData.days.map(d => (
+                                        <div key={d.toISOString()} className={`w-48 shrink-0 p-3 text-center border-r ${d.toDateString() === planningData.today.toDateString() ? 'bg-brand-50' : ''}`}>
+                                            <div className="text-[10px] uppercase text-gray-400 font-bold">{d.toLocaleDateString(undefined, {weekday: 'short'})}</div>
+                                            <div className="font-bold text-gray-800">{d.toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                                {tailleurs.map(t => (
+                                    <div key={t.id} className="flex border-b hover:bg-gray-50 transition-colors">
+                                        <div className="w-64 shrink-0 p-4 border-r sticky left-0 bg-white z-10 flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-xs shrink-0">{t.nom.charAt(0)}</div>
+                                            <div className="truncate font-bold text-sm text-gray-700">{t.nom}</div>
+                                        </div>
+                                        {planningData.days.map(d => {
+                                            const tasks = getTasksForTailor(t.id, d);
+                                            return (
+                                                <div key={d.toISOString()} className="w-48 shrink-0 p-2 border-r flex flex-col gap-1 min-h-[120px] cursor-pointer hover:bg-brand-50/10" onClick={() => { setPlanningTarget({ tailorId: t.id, tailorName: t.nom, date: d }); setTaskModalOpen(true); }}>
+                                                    {tasks.map(({task, order}) => (
+                                                        <div key={task.id} className="p-2 rounded text-[10px] bg-white border border-gray-200 shadow-sm border-l-4 border-l-brand-500">
+                                                            <div className="font-bold truncate uppercase">{order.clientNom}</div>
+                                                            <div className="text-gray-500 truncate">{task.elementNom || order.description}</div>
+                                                            <div className="mt-1 font-bold text-brand-700">{task.action}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 ))}
                             </div>
-                            {tailleurs.map(t => (
-                                <div key={t.id} className="flex border-b hover:bg-gray-50 transition-colors">
-                                    <div className="w-64 shrink-0 p-4 border-r sticky left-0 bg-white z-10 flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-xs shrink-0">{t.nom.charAt(0)}</div>
-                                        <div className="truncate font-bold text-sm text-gray-700">{t.nom}</div>
+                        </div>
+                    </div>
+                )}
+
+                {viewMode === 'HISTORY' && (
+                    <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+                        <div className="overflow-x-auto flex-1">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-gray-50 text-gray-600 font-bold border-b sticky top-0">
+                                    <tr>
+                                        <th className="p-4">Date</th>
+                                        <th className="p-4">Client</th>
+                                        <th className="p-4">Description</th>
+                                        <th className="p-4 text-center">Statut</th>
+                                        <th className="p-4 text-right">Total</th>
+                                        <th className="p-4 text-right">Reste</th>
+                                        <th className="p-4 text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {filteredCommandes.map(cmd => (
+                                        <tr key={cmd.id} className="hover:bg-gray-50">
+                                            <td className="p-4 text-gray-500">{new Date(cmd.dateCommande).toLocaleDateString()}</td>
+                                            <td className="p-4 font-bold uppercase">{cmd.clientNom}</td>
+                                            <td className="p-4 text-gray-600 truncate max-w-[200px]">{cmd.description}</td>
+                                            <td className="p-4 text-center">
+                                                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${getStatusColor(cmd.statut)}`}>{cmd.statut}</span>
+                                            </td>
+                                            <td className="p-4 text-right font-bold">{cmd.prixTotal?.toLocaleString()} F</td>
+                                            <td className={`p-4 text-right font-bold ${cmd.reste > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                                {cmd.reste <= 0 ? 'Soldé' : `${cmd.reste.toLocaleString()} F`}
+                                            </td>
+                                            <td className="p-4 text-center">
+                                                <div className="flex justify-center gap-1">
+                                                    <button onClick={() => handlePrintInvoice(cmd)} className="p-1.5 text-gray-700 hover:bg-gray-100 rounded border border-gray-200" title="Imprimer Facture"><Printer size={16}/></button>
+                                                    <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded" title="Modifier"><Edit2 size={16}/></button>
+                                                    {cmd.reste > 0 && cmd.statut !== StatutCommande.ANNULE && (
+                                                        <button onClick={() => { setSelectedOrderForPayment(cmd); setPayAmount(cmd.reste); setPaymentModalOpen(true); }} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Encaisser"><Wallet size={16}/></button>
+                                                    )}
+                                                    <button onClick={() => setHistoryPaymentOrder(cmd)} className="p-1.5 text-gray-500 hover:bg-gray-50 rounded" title="Détails versements"><Eye size={16}/></button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
+                {viewMode === 'TAILORS' && (
+                    <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 overflow-y-auto p-1">
+                        {tailleurs.map(t => {
+                            const activeCmds = commandes.filter(c => c.statut !== StatutCommande.LIVRE && c.tailleursIds.includes(t.id));
+                            return (
+                                <div key={t.id} className="bg-white p-6 rounded-xl border shadow-sm flex flex-col items-center text-center group hover:border-brand-300 transition-all">
+                                    <div className="w-16 h-16 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-2xl font-bold mb-4">{t.nom.charAt(0)}</div>
+                                    <h3 className="text-lg font-bold text-gray-800">{t.nom}</h3>
+                                    <p className="text-xs text-gray-500 mb-4 font-bold uppercase">{t.role}</p>
+                                    <div className="w-full grid grid-cols-2 gap-2 mt-auto pt-4 border-t">
+                                        <div className="bg-gray-50 p-2 rounded">
+                                            <p className="text-[10px] text-gray-400 uppercase font-bold">En cours</p>
+                                            <p className="text-lg font-bold text-brand-600">{activeCmds.length}</p>
+                                        </div>
+                                        <div className="bg-gray-50 p-2 rounded">
+                                            <p className="text-[10px] text-gray-400 uppercase font-bold">Urgents</p>
+                                            <p className="text-lg font-bold text-red-600">{activeCmds.filter(c => {
+                                                const diff = new Date(c.dateLivraisonPrevue).getTime() - new Date().getTime();
+                                                return diff < (1000 * 60 * 60 * 24 * 3);
+                                            }).length}</p>
+                                        </div>
                                     </div>
-                                    {planningData.days.map(d => {
-                                        const tasks = getTasksForTailor(t.id, d);
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {viewMode === 'PERFORMANCE' && (
+                    <div className="flex-1 space-y-6 overflow-y-auto pr-1">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="bg-white p-6 rounded-xl border shadow-sm flex flex-col">
+                                {/* PieChart icon now correctly imported */}
+                                <h4 className="text-gray-500 font-bold text-sm mb-6 flex items-center gap-2"><PieChart size={16}/> RÉPARTITION STATUTS</h4>
+                                <div className="space-y-3 flex-1">
+                                    {Object.values(StatutCommande).slice(0,5).map(s => {
+                                        const count = commandes.filter(c => c.statut === s).length;
+                                        const percentage = Math.round((count / Math.max(1, commandes.length)) * 100);
                                         return (
-                                            <div key={d.toISOString()} className="w-48 shrink-0 p-2 border-r flex flex-col gap-1 min-h-[120px] cursor-pointer hover:bg-brand-50/10" onClick={() => openTaskModal(t.id, d)}>
-                                                {tasks.map(({task, order}) => (
-                                                    <div key={task.id} className="p-2 rounded text-[10px] bg-white border border-gray-200 shadow-sm border-l-4 border-l-brand-500">
-                                                        <div className="font-bold truncate uppercase">{order.clientNom}</div>
-                                                        <div className="text-gray-500 truncate">{task.elementNom || order.description}</div>
-                                                        <div className="mt-1 font-bold text-brand-700">{task.action}</div>
-                                                    </div>
-                                                ))}
+                                            <div key={s} className="space-y-1">
+                                                <div className="flex justify-between items-center text-xs font-bold">
+                                                    <span className="text-gray-600 uppercase">{s}</span>
+                                                    <span>{count} ({percentage}%)</span>
+                                                </div>
+                                                <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                                    <div className={`h-full ${s === StatutCommande.PRET ? 'bg-green-500' : 'bg-brand-500'}`} style={{width: `${percentage}%`}}></div>
+                                                </div>
                                             </div>
                                         );
                                     })}
                                 </div>
+                            </div>
+                            <div className="md:col-span-2 bg-white p-6 rounded-xl border shadow-sm">
+                                <h4 className="text-gray-500 font-bold text-sm mb-6 flex items-center gap-2"><Trophy size={16}/> PERFORMANCE PAR TAILLEUR</h4>
+                                <div className="space-y-4">
+                                    {tailleurs.map(t => {
+                                        const finished = (commandes.filter(c => c.statut === StatutCommande.LIVRE && c.tailleursIds.includes(t.id)).length);
+                                        const inProgress = (commandes.filter(c => c.statut !== StatutCommande.LIVRE && c.tailleursIds.includes(t.id)).length);
+                                        return (
+                                            <div key={t.id} className="flex items-center gap-4">
+                                                <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center font-bold text-sm shrink-0">{t.nom.charAt(0)}</div>
+                                                <div className="flex-1">
+                                                    <div className="flex justify-between text-xs font-bold mb-1"><span>{t.nom}</span><span className="text-gray-400">{finished} livrés / {inProgress} en cours</span></div>
+                                                    <div className="flex h-2 bg-gray-100 rounded-full overflow-hidden">
+                                                        <div className="bg-green-500 h-full" style={{width: `${(finished / Math.max(1, finished + inProgress)) * 100}%`}}></div>
+                                                        <div className="bg-brand-400 h-full" style={{width: `${(inProgress / Math.max(1, finished + inProgress)) * 100}%`}}></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {viewMode === 'KANBAN' && (
+                    <div className="flex-1 overflow-x-auto pb-4">
+                        <div className="flex gap-4 h-full min-w-max">
+                            {[StatutCommande.EN_ATTENTE, StatutCommande.EN_COUPE, StatutCommande.COUTURE, StatutCommande.PRET].map(status => (
+                                <div key={status} className="w-72 shrink-0 bg-gray-50 rounded-xl border flex flex-col">
+                                    <div className="p-3 font-bold border-b bg-white rounded-t-xl flex justify-between uppercase text-xs tracking-wider">
+                                        <span>{status}</span>
+                                        <span className="bg-gray-100 px-2 rounded-full">{filteredCommandes.filter(c => c.statut === status).length}</span>
+                                    </div>
+                                    <div className="flex-1 p-2 space-y-2 overflow-y-auto">
+                                        {filteredCommandes.filter(c => c.statut === status).map(cmd => (
+                                            <div key={cmd.id} className="bg-white p-3 rounded-lg border shadow-sm group relative">
+                                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-1">
+                                                    <button onClick={() => handleOpenEditModal(cmd)} className="p-1 text-blue-500 hover:bg-blue-50 rounded"><Edit2 size={12}/></button>
+                                                    <button onClick={() => onUpdateStatus(cmd.id, StatutCommande.LIVRE)} className="p-1 text-green-500 hover:bg-green-50 rounded"><CheckCircle size={12}/></button>
+                                                </div>
+                                                <div className="font-bold text-sm text-gray-800 uppercase">{cmd.clientNom}</div>
+                                                <div className="text-[10px] text-gray-500 line-clamp-2">{cmd.description}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
                             ))}
                         </div>
                     </div>
-                </div>
-            )}
+                )}
 
-            {/* VIEW: HISTORIQUE GLOBAL (MODIFIÉ) */}
-            {viewMode === 'HISTORY' && (
-                <div className="flex-1 overflow-y-auto">
-                    <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-gray-50 text-gray-600 font-bold border-b">
-                                <tr>
-                                    <th className="p-4">Date</th>
-                                    <th className="p-4">Client</th>
-                                    <th className="p-4">Description</th>
-                                    <th className="p-4 text-center">Statut</th>
-                                    <th className="p-4 text-right">Total</th>
-                                    <th className="p-4 text-right">Reste</th>
-                                    <th className="p-4 text-center">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {filteredCommandes.map(cmd => (
-                                    <tr key={cmd.id} className="hover:bg-gray-50">
-                                        <td className="p-4 text-gray-500">{new Date(cmd.dateCommande).toLocaleDateString()}</td>
-                                        <td className="p-4 font-bold uppercase">{cmd.clientNom}</td>
-                                        <td className="p-4 text-gray-600 truncate max-w-[200px]">{cmd.description}</td>
-                                        <td className="p-4 text-center">
-                                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${getStatusColor(cmd.statut)}`}>{cmd.statut}</span>
-                                        </td>
-                                        <td className="p-4 text-right font-bold">{cmd.prixTotal.toLocaleString()} F</td>
-                                        <td className={`p-4 text-right font-bold ${cmd.reste > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                            {cmd.reste <= 0 ? 'Soldé' : `${cmd.reste.toLocaleString()} F`}
-                                        </td>
-                                        <td className="p-4 text-center">
-                                            <div className="flex justify-center gap-1">
-                                                <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded" title="Modifier"><Edit2 size={16}/></button>
-                                                {cmd.reste > 0 && cmd.statut !== StatutCommande.ANNULE && (
-                                                    <button onClick={() => openPaymentModal(cmd)} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Encaisser"><Wallet size={16}/></button>
-                                                )}
-                                                <button onClick={() => setHistoryPaymentOrder(cmd)} className="p-1.5 text-gray-500 hover:bg-gray-50 rounded" title="Détails versements"><Eye size={16}/></button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                                {filteredCommandes.length === 0 && (
-                                    <tr><td colSpan={7} className="p-8 text-center text-gray-400 italic">Aucune commande trouvée.</td></tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )}
-
-            {/* VIEW: TAILLEURS */}
-            {viewMode === 'TAILORS' && (
-                <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto">
-                    {tailleurs.map(t => {
-                        const activeTasks = commandes.filter(c => c.statut !== StatutCommande.LIVRE && c.tailleursIds.includes(t.id)).length;
-                        return (
-                            <div key={t.id} className="bg-white p-6 rounded-xl border shadow-sm flex flex-col items-center text-center">
-                                <div className="w-16 h-16 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-2xl font-bold mb-4">{t.nom.charAt(0)}</div>
-                                <h3 className="text-lg font-bold text-gray-800">{t.nom}</h3>
-                                <p className="text-sm text-gray-500 mb-4">{t.role}</p>
-                                <div className="w-full bg-gray-50 p-4 rounded-lg">
-                                    <p className="text-xs text-gray-400 uppercase font-bold mb-1">Commandes en cours</p>
-                                    <p className="text-2xl font-bold text-brand-600">{activeTasks}</p>
+                {viewMode === 'ORDERS' && (
+                    <div className="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-10 p-1">
+                        {filteredCommandes.map(cmd => (
+                            <div key={cmd.id} className="bg-white rounded-xl border p-5 shadow-sm relative flex flex-col h-full group hover:border-brand-300 transition-colors">
+                                <div className="absolute top-4 right-4 flex gap-1">
+                                    <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-gray-400 hover:text-blue-600 rounded-full border bg-white shadow-sm"><Edit2 size={16}/></button>
+                                    <button onClick={() => onUpdateStatus(cmd.id, StatutCommande.LIVRE)} className="p-1.5 text-gray-400 hover:text-green-600 rounded-full border bg-white shadow-sm"><CheckCircle size={16}/></button>
                                 </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
-
-            {/* KANBAN */}
-            {viewMode === 'KANBAN' && (
-                <div className="flex-1 overflow-x-auto pb-4">
-                    <div className="flex gap-4 h-full min-w-max">
-                        {[StatutCommande.EN_ATTENTE, StatutCommande.EN_COUPE, StatutCommande.COUTURE, StatutCommande.PRET].map(status => (
-                            <div key={status} className="w-72 shrink-0 bg-gray-50 rounded-xl border flex flex-col">
-                                <div className="p-3 font-bold border-b bg-white rounded-t-xl flex justify-between uppercase text-xs tracking-wider">
-                                    <span>{status}</span>
-                                    <span className="bg-gray-100 px-2 rounded-full">{filteredCommandes.filter(c => c.statut === status).length}</span>
-                                </div>
-                                <div className="flex-1 p-2 space-y-2 overflow-y-auto">
-                                    {filteredCommandes.filter(c => c.statut === status).map(cmd => (
-                                        <div key={cmd.id} className="bg-white p-3 rounded-lg border shadow-sm group relative">
-                                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-1">
-                                                <button onClick={() => handleOpenEditModal(cmd)} className="p-1 text-blue-500 hover:bg-blue-50 rounded"><Edit2 size={12}/></button>
-                                                <button onClick={() => onUpdateStatus(cmd.id, StatutCommande.LIVRE)} className="p-1 text-green-500 hover:bg-green-50 rounded"><CheckCircle size={12}/></button>
-                                            </div>
-                                            <div className="font-bold text-sm text-gray-800 uppercase">{cmd.clientNom}</div>
-                                            <div className="text-[10px] text-gray-500 line-clamp-2">{cmd.description}</div>
-                                        </div>
-                                    ))}
+                                <h3 className="font-bold text-lg text-gray-800 pr-16 truncate uppercase tracking-tight">{cmd.clientNom}</h3>
+                                <span className={`inline-block text-[10px] px-2 py-0.5 rounded font-bold uppercase w-fit mt-1 mb-3 ${getStatusColor(cmd.statut)}`}>{cmd.statut}</span>
+                                <p className="text-sm text-gray-600 flex-1 line-clamp-2 mb-4">{cmd.description}</p>
+                                <div className="flex justify-between items-center pt-3 border-t text-xs font-bold">
+                                    <span className="text-gray-400 flex items-center gap-1"><Clock size={12}/> {new Date(cmd.dateLivraisonPrevue).toLocaleDateString()}</span>
+                                    <span className={cmd.reste > 0 ? 'text-red-600' : 'text-green-600'}>{cmd.reste > 0 ? `Reste: ${cmd.reste.toLocaleString()} F` : 'Soldé'}</span>
                                 </div>
                             </div>
                         ))}
                     </div>
-                </div>
-            )}
+                )}
+            </div>
 
-            {/* LIST VIEW */}
-            {viewMode === 'ORDERS' && (
-                <div className="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
-                    {filteredCommandes.map(cmd => (
-                        <div key={cmd.id} className="bg-white rounded-xl border p-5 shadow-sm relative flex flex-col h-full group hover:border-brand-300 transition-colors">
-                            <div className="absolute top-4 right-4 flex gap-1">
-                                <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-gray-400 hover:text-blue-600 rounded-full border bg-white shadow-sm"><Edit2 size={16}/></button>
-                                <button onClick={() => onUpdateStatus(cmd.id, StatutCommande.LIVRE)} className="p-1.5 text-gray-400 hover:text-green-600 rounded-full border bg-white shadow-sm"><CheckCircle size={16}/></button>
-                            </div>
-                            <h3 className="font-bold text-lg text-gray-800 pr-16 truncate uppercase tracking-tight">{cmd.clientNom}</h3>
-                            <span className={`inline-block text-[10px] px-2 py-0.5 rounded font-bold uppercase w-fit mt-1 mb-3 ${getStatusColor(cmd.statut)}`}>{cmd.statut}</span>
-                            <p className="text-sm text-gray-600 flex-1 line-clamp-2 mb-4">{cmd.description}</p>
-                            <div className="flex justify-between items-center pt-3 border-t text-xs font-bold">
-                                <span className="text-gray-400 flex items-center gap-1"><Clock size={12}/> {new Date(cmd.dateLivraisonPrevue).toLocaleDateString()}</span>
-                                <span className={cmd.reste > 0 ? 'text-red-600' : 'text-green-600'}>{cmd.reste > 0 ? `Reste: ${cmd.reste.toLocaleString()} F` : 'Soldé'}</span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {/* MODAL MODIFICATION COMMANDE */}
+            {/* MODAL CREATION/MODIF */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col animate-in zoom-in duration-200">
-                        <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[95vh] flex flex-col animate-in zoom-in duration-200 overflow-hidden">
+                        <div className="p-4 border-b flex justify-between items-center bg-gray-50">
                             <h3 className="font-bold text-lg">{isEditingOrder ? 'Modifier' : 'Nouvelle'} Commande</h3>
                             <button onClick={() => setIsModalOpen(false)}><X size={24} className="text-gray-400"/></button>
                         </div>
                         <div className="p-6 overflow-y-auto flex-1 space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div><label className="block text-sm font-medium mb-1 text-gray-500">Client</label><select className="w-full p-2 border rounded font-bold" value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} disabled={isEditingOrder}><option value="">-- Client --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div>
                                 <div><label className="block text-sm font-medium mb-1 text-gray-500">Date Livraison Prévue</label><input type="date" className="w-full p-2 border rounded font-bold" value={dateLivraison} onChange={e => setDateLivraison(e.target.value)}/></div>
                             </div>
                             <div className="bg-gray-50 p-4 rounded border border-gray-200">
-                                <h4 className="font-bold text-sm mb-2 text-gray-700">Détail des articles</h4>
+                                <h4 className="font-bold text-sm mb-2 text-gray-700">Articles à réaliser</h4>
                                 {orderElements.map((el) => (
                                     <div key={el.id} className="flex gap-2 mb-2">
                                         <input type="text" className="flex-1 p-2 border rounded text-sm" placeholder="Article (ex: Robe...)" value={el.nom} onChange={(e) => setOrderElements(orderElements.map(x => x.id === el.id ? {...x, nom: e.target.value} : x))} />
                                         <input type="number" className="w-20 p-2 border rounded text-sm text-center" min="1" value={el.quantite} onChange={(e) => setOrderElements(orderElements.map(x => x.id === el.id ? {...x, quantite: parseInt(e.target.value)||1} : x))} />
                                     </div>
                                 ))}
-                                <button onClick={() => setOrderElements([...orderElements, {id:Date.now().toString(), nom:'', quantite:1}])} className="text-xs text-brand-600 font-bold flex items-center gap-1 mt-1"><Plus size={14}/> Ajouter article</button>
+                                <button onClick={() => setOrderElements([...orderElements, {id:Date.now().toString(), nom:'', quantite:1}])} className="text-xs text-brand-600 font-bold flex items-center gap-1 mt-1"><Plus size={14}/> Ajouter ligne</button>
                             </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium mb-1 text-gray-500">Prix Total (TTC)</label><input type="number" className="w-full p-2 border rounded font-bold text-lg" value={prixBase} onChange={e => setPrixBase(parseInt(e.target.value) || 0)}/></div>
-                                <div><label className="block text-sm font-medium mb-1 text-gray-500">Acompte Initial</label><input type="number" className="w-full p-2 border rounded font-bold text-lg text-green-700 bg-green-50" value={avance} onChange={e => setAvance(parseInt(e.target.value) || 0)} disabled={isEditingOrder}/></div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Tailleurs assignés</label>
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                    {tailleurs.map(t => (
+                                        <label key={t.id} className={`flex items-center gap-2 p-2 border rounded text-xs cursor-pointer transition-colors ${selectedTailleurs.includes(t.id) ? 'bg-brand-50 border-brand-200 font-bold text-brand-700' : 'hover:bg-gray-50'}`}>
+                                            <input type="checkbox" checked={selectedTailleurs.includes(t.id)} onChange={e => {
+                                                if(e.target.checked) setSelectedTailleurs([...selectedTailleurs, t.id]);
+                                                else setSelectedTailleurs(selectedTailleurs.filter(id => id !== t.id));
+                                            }} className="rounded text-brand-600"/> {t.nom}
+                                        </label>
+                                    ))}
+                                </div>
                             </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="md:col-span-2">
+                                    <label className="block text-sm font-medium mb-1 text-gray-500">Prix de Base (HT)</label>
+                                    <input type="number" className="w-full p-2 border rounded font-bold text-lg" value={prixBase} onChange={e => setPrixBase(parseInt(e.target.value) || 0)}/>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-gray-500">Remise</label>
+                                    <input type="number" className="w-full p-2 border rounded font-bold text-lg text-red-600" value={remise} onChange={e => setRemise(parseInt(e.target.value) || 0)}/>
+                                </div>
+                                <div className="flex items-end pb-2">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" checked={tvaEnabled} onChange={e => setTvaEnabled(e.target.checked)} className="rounded text-brand-600"/>
+                                        <span className="text-sm font-bold text-gray-600">TVA ({COMPANY_CONFIG.tvaRate*100}%)</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-gray-500">Acompte à l'inscription</label>
+                                <input type="number" className="w-full p-2 border rounded font-bold text-lg text-green-700 bg-green-50" value={avance} onChange={e => setAvance(parseInt(e.target.value) || 0)} disabled={isEditingOrder}/>
+                            </div>
+                            {!isEditingOrder && avance > 0 && (
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Caisse d'encaissement</label>
+                                    <select className="w-full p-2 border border-brand-200 rounded bg-brand-50" value={initialAccountId} onChange={e => setInitialAccountId(e.target.value)}>
+                                        <option value="">-- Choisir Caisse --</option>
+                                        {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
+                                    </select>
+                                </div>
+                            )}
                         </div>
-                        <div className="p-4 border-t bg-gray-50 flex justify-end gap-3 rounded-b-xl">
-                            <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600">Annuler</button>
-                            <button onClick={handleSaveOrder} className="px-8 py-2 bg-brand-600 text-white rounded font-bold shadow-lg">Enregistrer</button>
+                        <div className="p-4 border-t bg-gray-50 flex justify-between items-center">
+                            <div className="text-lg font-bold">Total: <span className="text-brand-600">{Math.max(0, prixBase - remise + (tvaEnabled ? Math.round((prixBase-remise)*COMPANY_CONFIG.tvaRate) : 0)).toLocaleString()} F</span></div>
+                            <div className="flex gap-3">
+                                <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600">Annuler</button>
+                                <button onClick={handleSaveOrder} className="px-8 py-2 bg-brand-600 text-white rounded font-bold shadow-lg">Enregistrer</button>
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* MODAL ENCAISSEMENT (Restauration) */}
+            {/* MODAL SCANNER */}
+            {isScannerOpen && <QRScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScan={(id) => {
+                const cmd = commandes.find(c => c.id === id);
+                if(cmd) { handleOpenEditModal(cmd); setIsScannerOpen(false); }
+                else alert("Commande introuvable");
+            }} />}
+
+            {/* MODAL ENCAISSEMENT */}
             {paymentModalOpen && selectedOrderForPayment && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[90] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
@@ -442,34 +629,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             <button onClick={() => setPaymentModalOpen(false)}><X size={20} className="text-gray-400"/></button>
                         </div>
                         <div className="space-y-4">
-                            <div className="bg-gray-50 p-3 rounded text-xs">
-                                <p>Client: <strong className="uppercase">{selectedOrderForPayment.clientNom}</strong></p>
-                                <p>Reste dû: <strong className="text-red-600 text-sm">{selectedOrderForPayment.reste.toLocaleString()} F</strong></p>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Montant versé</label>
-                                <input type="number" className="w-full p-2 border rounded font-bold text-lg bg-green-50 border-green-200" value={payAmount} onChange={e => setPayAmount(parseInt(e.target.value) || 0)} max={selectedOrderForPayment.reste} />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Mode de Paiement</label>
-                                <select className="w-full p-2 border rounded" value={payMethod} onChange={e => setPayMethod(e.target.value as ModePaiement)}>
-                                    <option value="ESPECE">Espèce</option>
-                                    <option value="WAVE">Wave</option>
-                                    <option value="ORANGE_MONEY">Orange Money</option>
-                                    <option value="VIREMENT">Virement</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Caisse de réception</label>
-                                <select className="w-full p-2 border rounded" value={payAccount} onChange={e => setPayAccount(e.target.value)}>
-                                    <option value="">-- Choisir Compte --</option>
-                                    {comptes.map(acc => <option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>)}
-                                </select>
-                            </div>
-                            <div className="flex justify-end gap-3 mt-6">
-                                <button onClick={() => setPaymentModalOpen(false)} className="px-4 py-2 text-gray-600">Annuler</button>
-                                <button onClick={handleConfirmPayment} disabled={!payAccount || payAmount <= 0} className="px-4 py-2 bg-green-600 text-white rounded font-bold shadow-md disabled:opacity-50">Valider Versement</button>
-                            </div>
+                            <div className="bg-gray-50 p-3 rounded text-xs"><p>Client: <strong className="uppercase">{selectedOrderForPayment.clientNom}</strong></p><p>Reste dû: <strong className="text-red-600 text-sm">{selectedOrderForPayment.reste.toLocaleString()} F</strong></p></div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Montant versé</label><input type="number" className="w-full p-2 border rounded font-bold text-lg bg-green-50 border-green-200" value={payAmount} onChange={e => setPayAmount(parseInt(e.target.value) || 0)} max={selectedOrderForPayment.reste} /></div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Caisse de réception</label><select className="w-full p-2 border rounded" value={payAccount} onChange={e => setPayAccount(e.target.value)}><option value="">-- Choisir Compte --</option>{comptes.map(acc => <option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>)}</select></div>
+                            <div className="flex justify-end gap-3 mt-6"><button onClick={() => setPaymentModalOpen(false)} className="px-4 py-2 text-gray-600">Annuler</button><button onClick={handleConfirmPayment} disabled={!payAccount || payAmount <= 0} className="px-4 py-2 bg-green-600 text-white rounded font-bold shadow-md disabled:opacity-50">Valider</button></div>
                         </div>
                     </div>
                 </div>
@@ -479,31 +642,22 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             {historyPaymentOrder && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[90] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col h-[70vh] overflow-hidden">
-                        <div className="p-4 border-b bg-gray-50 flex justify-between items-center shrink-0">
-                            <h3 className="font-bold text-gray-800">Versements : {historyPaymentOrder.clientNom}</h3>
-                            <button onClick={() => setHistoryPaymentOrder(null)}><X size={24} className="text-gray-400"/></button>
-                        </div>
+                        <div className="p-4 border-b bg-gray-50 flex justify-between items-center shrink-0"><h3 className="font-bold text-gray-800">Versements : {historyPaymentOrder.clientNom}</h3><button onClick={() => setHistoryPaymentOrder(null)}><X size={24} className="text-gray-400"/></button></div>
                         <div className="p-6 flex-1 overflow-y-auto space-y-4">
                             <div className="grid grid-cols-2 gap-4 text-xs font-bold bg-brand-50 p-4 rounded-lg">
-                                <div className="text-gray-500 uppercase">Prix Total : <span className="text-gray-900 block text-lg">{historyPaymentOrder.prixTotal.toLocaleString()} F</span></div>
+                                <div className="text-gray-500 uppercase">Prix Total : <span className="text-gray-900 block text-lg">{historyPaymentOrder.prixTotal?.toLocaleString()} F</span></div>
                                 <div className="text-red-500 uppercase">Reste : <span className="block text-lg">{historyPaymentOrder.reste.toLocaleString()} F</span></div>
                             </div>
-                            <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-4">Historique des transactions</h4>
                             {historyPaymentOrder.paiements && historyPaymentOrder.paiements.length > 0 ? (
                                 <div className="space-y-2">
                                     {historyPaymentOrder.paiements.map((p, i) => (
                                         <div key={i} className="flex justify-between items-center p-3 border rounded-lg bg-white shadow-sm">
-                                            <div>
-                                                <div className="text-sm font-bold text-gray-800">{new Date(p.date).toLocaleDateString()}</div>
-                                                <div className="text-[10px] text-gray-500 uppercase font-medium">{p.moyenPaiement}</div>
-                                            </div>
+                                            <div><div className="text-sm font-bold text-gray-800">{new Date(p.date).toLocaleDateString()}</div><div className="text-[10px] text-gray-500 uppercase font-medium">{p.moyenPaiement}</div></div>
                                             <div className="text-green-600 font-bold">{p.montant.toLocaleString()} F</div>
                                         </div>
                                     ))}
                                 </div>
-                            ) : (
-                                <div className="text-center py-10 text-gray-400 italic text-sm">Aucun versement enregistré.</div>
-                            )}
+                            ) : (<div className="text-center py-10 text-gray-400 italic text-sm">Aucun versement enregistré.</div>)}
                         </div>
                     </div>
                 </div>
@@ -525,6 +679,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 <div><label className="block text-sm font-medium mb-1">Quantité</label><input type="number" className="w-full p-2 border rounded text-center" value={newTaskData.quantite} onChange={e => setNewTaskData({...newTaskData, quantite: parseInt(e.target.value)||1})} /></div>
                             </div>
                         </div>
+                        {/* handleSaveTask now implemented to resolve missing name error */}
                         <div className="flex justify-end gap-3 mt-6"><button onClick={() => setTaskModalOpen(false)} className="px-4 py-2 text-gray-600">Annuler</button><button onClick={handleSaveTask} disabled={!newTaskData.orderId} className="px-4 py-2 bg-brand-600 text-white rounded font-bold disabled:opacity-50">Assigner</button></div>
                     </div>
                 </div>
