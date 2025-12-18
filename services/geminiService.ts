@@ -2,17 +2,15 @@ import { GoogleGenAI } from "@google/genai";
 import { COMPANY_CONFIG } from "../config";
 
 // Initialize Gemini with process.env.API_KEY string directly per coding guidelines.
-// Assume this variable is pre-configured and valid in the execution context.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const getAIAnalysis = async (contextData: string, userPrompt: string): Promise<string> => {
     try {
-        // Use gemini-3-flash-preview for Basic Text Tasks like data analysis and Q&A.
         const model = 'gemini-3-flash-preview';
         
         const systemInstruction = `
             Tu es un assistant expert en gestion d'entreprise pour "${COMPANY_CONFIG.name}", ${COMPANY_CONFIG.aiContext}.
-            Ta mission est d'aider le gérant à optimiser la production, suivre les ventes, et gérer les denses.
+            Ta mission est d'aider le gérant à optimiser la production, suivre les ventes, et gérer les dépenses.
             Réponds toujours de manière professionnelle, concise et en Français.
             Utilise le contexte JSON fourni pour baser tes analyses.
             La devise est le ${COMPANY_CONFIG.currency}.
@@ -35,8 +33,7 @@ export const getAIAnalysis = async (contextData: string, userPrompt: string): Pr
             }
         });
 
-        // The simplest and most direct way to get the generated text content is by accessing the .text property.
-        // Do not use response.text() as it is deprecated.
+        // Use the .text property directly, it is not a method.
         return response.text || "Désolé, je n'ai pas pu générer une analyse pour le moment.";
     } catch (error) {
         console.error("Erreur Gemini:", error);
@@ -53,7 +50,6 @@ export const draftClientMessage = async (clientName: string, orderDescription: s
             Si c'est "Prêt", invite-le à passer à la boutique ${COMPANY_CONFIG.name}.
             Utilise un ton chaleureux.`,
         });
-        // Access text via the .text property directly.
         return response.text || "";
      } catch (e) {
          return "Bonjour, votre commande est mise à jour.";
@@ -71,24 +67,21 @@ export const parseMeasurementsFromText = async (text: string): Promise<Record<st
                 Extrais les valeurs numériques et associe-les aux clés JSON suivantes (si mentionnées).
                 Clés disponibles : 
                 - tourCou, epaule, poitrine, longueurManche, tourBras, tourPoignet
-                - longueurBoubou1, longueurBoubou2 (si on dit "longueur boubou 140 sur 145" par exemple)
+                - longueurBoubou1, longueurBoubou2
                 - longueurChemise, carrureDos, carrureDevant, taille, blouse, ceinture
                 - tourFesse, tourCuisse, entreJambe, longueurPantalon
-                - genou1, genou2 (si on dit "genou 40 sur 38")
-                - bas
+                - genou1, genou2, bas
 
                 Règles :
                 1. Renvoie UNIQUEMENT un objet JSON valide sans Markdown.
-                2. Les valeurs doivent être des nombres (ex: 80, pas "80cm").
-                3. Si une mesure est ambigüe, fais de ton mieux pour deviner le contexte (ex: "manche 60" = longueurManche).
-                4. Ignore les clés non trouvées.
+                2. Les valeurs doivent être des nombres.
+                3. Ignore les clés non trouvées.
             `,
             config: {
                 responseMimeType: 'application/json'
             }
         });
         
-        // Access text via the .text property directly.
         const jsonText = response.text || "{}";
         return JSON.parse(jsonText);
     } catch (error) {
