@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction, ElementCommande } from '../types';
+import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction, ElementCommande, PaiementClient } from '../types';
 import { COMPANY_CONFIG } from '../config';
 import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange, ChevronLeft, Zap, PenTool } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
@@ -40,16 +40,22 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         return d;
     });
 
-    const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditingOrder, setIsEditingOrder] = useState(false);
     const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
     const [taskModalOpen, setTaskModalOpen] = useState(false);
     const [planningTarget, setPlanningTarget] = useState<{ tailorId: string, tailorName: string, date: Date } | null>(null);
+    
+    // MODALS PAIEMENT
     const [paymentModalOpen, setPaymentModalOpen] = useState(false);
     const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<Commande | null>(null);
-    const [paymentAmount, setPaymentAmount] = useState(0);
-    const [paymentAccountId, setPaymentAccountId] = useState('');
+    const [payAmount, setPayAmount] = useState(0);
+    const [payMethod, setPayMethod] = useState<ModePaiement>('ESPECE');
+    const [payAccount, setPayAccount] = useState('');
+    const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
+
+    // MODAL HISTORIQUE PAIEMENT
+    const [historyPaymentOrder, setHistoryPaymentOrder] = useState<Commande | null>(null);
 
     const [newTaskData, setNewTaskData] = useState<{ 
         orderId: string, 
@@ -70,25 +76,22 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [initialAccountId, setInitialAccountId] = useState('');
 
     const tailleurs = employes.filter(e => e.role === RoleEmploye.TAILLEUR || e.role === RoleEmploye.CHEF_ATELIER || e.role === RoleEmploye.STAGIAIRE);
-    const canSeeFinance = userRole === RoleEmploye.ADMIN || userRole === RoleEmploye.GERANT || userRole === RoleEmploye.CHEF_ATELIER;
 
     const filteredCommandes = useMemo(() => {
         return commandes.filter(c => {
             if (c.type !== 'SUR_MESURE') return false; 
             const isCompleted = c.statut === StatutCommande.LIVRE || c.statut === StatutCommande.ANNULE;
             
-            // Logique de filtrage par vue
-            if (viewMode === 'HISTORY') {
-                if (!isCompleted) return false;
-            } else if (['PLANNING', 'KANBAN', 'ORDERS', 'TAILORS'].includes(viewMode)) {
-                if (isCompleted) return false;
+            // On affiche TOUTES les commandes dans l'historique maintenant
+            if (viewMode !== 'HISTORY') {
+                 if (isCompleted) return false;
             }
 
             const matchesSearch = c.clientNom.toLowerCase().includes(searchTerm.toLowerCase()) || 
                                   c.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                   c.description.toLowerCase().includes(searchTerm.toLowerCase());
             return matchesSearch;
-        }).sort((a, b) => new Date(b.dateLivraisonPrevue).getTime() - new Date(a.dateLivraisonPrevue).getTime());
+        }).sort((a, b) => new Date(b.dateCommande).getTime() - new Date(a.dateCommande).getTime());
     }, [commandes, searchTerm, viewMode]);
 
     const planningData = useMemo(() => {
@@ -132,6 +135,45 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         setIsModalOpen(true);
     };
 
+    const handleSaveOrder = () => {
+        if (!selectedClientId || !dateLivraison) return;
+        const validElements = orderElements.filter(e => e.nom.trim() !== '');
+        if (validElements.length === 0) return;
+        const client = clients.find(c => c.id === selectedClientId);
+        const orderData: Commande = {
+            id: selectedOrderId || `CMD${Date.now()}`,
+            clientId: selectedClientId, clientNom: client?.nom || 'Inconnu',
+            description: validElements.map(e => `${e.quantite} ${e.nom}`).join(', '),
+            notes, quantite: validElements.reduce((acc, e) => acc + e.quantite, 0),
+            elements: validElements.map(e => ({ nom: e.nom, quantite: e.quantite })),
+            dateCommande: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.dateCommande || new Date().toISOString()) : new Date().toISOString(),
+            dateLivraisonPrevue: dateLivraison,
+            statut: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.statut || StatutCommande.EN_ATTENTE) : StatutCommande.EN_ATTENTE,
+            tailleursIds: selectedTailleurs,
+            prixTotal: prixBase, avance, reste: prixBase - avance, type: 'SUR_MESURE',
+            paiements: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.paiements || []) : [],
+            taches: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.taches || []) : []
+        };
+        if (isEditingOrder) onUpdateOrder(orderData, initialAccountId, initialPaymentMethod); 
+        else onCreateOrder(orderData, [], initialPaymentMethod, initialAccountId);
+        setIsModalOpen(false);
+    };
+
+    const openPaymentModal = (order: Commande) => {
+        setSelectedOrderForPayment(order);
+        setPayAmount(order.reste);
+        setPayAccount('');
+        setPayDate(new Date().toISOString().split('T')[0]);
+        setPaymentModalOpen(true);
+    };
+
+    const handleConfirmPayment = () => {
+        if (!selectedOrderForPayment || payAmount <= 0) return;
+        if (!payAccount) { alert("Veuillez choisir un compte d'encaissement."); return; }
+        onAddPayment(selectedOrderForPayment.id, payAmount, payMethod, "Versement suite historique", payDate, payAccount);
+        setPaymentModalOpen(false);
+    };
+
     const openTaskModal = (tailorId: string, date: Date) => {
         const tailor = tailleurs.find(t => t.id === tailorId);
         if (!tailor) return;
@@ -153,17 +195,14 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         setTaskModalOpen(false);
     };
 
-    const handleMarkAsDelivered = (orderId: string) => {
-        if(window.confirm("Confirmer la sortie de l'atelier ?")) onUpdateStatus(orderId, StatutCommande.LIVRE);
-    };
-
     const getStatusColor = (s: string) => {
         switch(s) {
             case StatutCommande.EN_ATTENTE: return 'bg-gray-100 text-gray-700';
             case StatutCommande.EN_COUPE: return 'bg-blue-100 text-blue-700';
             case StatutCommande.COUTURE: return 'bg-indigo-100 text-indigo-700';
             case StatutCommande.PRET: return 'bg-green-100 text-green-700';
-            case StatutCommande.LIVRE: return 'bg-gray-200 text-gray-500';
+            case StatutCommande.LIVRE: return 'bg-gray-800 text-white';
+            case StatutCommande.ANNULE: return 'bg-red-100 text-red-700';
             default: return 'bg-gray-50';
         }
     };
@@ -177,7 +216,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     <button onClick={() => setViewMode('PLANNING')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'PLANNING' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><CalendarRange size={14}/> Agenda</button>
                     <button onClick={() => setViewMode('KANBAN')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'KANBAN' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Columns size={14}/> Kanban</button>
                     <button onClick={() => setViewMode('ORDERS')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'ORDERS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><LayoutList size={14}/> Liste</button>
-                    <button onClick={() => setViewMode('HISTORY')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'HISTORY' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><History size={14}/> Historique</button>
+                    <button onClick={() => setViewMode('HISTORY')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'HISTORY' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><History size={14}/> Historique Global</button>
                     <button onClick={() => setViewMode('TAILORS')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'TAILORS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Users size={14}/> Tailleurs</button>
                     <button onClick={() => setViewMode('PERFORMANCE')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'PERFORMANCE' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Trophy size={14}/> Stats</button>
                 </div>
@@ -240,30 +279,49 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* VIEW: HISTORIQUE */}
+            {/* VIEW: HISTORIQUE GLOBAL (MODIFIÉ) */}
             {viewMode === 'HISTORY' && (
                 <div className="flex-1 overflow-y-auto">
                     <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 text-gray-600 font-bold border-b">
                                 <tr>
-                                    <th className="p-4">Date Livraison</th>
+                                    <th className="p-4">Date</th>
                                     <th className="p-4">Client</th>
                                     <th className="p-4">Description</th>
                                     <th className="p-4 text-center">Statut</th>
-                                    <th className="p-4 text-right">Montant</th>
+                                    <th className="p-4 text-right">Total</th>
+                                    <th className="p-4 text-right">Reste</th>
+                                    <th className="p-4 text-center">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {filteredCommandes.map(cmd => (
                                     <tr key={cmd.id} className="hover:bg-gray-50">
-                                        <td className="p-4 text-gray-500">{new Date(cmd.dateLivraisonPrevue).toLocaleDateString()}</td>
-                                        <td className="p-4 font-bold">{cmd.clientNom}</td>
-                                        <td className="p-4 text-gray-600">{cmd.description}</td>
-                                        <td className="p-4 text-center"><span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${getStatusColor(cmd.statut)}`}>{cmd.statut}</span></td>
+                                        <td className="p-4 text-gray-500">{new Date(cmd.dateCommande).toLocaleDateString()}</td>
+                                        <td className="p-4 font-bold uppercase">{cmd.clientNom}</td>
+                                        <td className="p-4 text-gray-600 truncate max-w-[200px]">{cmd.description}</td>
+                                        <td className="p-4 text-center">
+                                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${getStatusColor(cmd.statut)}`}>{cmd.statut}</span>
+                                        </td>
                                         <td className="p-4 text-right font-bold">{cmd.prixTotal.toLocaleString()} F</td>
+                                        <td className={`p-4 text-right font-bold ${cmd.reste > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                            {cmd.reste <= 0 ? 'Soldé' : `${cmd.reste.toLocaleString()} F`}
+                                        </td>
+                                        <td className="p-4 text-center">
+                                            <div className="flex justify-center gap-1">
+                                                <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded" title="Modifier"><Edit2 size={16}/></button>
+                                                {cmd.reste > 0 && cmd.statut !== StatutCommande.ANNULE && (
+                                                    <button onClick={() => openPaymentModal(cmd)} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Encaisser"><Wallet size={16}/></button>
+                                                )}
+                                                <button onClick={() => setHistoryPaymentOrder(cmd)} className="p-1.5 text-gray-500 hover:bg-gray-50 rounded" title="Détails versements"><Eye size={16}/></button>
+                                            </div>
+                                        </td>
                                     </tr>
                                 ))}
+                                {filteredCommandes.length === 0 && (
+                                    <tr><td colSpan={7} className="p-8 text-center text-gray-400 italic">Aucune commande trouvée.</td></tr>
+                                )}
                             </tbody>
                         </table>
                     </div>
@@ -290,44 +348,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* VIEW: STATS */}
-            {viewMode === 'PERFORMANCE' && (
-                <div className="flex-1 space-y-6 overflow-y-auto">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="bg-white p-6 rounded-xl border shadow-sm">
-                            <h4 className="text-gray-500 font-bold text-sm mb-4">REPARTITION STATUTS</h4>
-                            <div className="space-y-2">
-                                {Object.values(StatutCommande).slice(0,5).map(s => (
-                                    <div key={s} className="flex justify-between items-center text-sm">
-                                        <span className="text-gray-600">{s}</span>
-                                        <span className="font-bold">{commandes.filter(c => c.statut === s).length}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                        <div className="bg-brand-600 p-6 rounded-xl shadow-sm text-white md:col-span-2">
-                            <h4 className="font-bold text-sm mb-4 opacity-80 uppercase tracking-widest">Résumé Production</h4>
-                            <div className="flex justify-around items-center h-24">
-                                <div className="text-center">
-                                    <p className="text-3xl font-bold">{commandes.filter(c => c.statut !== StatutCommande.LIVRE).length}</p>
-                                    <p className="text-xs opacity-70">En Cours</p>
-                                </div>
-                                <div className="w-px h-12 bg-white/20"></div>
-                                <div className="text-center">
-                                    <p className="text-3xl font-bold">{commandes.filter(c => c.statut === StatutCommande.PRET).length}</p>
-                                    <p className="text-xs opacity-70">Prêt à livrer</p>
-                                </div>
-                                <div className="w-px h-12 bg-white/20"></div>
-                                <div className="text-center">
-                                    <p className="text-3xl font-bold">{commandes.filter(c => c.statut === StatutCommande.LIVRE).length}</p>
-                                    <p className="text-xs opacity-70">Livrées (Total)</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
             {/* KANBAN */}
             {viewMode === 'KANBAN' && (
                 <div className="flex-1 overflow-x-auto pb-4">
@@ -343,9 +363,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         <div key={cmd.id} className="bg-white p-3 rounded-lg border shadow-sm group relative">
                                             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-1">
                                                 <button onClick={() => handleOpenEditModal(cmd)} className="p-1 text-blue-500 hover:bg-blue-50 rounded"><Edit2 size={12}/></button>
-                                                <button onClick={() => handleMarkAsDelivered(cmd.id)} className="p-1 text-green-500 hover:bg-green-50 rounded"><CheckCircle size={12}/></button>
+                                                <button onClick={() => onUpdateStatus(cmd.id, StatutCommande.LIVRE)} className="p-1 text-green-500 hover:bg-green-50 rounded"><CheckCircle size={12}/></button>
                                             </div>
-                                            <div className="font-bold text-sm text-gray-800">{cmd.clientNom}</div>
+                                            <div className="font-bold text-sm text-gray-800 uppercase">{cmd.clientNom}</div>
                                             <div className="text-[10px] text-gray-500 line-clamp-2">{cmd.description}</div>
                                         </div>
                                     ))}
@@ -363,7 +383,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         <div key={cmd.id} className="bg-white rounded-xl border p-5 shadow-sm relative flex flex-col h-full group hover:border-brand-300 transition-colors">
                             <div className="absolute top-4 right-4 flex gap-1">
                                 <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-gray-400 hover:text-blue-600 rounded-full border bg-white shadow-sm"><Edit2 size={16}/></button>
-                                <button onClick={() => handleMarkAsDelivered(cmd.id)} className="p-1.5 text-gray-400 hover:text-green-600 rounded-full border bg-white shadow-sm"><CheckCircle size={16}/></button>
+                                <button onClick={() => onUpdateStatus(cmd.id, StatutCommande.LIVRE)} className="p-1.5 text-gray-400 hover:text-green-600 rounded-full border bg-white shadow-sm"><CheckCircle size={16}/></button>
                             </div>
                             <h3 className="font-bold text-lg text-gray-800 pr-16 truncate uppercase tracking-tight">{cmd.clientNom}</h3>
                             <span className={`inline-block text-[10px] px-2 py-0.5 rounded font-bold uppercase w-fit mt-1 mb-3 ${getStatusColor(cmd.statut)}`}>{cmd.statut}</span>
@@ -377,7 +397,119 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* MODALS (Reste de la logique inchangée) */}
+            {/* MODAL MODIFICATION COMMANDE */}
+            {isModalOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col animate-in zoom-in duration-200">
+                        <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
+                            <h3 className="font-bold text-lg">{isEditingOrder ? 'Modifier' : 'Nouvelle'} Commande</h3>
+                            <button onClick={() => setIsModalOpen(false)}><X size={24} className="text-gray-400"/></button>
+                        </div>
+                        <div className="p-6 overflow-y-auto flex-1 space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-sm font-medium mb-1 text-gray-500">Client</label><select className="w-full p-2 border rounded font-bold" value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} disabled={isEditingOrder}><option value="">-- Client --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div>
+                                <div><label className="block text-sm font-medium mb-1 text-gray-500">Date Livraison Prévue</label><input type="date" className="w-full p-2 border rounded font-bold" value={dateLivraison} onChange={e => setDateLivraison(e.target.value)}/></div>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                                <h4 className="font-bold text-sm mb-2 text-gray-700">Détail des articles</h4>
+                                {orderElements.map((el) => (
+                                    <div key={el.id} className="flex gap-2 mb-2">
+                                        <input type="text" className="flex-1 p-2 border rounded text-sm" placeholder="Article (ex: Robe...)" value={el.nom} onChange={(e) => setOrderElements(orderElements.map(x => x.id === el.id ? {...x, nom: e.target.value} : x))} />
+                                        <input type="number" className="w-20 p-2 border rounded text-sm text-center" min="1" value={el.quantite} onChange={(e) => setOrderElements(orderElements.map(x => x.id === el.id ? {...x, quantite: parseInt(e.target.value)||1} : x))} />
+                                    </div>
+                                ))}
+                                <button onClick={() => setOrderElements([...orderElements, {id:Date.now().toString(), nom:'', quantite:1}])} className="text-xs text-brand-600 font-bold flex items-center gap-1 mt-1"><Plus size={14}/> Ajouter article</button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-sm font-medium mb-1 text-gray-500">Prix Total (TTC)</label><input type="number" className="w-full p-2 border rounded font-bold text-lg" value={prixBase} onChange={e => setPrixBase(parseInt(e.target.value) || 0)}/></div>
+                                <div><label className="block text-sm font-medium mb-1 text-gray-500">Acompte Initial</label><input type="number" className="w-full p-2 border rounded font-bold text-lg text-green-700 bg-green-50" value={avance} onChange={e => setAvance(parseInt(e.target.value) || 0)} disabled={isEditingOrder}/></div>
+                            </div>
+                        </div>
+                        <div className="p-4 border-t bg-gray-50 flex justify-end gap-3 rounded-b-xl">
+                            <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600">Annuler</button>
+                            <button onClick={handleSaveOrder} className="px-8 py-2 bg-brand-600 text-white rounded font-bold shadow-lg">Enregistrer</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL ENCAISSEMENT (Restauration) */}
+            {paymentModalOpen && selectedOrderForPayment && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[90] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-xl font-bold flex items-center gap-2 text-green-700"><Wallet size={24}/> Encaissement</h3>
+                            <button onClick={() => setPaymentModalOpen(false)}><X size={20} className="text-gray-400"/></button>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="bg-gray-50 p-3 rounded text-xs">
+                                <p>Client: <strong className="uppercase">{selectedOrderForPayment.clientNom}</strong></p>
+                                <p>Reste dû: <strong className="text-red-600 text-sm">{selectedOrderForPayment.reste.toLocaleString()} F</strong></p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Montant versé</label>
+                                <input type="number" className="w-full p-2 border rounded font-bold text-lg bg-green-50 border-green-200" value={payAmount} onChange={e => setPayAmount(parseInt(e.target.value) || 0)} max={selectedOrderForPayment.reste} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Mode de Paiement</label>
+                                <select className="w-full p-2 border rounded" value={payMethod} onChange={e => setPayMethod(e.target.value as ModePaiement)}>
+                                    <option value="ESPECE">Espèce</option>
+                                    <option value="WAVE">Wave</option>
+                                    <option value="ORANGE_MONEY">Orange Money</option>
+                                    <option value="VIREMENT">Virement</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Caisse de réception</label>
+                                <select className="w-full p-2 border rounded" value={payAccount} onChange={e => setPayAccount(e.target.value)}>
+                                    <option value="">-- Choisir Compte --</option>
+                                    {comptes.map(acc => <option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>)}
+                                </select>
+                            </div>
+                            <div className="flex justify-end gap-3 mt-6">
+                                <button onClick={() => setPaymentModalOpen(false)} className="px-4 py-2 text-gray-600">Annuler</button>
+                                <button onClick={handleConfirmPayment} disabled={!payAccount || payAmount <= 0} className="px-4 py-2 bg-green-600 text-white rounded font-bold shadow-md disabled:opacity-50">Valider Versement</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL HISTORIQUE VERSEMENTS */}
+            {historyPaymentOrder && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[90] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col h-[70vh] overflow-hidden">
+                        <div className="p-4 border-b bg-gray-50 flex justify-between items-center shrink-0">
+                            <h3 className="font-bold text-gray-800">Versements : {historyPaymentOrder.clientNom}</h3>
+                            <button onClick={() => setHistoryPaymentOrder(null)}><X size={24} className="text-gray-400"/></button>
+                        </div>
+                        <div className="p-6 flex-1 overflow-y-auto space-y-4">
+                            <div className="grid grid-cols-2 gap-4 text-xs font-bold bg-brand-50 p-4 rounded-lg">
+                                <div className="text-gray-500 uppercase">Prix Total : <span className="text-gray-900 block text-lg">{historyPaymentOrder.prixTotal.toLocaleString()} F</span></div>
+                                <div className="text-red-500 uppercase">Reste : <span className="block text-lg">{historyPaymentOrder.reste.toLocaleString()} F</span></div>
+                            </div>
+                            <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-4">Historique des transactions</h4>
+                            {historyPaymentOrder.paiements && historyPaymentOrder.paiements.length > 0 ? (
+                                <div className="space-y-2">
+                                    {historyPaymentOrder.paiements.map((p, i) => (
+                                        <div key={i} className="flex justify-between items-center p-3 border rounded-lg bg-white shadow-sm">
+                                            <div>
+                                                <div className="text-sm font-bold text-gray-800">{new Date(p.date).toLocaleDateString()}</div>
+                                                <div className="text-[10px] text-gray-500 uppercase font-medium">{p.moyenPaiement}</div>
+                                            </div>
+                                            <div className="text-green-600 font-bold">{p.montant.toLocaleString()} F</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-center py-10 text-gray-400 italic text-sm">Aucun versement enregistré.</div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL TACHE (PLANNING) */}
             {taskModalOpen && planningTarget && (
                 <div className="fixed inset-0 bg-black bg-opacity-70 z-[100] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
@@ -386,7 +518,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         <div className="space-y-4">
                             <div><label className="block text-sm font-medium mb-1">Commande</label><select className="w-full p-2 border rounded" value={newTaskData.orderId} onChange={e => setNewTaskData({...newTaskData, orderId: e.target.value})}>
                                 <option value="">-- Choisir --</option>
-                                {filteredCommandes.filter(c => c.statut !== StatutCommande.LIVRE).map(c => <option key={c.id} value={c.id}>{c.clientNom} - {c.description}</option>)}
+                                {commandes.filter(c => c.statut !== StatutCommande.LIVRE && c.type === 'SUR_MESURE').map(c => <option key={c.id} value={c.id}>{c.clientNom} - {c.description}</option>)}
                             </select></div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="block text-sm font-medium mb-1">Action</label><select className="w-full p-2 border rounded" value={newTaskData.action} onChange={e => setNewTaskData({...newTaskData, action: e.target.value as any})}>{PRODUCTION_ACTIONS.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}</select></div>
