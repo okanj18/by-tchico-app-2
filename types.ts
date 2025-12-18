@@ -149,7 +149,7 @@ export interface TacheProduction {
     action: ActionProduction;
     quantite: number;
     note?: string;
-    elementNom?: string; // NEW: Specifies which item in the order (e.g. "Robe")
+    elementNom?: string;
     date: string;
     tailleurId: string;
     statut: 'A_FAIRE' | 'FAIT';
@@ -157,7 +157,7 @@ export interface TacheProduction {
 }
 
 export interface ElementCommande {
-    nom: string; // ex: Robe, Pantalon
+    nom: string;
     quantite: number;
 }
 
@@ -180,7 +180,8 @@ export interface Commande {
     tvaRate?: number;
     remise?: number;
     quantite: number;
-    elements?: ElementCommande[]; // NEW: Detailed breakdown of custom order items
+    elements?: ElementCommande[];
+    repartitionStatuts?: Record<string, number>; // Nouvelle répartition fractionnée
     consommations?: Consommation[];
     detailsVente?: LigneCommande[];
     notes?: string;
