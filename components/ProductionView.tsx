@@ -1,7 +1,8 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction, ElementCommande, PaiementClient } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange, ChevronLeft, Zap, PenTool, PieChart, MoveRight } from 'lucide-react';
+import { Scissors, LayoutGrid, List, LayoutList, Users, BarChart2, Archive, Search, Camera, Filter, Plus, X, Trophy, Activity, AlertTriangle, Clock, AlertCircle, QrCode, Edit2, Shirt, Calendar, MessageSquare, History, EyeOff, Printer, MessageCircle, Wallet, CheckSquare, Ban, Save, Trash2, ArrowUpDown, Ruler, ChevronRight, RefreshCw, Columns, CheckCircle, Eye, AlertOctagon, FileText, CreditCard, CalendarRange, ChevronLeft, Zap, PenTool, PieChart, MoveRight, UserPlus } from 'lucide-react';
 import { QRGeneratorModal, QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
@@ -32,7 +33,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     commandes, employes, clients, articles, userRole, 
     onUpdateStatus, onCreateOrder, onUpdateOrder, onAddPayment, onArchiveOrder, comptes, companyAssets 
 }) => {
-    const [viewMode, setViewMode] = useState<'ORDERS' | 'TAILORS' | 'PERFORMANCE' | 'KANBAN' | 'HISTORY' | 'PLANNING'>('PLANNING');
+    const [viewMode, setViewMode] = useState<'ORDERS' | 'TAILORS' | 'PERFORMANCE' | 'KANBAN' | 'HISTORY' | 'PLANNING'>('KANBAN');
     const [searchTerm, setSearchTerm] = useState('');
     const [agendaBaseDate, setAgendaBaseDate] = useState(() => {
         const d = new Date();
@@ -50,17 +51,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     // DRAG & DROP STATE
     const [draggedInfo, setDraggedInfo] = useState<{orderId: string, fromStatus: string} | null>(null);
     const [moveModal, setMoveModal] = useState<{order: Commande, fromStatus: string, toStatus: string, maxQty: number, qty: number} | null>(null);
-
-    // MODALS PAIEMENT
-    const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-    const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<Commande | null>(null);
-    const [payAmount, setPayAmount] = useState(0);
-    const [payMethod, setPayMethod] = useState<ModePaiement>('ESPECE');
-    const [payAccount, setPayAccount] = useState('');
-    const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
-
-    // MODAL HISTORIQUE PAIEMENT
-    const [historyPaymentOrder, setHistoryPaymentOrder] = useState<Commande | null>(null);
 
     const [newTaskData, setNewTaskData] = useState<{ 
         orderId: string, 
@@ -110,22 +100,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         return { days, today };
     }, [agendaBaseDate]);
 
-    const getTasksForTailor = (tailorId: string, date: Date) => {
-        const dateStr = date.toISOString().split('T')[0];
-        const tasks: { task: TacheProduction, order: Commande }[] = [];
-        commandes.forEach(order => {
-            if (order.taches) {
-                order.taches.forEach(t => {
-                    if (t.tailleurId === tailorId && t.date === dateStr) {
-                        tasks.push({ task: t, order });
-                    }
-                });
-            }
-        });
-        return tasks;
-    };
-
-    // --- DRAG AND DROP HANDLERS ---
     const handleDragStart = (orderId: string, fromStatus: string) => {
         setDraggedInfo({ orderId, fromStatus });
     };
@@ -168,189 +142,92 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
         onUpdateOrder({ ...order, repartitionStatuts: newRepartition, statut: mostAdvanced });
         setMoveModal(null);
-    };
 
-    const handleOpenEditModal = (cmd: Commande) => {
-        setIsEditingOrder(true); setSelectedOrderId(cmd.id);
-        setSelectedClientId(cmd.clientId); setNotes(cmd.notes || '');
-        setDateLivraison(cmd.dateLivraisonPrevue.split('T')[0]);
-        setSelectedTailleurs(cmd.tailleursIds);
-        setPrixBase((cmd.prixTotal || 0) + (cmd.remise || 0) - (cmd.tva || 0));
-        setAvance(cmd.avance);
-        setRemise(cmd.remise || 0);
-        setTvaEnabled(!!cmd.tva && cmd.tva > 0);
-        setVentilation(cmd.repartitionStatuts || { [cmd.statut]: cmd.quantite });
-        if (cmd.elements && cmd.elements.length > 0) {
-            setOrderElements(cmd.elements.map((el, i) => ({ id: `el_${i}`, nom: el.nom, quantite: el.quantite })));
-        } else {
-            setOrderElements([{ id: '1', nom: cmd.description, quantite: cmd.quantite }]);
-        }
-        setIsModalOpen(true);
-    };
-
-    const handleSaveOrder = () => {
-        if (!selectedClientId || !dateLivraison) return;
-        const validElements = orderElements.filter(e => e.nom.trim() !== '');
-        if (validElements.length === 0) return;
-        
-        const totalQty = validElements.reduce((acc, e) => acc + e.quantite, 0);
-        const totalVentilation = Object.values(ventilation).reduce((a, b) => a + b, 0);
-
-        if (totalVentilation !== totalQty) {
-            alert(`Attention: La somme de la ventilation (${totalVentilation}) doit être égale à la quantité totale (${totalQty}).`);
-            return;
-        }
-
-        const subTotal = prixBase;
-        const tvaAmount = tvaEnabled ? Math.round((subTotal - remise) * COMPANY_CONFIG.tvaRate) : 0;
-        const totalTTC = subTotal - remise + tvaAmount;
-
-        const client = clients.find(c => c.id === selectedClientId);
-        const orderData: Commande = {
-            id: selectedOrderId || `CMD${Date.now()}`,
-            clientId: selectedClientId, clientNom: client?.nom || 'Inconnu',
-            description: validElements.map(e => `${e.quantite} ${e.nom}`).join(', '),
-            notes, quantite: totalQty,
-            elements: validElements.map(e => ({ nom: e.nom, quantite: e.quantite })),
-            dateCommande: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.dateCommande || new Date().toISOString()) : new Date().toISOString(),
-            dateLivraisonPrevue: dateLivraison,
-            statut: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.statut || StatutCommande.EN_ATTENTE) : StatutCommande.EN_ATTENTE,
-            tailleursIds: selectedTailleurs,
-            prixTotal: totalTTC, avance, reste: totalTTC - avance, type: 'SUR_MESURE',
-            tva: tvaAmount, tvaRate: tvaEnabled ? (COMPANY_CONFIG.tvaRate * 100) : 0,
-            remise: remise,
-            repartitionStatuts: ventilation,
-            paiements: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.paiements || []) : [],
-            taches: isEditingOrder ? (commandes.find(c => c.id === selectedOrderId)?.taches || []) : []
+        // --- SYNCHRONISATION AUTOMATIQUE AGENDA (KANBAN -> AGENDA) ---
+        const productionMapping: Record<string, ActionProduction> = {
+            [StatutCommande.EN_COUPE]: 'COUPE',
+            [StatutCommande.COUTURE]: 'COUTURE',
+            [StatutCommande.FINITION]: 'FINITION'
         };
-        if (isEditingOrder) onUpdateOrder(orderData, initialAccountId, initialPaymentMethod); 
-        else onCreateOrder(orderData, [], initialPaymentMethod, initialAccountId);
-        setIsModalOpen(false);
+
+        if (productionMapping[to]) {
+            setNewTaskData({
+                orderId: order.id,
+                action: productionMapping[to],
+                quantite: qty,
+                note: `Généré automatiquement via Kanban`,
+                elementNom: order.description
+            });
+            // Réinitialiser la cible pour forcer l'utilisateur à choisir le tailleur/date sur la vue agenda ou dans la modal
+            setPlanningTarget(null);
+            setTaskModalOpen(true);
+        }
     };
 
     const handleSaveTask = () => {
-        if (!newTaskData.orderId || !planningTarget) return;
+        if (!newTaskData.orderId || !newTaskData.action) return;
+        
         const order = commandes.find(c => c.id === newTaskData.orderId);
         if (!order) return;
+
+        const dateToUse = planningTarget?.date.toISOString().split('T')[0] || new Date().toISOString().split('T')[0];
+        const tailorToUse = planningTarget?.tailorId || '';
+
+        if (!tailorToUse) {
+            alert("Veuillez sélectionner un tailleur pour l'assignation.");
+            return;
+        }
+
         const newTask: TacheProduction = {
-            id: `TASK_${Date.now()}`, commandeId: order.id, action: newTaskData.action,
-            quantite: newTaskData.quantite, note: newTaskData.note, elementNom: newTaskData.elementNom,
-            date: planningTarget.date.toISOString().split('T')[0], tailleurId: planningTarget.tailorId, statut: 'A_FAIRE'
+            id: `TASK_${Date.now()}`, 
+            commandeId: order.id, 
+            action: newTaskData.action,
+            quantite: newTaskData.quantite, 
+            note: newTaskData.note, 
+            elementNom: newTaskData.elementNom,
+            date: dateToUse, 
+            tailleurId: tailorToUse, 
+            statut: 'A_FAIRE'
         };
+
         const updatedOrder: Commande = { ...order, taches: [...(order.taches || []), newTask] };
         onUpdateOrder(updatedOrder);
         setTaskModalOpen(false);
         setNewTaskData({ orderId: '', action: 'COUTURE', quantite: 1, note: '', elementNom: '' });
+        setPlanningTarget(null);
     };
 
-    // Fix: Add handleConfirmPayment function missing in previous version
-    const handleConfirmPayment = () => {
-        if (!selectedOrderForPayment || payAmount <= 0) return;
-        if (!payAccount) {
-            alert("Veuillez sélectionner un compte de destination.");
-            return;
-        }
-        onAddPayment(selectedOrderForPayment.id, payAmount, payMethod, "Règlement solde", payDate, payAccount);
-        setPaymentModalOpen(false);
-        setSelectedOrderForPayment(null);
+    const getTasksForTailor = (tailorId: string, date: Date) => {
+        const dateStr = date.toISOString().split('T')[0];
+        const tasks: { task: TacheProduction, order: Commande }[] = [];
+        commandes.forEach(order => {
+            if (order.taches) {
+                order.taches.forEach(t => {
+                    if (t.tailleurId === tailorId && t.date === dateStr) {
+                        tasks.push({ task: t, order });
+                    }
+                });
+            }
+        });
+        return tasks;
     };
 
-    const handlePrintInvoice = (order: Commande) => {
-        const printWindow = window.open('', '', 'width=400,height=600');
-        if (!printWindow) return;
+    const columns = [
+        StatutCommande.EN_ATTENTE,
+        StatutCommande.EN_COUPE,
+        StatutCommande.COUTURE,
+        StatutCommande.FINITION,
+        StatutCommande.PRET
+    ];
 
-        const dateStr = new Date(order.dateCommande).toLocaleDateString();
-        const livraisonStr = new Date(order.dateLivraisonPrevue).toLocaleDateString();
-        const isPaid = order.reste <= 0;
-        const stampText = isPaid ? "PAYÉ" : "NON SOLDÉ";
-        const stampColor = isPaid ? "#16a34a" : "#dc2626";
-
-        const elementsHtml = order.elements?.map(el => `
-            <div style="display:flex; justify-content:space-between; margin-bottom: 5px;">
-                <span>${el.nom} x${el.quantite}</span>
-            </div>
-        `).join('') || `<div>${order.description}</div>`;
-
-        const logoUrl = companyAssets?.logoStr || `${window.location.origin}${COMPANY_CONFIG.logoUrl}`;
-        const stampUrl = companyAssets?.stampStr || '';
-        const signatureUrl = companyAssets?.signatureStr || '';
-
-        const html = `
-            <html>
-            <head>
-                <title>Facture #${order.id.slice(-6)}</title>
-                <style>
-                    body { font-family: 'Courier New', Courier, monospace; padding: 20px; font-size: 12px; max-width: 400px; margin: auto; color: #333; }
-                    .header { text-align: center; margin-bottom: 20px; border-bottom: 1px dashed #000; padding-bottom: 10px; }
-                    .logo img { max-height: 80px; margin-bottom: 5px; }
-                    .info { margin-bottom: 15px; }
-                    .total { border-top: 1px dashed black; margin-top: 10px; padding-top: 5px; }
-                    .row { display: flex; justify-content: space-between; margin-bottom: 3px; }
-                    .bold { font-weight: bold; }
-                    .stamp { text-align: center; font-size: 24px; color: ${stampColor}; font-weight: bold; border: 3px solid ${stampColor}; padding: 5px; margin: 20px 0; transform: rotate(-5deg); }
-                    .auth-area { margin-top: 30px; display: flex; justify-content: space-between; align-items: flex-end; }
-                    .auth-box { text-align: center; width: 45%; }
-                    .auth-box img { max-height: 50px; margin-top: 5px; }
-                    .footer { text-align:center; margin-top: 20px; font-size: 10px; border-top: 1px dashed #000; padding-top: 10px; }
-                </style>
-            </head>
-            <body>
-                <div class="header">
-                    <div class="logo"><img src="${logoUrl}" alt="Logo" onerror="this.style.display='none'"/></div>
-                    <h3>${COMPANY_CONFIG.name}</h3>
-                    <p>${COMPANY_CONFIG.address}<br/>${COMPANY_CONFIG.phone}</p>
-                    <p><strong>FACTURE SUR MESURE</strong></p>
-                </div>
-                <div class="info">
-                    <p><strong>CLIENT:</strong> ${order.clientNom}</p>
-                    <p><strong>DATE:</strong> ${dateStr}</p>
-                    <p><strong>LIVRAISON PRÉVUE:</strong> ${livraisonStr}</p>
-                    <p><strong>REF:</strong> #${order.id.slice(-6)}</p>
-                </div>
-                <div style="border-bottom: 1px solid #eee; margin-bottom: 10px; padding-bottom: 5px; font-weight:bold;">DESCRIPTION:</div>
-                <div class="items">${elementsHtml}</div>
-                <div class="total">
-                    <div class="row"><span>Sous-total</span><span>${((order.prixTotal||0) + (order.remise||0) - (order.tva||0)).toLocaleString()}</span></div>
-                    ${order.remise ? `<div class="row"><span>Remise</span><span>-${order.remise.toLocaleString()}</span></div>` : ''}
-                    ${order.tva ? `<div class="row"><span>TVA (${order.tvaRate}%)</span><span>${order.tva.toLocaleString()}</span></div>` : ''}
-                    <div class="row bold" style="font-size: 14px; margin-top: 5px;"><span>TOTAL TTC</span><span>${order.prixTotal?.toLocaleString()} F</span></div>
-                    <div class="row" style="margin-top: 8px;"><span>Déjà Versé</span><span style="color: green;">${order.avance.toLocaleString()} F</span></div>
-                    <div class="row bold"><span>RESTE À PAYER</span><span style="color: ${order.reste > 0 ? 'red' : 'green'};">${order.reste.toLocaleString()} F</span></div>
-                </div>
-                <div class="stamp">${stampText}</div>
-                
-                <div class="auth-area">
-                    <div class="auth-box">
-                        <p style="font-size: 10px;">Cachet:</p>
-                        ${stampUrl ? `<img src="${stampUrl}" alt="Cachet" />` : '<div style="height:40px;"></div>'}
-                    </div>
-                    <div class="auth-box">
-                        <p style="font-size: 10px;">Signature:</p>
-                        ${signatureUrl ? `<img src="${signatureUrl}" alt="Signature" />` : '<div style="height:40px;"></div>'}
-                    </div>
-                </div>
-
-                <div class="footer">
-                    <p>Merci de votre confiance !<br/>Les mesures sont conservées 1 an.</p>
-                </div>
-                <script>setTimeout(() => { window.print(); window.close(); }, 500);</script>
-            </body>
-            </html>
-        `;
-        printWindow.document.write(html);
-        printWindow.document.close();
-    };
-
-    const getStatusColor = (s: string) => {
+    const getStatusIcon = (s: string) => {
         switch(s) {
-            case StatutCommande.EN_ATTENTE: return 'bg-gray-100 text-gray-700';
-            case StatutCommande.EN_COUPE: return 'bg-blue-100 text-blue-700';
-            case StatutCommande.COUTURE: return 'bg-indigo-100 text-indigo-700';
-            case StatutCommande.FINITION: return 'bg-purple-100 text-purple-700';
-            case StatutCommande.PRET: return 'bg-green-100 text-green-700';
-            case StatutCommande.LIVRE: return 'bg-gray-800 text-white';
-            case StatutCommande.ANNULE: return 'bg-red-100 text-red-700';
-            default: return 'bg-gray-50';
+            case StatutCommande.EN_ATTENTE: return <Clock size={16} />;
+            case StatutCommande.EN_COUPE: return <Scissors size={16} />;
+            case StatutCommande.COUTURE: return <Shirt size={16} />;
+            case StatutCommande.FINITION: return <Zap size={16} />;
+            case StatutCommande.PRET: return <CheckCircle size={16} />;
+            default: return <Activity size={16} />;
         }
     };
 
@@ -362,7 +239,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier Production</h2>
                     <div className="flex gap-2">
                         <button onClick={() => setIsScannerOpen(true)} className="bg-gray-800 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs font-bold hover:bg-black transition-all shadow-sm"><Camera size={14}/> Scanner</button>
-                        <button onClick={() => { setIsEditingOrder(false); setOrderElements([{id: '1', nom: '', quantite: 1}]); setPrixBase(0); setAvance(0); setRemise(0); setTvaEnabled(false); setVentilation({}); setIsModalOpen(true); }} className="bg-brand-600 text-white px-4 py-1.5 rounded-lg flex items-center gap-2 text-xs font-bold hover:bg-brand-700 transition-all shadow-md"><Plus size={14}/> Créer</button>
+                        <button onClick={() => setViewMode('KANBAN')} className="bg-brand-600 text-white px-4 py-1.5 rounded-lg flex items-center gap-2 text-xs font-bold hover:bg-brand-700 transition-all shadow-md"><Columns size={14}/> Kanban</button>
                     </div>
                 </div>
                 <div className="flex flex-wrap bg-white border p-1 rounded-lg">
@@ -371,104 +248,101 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     <button onClick={() => setViewMode('ORDERS')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'ORDERS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><LayoutList size={14}/> Liste</button>
                     <button onClick={() => setViewMode('HISTORY')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'HISTORY' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><History size={14}/> Historique</button>
                     <button onClick={() => setViewMode('TAILORS')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'TAILORS' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Users size={14}/> Tailleurs</button>
-                    <button onClick={() => setViewMode('PERFORMANCE')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'PERFORMANCE' ? 'bg-gray-100 text-brand-700' : 'text-gray-500'}`}><Trophy size={14}/> Stats</button>
                 </div>
             </div>
 
             {/* SEARCH */}
             <div className="bg-white p-3 rounded-lg border flex gap-3 shrink-0">
-                <Search className="text-gray-400" size={18}/>
-                <input type="text" className="w-full text-sm outline-none" placeholder="Rechercher une commande, un client..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
-            </div>
-
-            {/* VIEWS */}
-            <div className="flex-1 overflow-hidden flex flex-col">
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-2.5 text-gray-400" size={16}/>
+                    <input 
+                        type="text" 
+                        placeholder="Rechercher une commande, client, tailleur..." 
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500"
+                    />
+                </div>
                 {viewMode === 'PLANNING' && (
-                    <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
-                        <div className="p-4 bg-gray-50 border-b flex justify-between items-center shrink-0">
-                            <h3 className="font-bold text-gray-700">Planning de Production</h3>
-                            <div className="flex items-center bg-white border rounded-lg">
-                                <button onClick={() => setAgendaBaseDate(new Date(agendaBaseDate.setDate(agendaBaseDate.getDate() - 7)))} className="p-1.5 hover:bg-gray-100"><ChevronLeft size={18}/></button>
-                                <button onClick={() => setAgendaBaseDate(new Date())} className="px-3 py-1 text-xs font-bold border-x">Aujourd'hui</button>
-                                <button onClick={() => setAgendaBaseDate(new Date(agendaBaseDate.setDate(agendaBaseDate.getDate() + 7)))} className="p-1.5 hover:bg-gray-100"><ChevronRight size={18}/></button>
-                            </div>
-                        </div>
-                        <div className="flex-1 overflow-auto">
-                            <div className="inline-block min-w-max">
-                                <div className="flex border-b bg-gray-100 sticky top-0 z-20">
-                                    <div className="w-64 shrink-0 p-4 font-bold text-gray-600 border-r bg-gray-100 sticky left-0 z-30">Tailleur</div>
-                                    {planningData.days.map(d => (
-                                        <div key={d.toISOString()} className={`w-48 shrink-0 p-3 text-center border-r ${d.toDateString() === planningData.today.toDateString() ? 'bg-brand-50' : ''}`}>
-                                            <div className="text-[10px] uppercase text-gray-400 font-bold">{d.toLocaleDateString(undefined, {weekday: 'short'})}</div>
-                                            <div className="font-bold text-gray-800">{d.toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                                {tailleurs.map(t => (
-                                    <div key={t.id} className="flex border-b hover:bg-gray-50 transition-colors">
-                                        <div className="w-64 shrink-0 p-4 border-r sticky left-0 bg-white z-10 flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-xs shrink-0">{t.nom.charAt(0)}</div>
-                                            <div className="truncate font-bold text-sm text-gray-700">{t.nom}</div>
-                                        </div>
-                                        {planningData.days.map(d => {
-                                            const tasks = getTasksForTailor(t.id, d);
-                                            return (
-                                                <div key={d.toISOString()} className="w-48 shrink-0 p-2 border-r flex flex-col gap-1 min-h-[120px] cursor-pointer hover:bg-brand-50/10" onClick={() => { setPlanningTarget({ tailorId: t.id, tailorName: t.nom, date: d }); setTaskModalOpen(true); }}>
-                                                    {tasks.map(({task, order}) => (
-                                                        <div key={task.id} className="p-2 rounded text-[10px] bg-white border border-gray-200 shadow-sm border-l-4 border-l-brand-500">
-                                                            <div className="font-bold truncate uppercase">{order.clientNom}</div>
-                                                            <div className="text-gray-500 truncate">{task.elementNom || order.description}</div>
-                                                            <div className="mt-1 font-bold text-brand-700">{task.action}</div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                    <div className="flex gap-2 items-center">
+                        <button onClick={() => setAgendaBaseDate(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })} className="p-2 border rounded hover:bg-gray-50"><ChevronLeft size={16}/></button>
+                        <span className="text-xs font-bold text-gray-600 whitespace-nowrap min-w-[120px] text-center">
+                            {planningData.days[0].toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} - {planningData.days[6].toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                        </span>
+                        <button onClick={() => setAgendaBaseDate(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })} className="p-2 border rounded hover:bg-gray-50"><ChevronRight size={16}/></button>
+                        <button onClick={() => setAgendaBaseDate(new Date())} className="px-3 py-2 text-xs font-bold border rounded hover:bg-gray-50">Aujourd'hui</button>
                     </div>
                 )}
+            </div>
 
-                {viewMode === 'HISTORY' && (
-                    <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
-                        <div className="overflow-x-auto flex-1">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-gray-50 text-gray-600 font-bold border-b sticky top-0">
+            {/* MAIN CONTENT AREA */}
+            <div className="flex-1 overflow-hidden">
+                {viewMode === 'PLANNING' && (
+                    <div className="bg-white border rounded-xl shadow-sm h-full flex flex-col overflow-hidden">
+                        <div className="flex-1 overflow-auto">
+                            <table className="w-full border-collapse table-fixed min-w-[1200px]">
+                                <thead className="sticky top-0 z-20 bg-gray-50">
                                     <tr>
-                                        <th className="p-4">Date</th>
-                                        <th className="p-4">Client</th>
-                                        <th className="p-4">Description</th>
-                                        <th className="p-4 text-center">Statut</th>
-                                        <th className="p-4 text-right">Total</th>
-                                        <th className="p-4 text-right">Reste</th>
-                                        <th className="p-4 text-center">Actions</th>
+                                        <th className="w-48 p-3 border-b border-r bg-gray-50 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Tailleur</th>
+                                        {planningData.days.map((day, i) => {
+                                            const isToday = day.toISOString().split('T')[0] === planningData.today.toISOString().split('T')[0];
+                                            return (
+                                                <th key={i} className={`p-3 border-b text-center text-xs font-bold uppercase tracking-wider ${isToday ? 'bg-brand-50 text-brand-700' : 'text-gray-500'}`}>
+                                                    {day.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })}
+                                                </th>
+                                            );
+                                        })}
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
-                                    {filteredCommandes.map(cmd => (
-                                        <tr key={cmd.id} className="hover:bg-gray-50">
-                                            <td className="p-4 text-gray-500">{new Date(cmd.dateCommande).toLocaleDateString()}</td>
-                                            <td className="p-4 font-bold uppercase">{cmd.clientNom}</td>
-                                            <td className="p-4 text-gray-600 truncate max-w-[200px]">{cmd.description}</td>
-                                            <td className="p-4 text-center">
-                                                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${getStatusColor(cmd.statut)}`}>{cmd.statut}</span>
-                                            </td>
-                                            <td className="p-4 text-right font-bold">{cmd.prixTotal?.toLocaleString()} F</td>
-                                            <td className={`p-4 text-right font-bold ${cmd.reste > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                                {cmd.reste <= 0 ? 'Soldé' : `${cmd.reste.toLocaleString()} F`}
-                                            </td>
-                                            <td className="p-4 text-center">
-                                                <div className="flex justify-center gap-1">
-                                                    <button onClick={() => handlePrintInvoice(cmd)} className="p-1.5 text-gray-700 hover:bg-gray-100 rounded border border-gray-200" title="Imprimer Facture"><Printer size={16}/></button>
-                                                    <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded" title="Modifier"><Edit2 size={16}/></button>
-                                                    {cmd.reste > 0 && cmd.statut !== StatutCommande.ANNULE && (
-                                                        <button onClick={() => { setSelectedOrderForPayment(cmd); setPayAmount(cmd.reste); setPaymentModalOpen(true); }} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Encaisser"><Wallet size={16}/></button>
-                                                    )}
-                                                    <button onClick={() => setHistoryPaymentOrder(cmd)} className="p-1.5 text-gray-500 hover:bg-gray-50 rounded" title="Détails versements"><Eye size={16}/></button>
+                                    {tailleurs.map(tailor => (
+                                        <tr key={tailor.id} className="hover:bg-gray-50/50 group">
+                                            <td className="p-3 border-r bg-gray-50/30 sticky left-0 z-10">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-xs uppercase">{tailor.nom.charAt(0)}</div>
+                                                    <div>
+                                                        <p className="text-xs font-bold text-gray-800 truncate w-32">{tailor.nom}</p>
+                                                        <p className="text-[10px] text-gray-400 uppercase tracking-tighter">{tailor.role}</p>
+                                                    </div>
                                                 </div>
                                             </td>
+                                            {planningData.days.map((day, i) => {
+                                                const tasks = getTasksForTailor(tailor.id, day);
+                                                return (
+                                                    <td 
+                                                        key={i} 
+                                                        className="p-2 border-r last:border-r-0 h-32 vertical-top relative cursor-pointer hover:bg-brand-50/30 transition-colors"
+                                                        onClick={() => {
+                                                            setPlanningTarget({ tailorId: tailor.id, tailorName: tailor.nom, date: day });
+                                                            setNewTaskData({ ...newTaskData, orderId: '' }); // Force selection order
+                                                            setTaskModalOpen(true);
+                                                        }}
+                                                    >
+                                                        <div className="space-y-1.5 h-full overflow-y-auto no-scrollbar">
+                                                            {tasks.map(({task, order}) => (
+                                                                <div 
+                                                                    key={task.id} 
+                                                                    className={`p-1.5 rounded border text-[10px] shadow-sm relative group/task ${task.statut === 'FAIT' ? 'bg-green-50 border-green-200 text-green-700 opacity-60' : 'bg-white border-brand-200 text-brand-900 border-l-4 border-l-brand-500'}`}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        if (task.statut === 'A_FAIRE' && window.confirm("Marquer cette tâche comme terminée ?")) {
+                                                                            const updatedTaches = (order.taches || []).map(t => t.id === task.id ? { ...t, statut: 'FAIT' as const } : t);
+                                                                            onUpdateOrder({ ...order, taches: updatedTaches });
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <div className="flex justify-between items-start">
+                                                                        <span className="font-bold truncate pr-1">{task.action} x{task.quantite}</span>
+                                                                        {task.statut === 'FAIT' && <CheckCircle size={10} className="text-green-600 shrink-0"/>}
+                                                                    </div>
+                                                                    <p className="opacity-70 truncate">{order.clientNom}</p>
+                                                                </div>
+                                                            ))}
+                                                            {tasks.length === 0 && <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Plus size={16} className="text-brand-300" /></div>}
+                                                        </div>
+                                                    </td>
+                                                );
+                                            })}
                                         </tr>
                                     ))}
                                 </tbody>
@@ -478,113 +352,138 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 )}
 
                 {viewMode === 'KANBAN' && (
-                    <div className="flex-1 overflow-x-auto pb-4">
-                        <div className="flex gap-4 h-full min-w-max">
-                            {[StatutCommande.EN_ATTENTE, StatutCommande.EN_COUPE, StatutCommande.COUTURE, StatutCommande.FINITION, StatutCommande.PRET].map(status => {
-                                const ordersInStatus = filteredCommandes.filter(c => {
-                                    if (!c.repartitionStatuts) return c.statut === status;
-                                    return (c.repartitionStatuts[status] || 0) > 0;
-                                });
-
-                                return (
-                                    <div 
-                                        key={status} 
-                                        className="w-72 shrink-0 bg-gray-50 rounded-xl border flex flex-col"
-                                        onDragOver={(e) => e.preventDefault()}
-                                        onDrop={() => handleDrop(status)}
-                                    >
-                                        <div className="p-3 font-bold border-b bg-white rounded-t-xl flex justify-between uppercase text-xs tracking-wider">
-                                            <span>{status}</span>
-                                            <span className="bg-gray-100 px-2 rounded-full">{ordersInStatus.length}</span>
-                                        </div>
-                                        <div className="flex-1 p-2 space-y-2 overflow-y-auto">
-                                            {ordersInStatus.map(cmd => {
-                                                const qtyInThisStatus = cmd.repartitionStatuts ? (cmd.repartitionStatuts[status] || 0) : cmd.quantite;
-                                                return (
-                                                    <div 
-                                                        key={`${cmd.id}-${status}`} 
-                                                        draggable
-                                                        onDragStart={() => handleDragStart(cmd.id, status)}
-                                                        className="bg-white p-3 rounded-lg border shadow-sm group relative border-l-4 border-l-brand-400 cursor-grab active:cursor-grabbing hover:border-brand-500 transition-all"
-                                                    >
-                                                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-1">
-                                                            <button onClick={() => handleOpenEditModal(cmd)} className="p-1 text-blue-500 hover:bg-blue-50 rounded"><Edit2 size={12}/></button>
-                                                        </div>
-                                                        <div className="flex justify-between items-start">
-                                                            <div className="font-bold text-sm text-gray-800 uppercase">{cmd.clientNom}</div>
-                                                            <span className="bg-brand-100 text-brand-700 px-1.5 rounded text-[10px] font-black">x{qtyInThisStatus}</span>
-                                                        </div>
-                                                        <div className="text-[10px] text-gray-500 line-clamp-2 mt-1">{cmd.description}</div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-
-                {viewMode === 'ORDERS' && (
-                    <div className="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-10 p-1">
-                        {filteredCommandes.map(cmd => (
-                            <div key={cmd.id} className="bg-white rounded-xl border p-5 shadow-sm relative flex flex-col h-full group hover:border-brand-300 transition-colors">
-                                <div className="absolute top-4 right-4 flex gap-1">
-                                    <button onClick={() => handleOpenEditModal(cmd)} className="p-1.5 text-gray-400 hover:text-blue-600 rounded-full border bg-white shadow-sm"><Edit2 size={16}/></button>
-                                    <button onClick={() => onUpdateStatus(cmd.id, StatutCommande.LIVRE)} className="p-1.5 text-gray-400 hover:text-green-600 rounded-full border bg-white shadow-sm"><CheckCircle size={16}/></button>
+                    <div className="flex gap-4 h-full overflow-x-auto pb-4 custom-scrollbar">
+                        {columns.map(status => (
+                            <div 
+                                key={status} 
+                                className="flex-1 min-w-[280px] bg-gray-100/50 rounded-xl flex flex-col h-full border border-gray-200"
+                                onDragOver={(e) => e.preventDefault()}
+                                onDrop={() => handleDrop(status)}
+                            >
+                                <div className="p-3 border-b flex justify-between items-center bg-white rounded-t-xl shrink-0">
+                                    <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                                        {getStatusIcon(status)} {status}
+                                    </h3>
+                                    <span className="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                                        {filteredCommandes.reduce((acc, c) => acc + (c.repartitionStatuts?.[status] || (c.statut === status ? c.quantite : 0)), 0)}
+                                    </span>
                                 </div>
-                                <h3 className="font-bold text-lg text-gray-800 pr-16 truncate uppercase tracking-tight">{cmd.clientNom}</h3>
-                                <span className={`inline-block text-[10px] px-2 py-0.5 rounded font-bold uppercase w-fit mt-1 mb-3 ${getStatusColor(cmd.statut)}`}>{cmd.statut}</span>
-                                <p className="text-sm text-gray-600 flex-1 line-clamp-2 mb-4">{cmd.description}</p>
-                                <div className="flex justify-between items-center pt-3 border-t text-xs font-bold">
-                                    <span className="text-gray-400 flex items-center gap-1"><Clock size={12}/> {new Date(cmd.dateLivraisonPrevue).toLocaleDateString()}</span>
-                                    <span className={cmd.reste > 0 ? 'text-red-600' : 'text-green-600'}>{cmd.reste > 0 ? `Reste: ${cmd.reste.toLocaleString()} F` : 'Soldé'}</span>
+                                <div className="flex-1 overflow-y-auto p-2 space-y-3">
+                                    {filteredCommandes.filter(c => (c.repartitionStatuts?.[status] || 0) > 0 || (!c.repartitionStatuts && c.statut === status)).map(order => (
+                                        <div 
+                                            key={order.id} 
+                                            draggable 
+                                            onDragStart={() => handleDragStart(order.id, status)}
+                                            className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 cursor-grab active:cursor-grabbing hover:border-brand-300 hover:shadow-md transition-all group relative"
+                                        >
+                                            <div className="flex justify-between items-start mb-2">
+                                                <span className="text-[10px] font-mono text-gray-400">#{order.id.slice(-5)}</span>
+                                                <span className="bg-brand-50 text-brand-700 text-[10px] px-1.5 py-0.5 rounded font-bold">
+                                                    Qté: {order.repartitionStatuts?.[status] || order.quantite}
+                                                </span>
+                                            </div>
+                                            <p className="font-bold text-gray-800 text-sm mb-1">{order.clientNom}</p>
+                                            <p className="text-[10px] text-gray-500 line-clamp-2">{order.description}</p>
+                                            <div className="mt-3 flex justify-between items-center text-[9px] font-bold">
+                                                <span className="text-orange-600 flex items-center gap-1"><Calendar size={10}/> {new Date(order.dateLivraisonPrevue).toLocaleDateString()}</span>
+                                                {order.taches && order.taches.filter(t => t.statut === 'A_FAIRE').length > 0 && (
+                                                    <span className="text-brand-600 bg-brand-50 px-1 rounded">Assigné</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         ))}
                     </div>
                 )}
+
+                {viewMode === 'ORDERS' && (
+                    <div className="bg-white border rounded-xl overflow-hidden shadow-sm h-full flex flex-col">
+                        <div className="overflow-y-auto flex-1">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-gray-50 text-gray-600 font-bold border-b sticky top-0 z-10">
+                                    <tr>
+                                        <th className="p-3">Ref / Client</th>
+                                        <th className="p-3">Description</th>
+                                        <th className="p-3">Livraison</th>
+                                        <th className="p-3 text-center">Statut Actuel</th>
+                                        <th className="p-3 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {filteredCommandes.map(order => (
+                                        <tr key={order.id} className="hover:bg-gray-50">
+                                            <td className="p-3">
+                                                <div className="font-bold text-gray-800 truncate w-32">{order.clientNom}</div>
+                                                <div className="text-[10px] text-gray-400 font-mono">#{order.id.slice(-6)}</div>
+                                            </td>
+                                            <td className="p-3 text-gray-500 text-xs truncate max-w-xs">{order.description}</td>
+                                            <td className="p-3 text-gray-600">
+                                                <div className="font-bold">{new Date(order.dateLivraisonPrevue).toLocaleDateString()}</div>
+                                            </td>
+                                            <td className="p-3 text-center">
+                                                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${
+                                                    order.statut === StatutCommande.PRET ? 'bg-green-50 text-green-700 border-green-200' :
+                                                    order.statut === StatutCommande.EN_COUPE ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                                    'bg-gray-50 text-gray-600 border-gray-200'
+                                                }`}>
+                                                    {order.statut}
+                                                </span>
+                                            </td>
+                                            <td className="p-3 text-right">
+                                                <button 
+                                                    onClick={() => {
+                                                        setNewTaskData({ orderId: order.id, action: 'COUTURE', quantite: order.quantite, note: '', elementNom: order.description });
+                                                        setTaskModalOpen(true);
+                                                    }}
+                                                    className="p-1.5 text-brand-600 hover:bg-brand-50 rounded"
+                                                    title="Assigner"
+                                                >
+                                                    <UserPlus size={18}/>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
             </div>
 
-            {/* MODAL TRANSFERT DE QUANTITÉ (KANBAN) */}
+            {/* MODAL MOVE QTY */}
             {moveModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-70 z-[100] flex items-center justify-center p-4">
+                <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-xl font-bold flex items-center gap-2 text-brand-700">
-                                <MoveRight size={24}/> Déplacer des pièces
-                            </h3>
-                            <button onClick={() => setMoveModal(null)}><X size={20}/></button>
+                        <div className="flex items-center gap-3 text-brand-600 mb-4">
+                            <RefreshCw size={24} />
+                            <h3 className="text-lg font-bold">Transfert Progressif</h3>
                         </div>
+                        <p className="text-sm text-gray-600 mb-4">
+                            Combien de pièces voulez-vous passer de <strong>{moveModal.fromStatus}</strong> vers <strong>{moveModal.toStatus}</strong> ?
+                        </p>
                         <div className="space-y-4">
-                            <div className="bg-gray-50 p-4 rounded text-sm space-y-1">
-                                <p>Commande: <strong className="uppercase">{moveModal.order.clientNom}</strong></p>
-                                <div className="flex items-center gap-2 font-bold text-gray-600">
-                                    <span>{moveModal.fromStatus}</span>
-                                    <MoveRight size={14}/>
-                                    <span className="text-brand-600">{moveModal.toStatus}</span>
-                                </div>
+                            <div className="flex items-center gap-4">
+                                <input 
+                                    type="range" 
+                                    min="1" 
+                                    max={moveModal.maxQty} 
+                                    value={moveModal.qty} 
+                                    onChange={(e) => setMoveModal({ ...moveModal, qty: parseInt(e.target.value) })}
+                                    className="flex-1 accent-brand-600"
+                                />
+                                <span className="font-bold text-xl text-brand-700 bg-brand-50 px-4 py-2 rounded-lg border border-brand-200">
+                                    {moveModal.qty} / {moveModal.maxQty}
+                                </span>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Quantité à transférer (Max: {moveModal.maxQty})</label>
-                                <div className="flex items-center gap-4">
-                                    <input 
-                                        type="range" min="1" max={moveModal.maxQty} step="1" 
-                                        className="flex-1 accent-brand-600"
-                                        value={moveModal.qty}
-                                        onChange={e => setMoveModal({...moveModal, qty: parseInt(e.target.value) || 0})}
-                                    />
-                                    <span className="text-2xl font-black text-brand-700 w-12 text-center">{moveModal.qty}</span>
-                                </div>
-                            </div>
-                            <div className="flex justify-end gap-3 pt-4">
-                                <button onClick={() => setMoveModal(null)} className="px-4 py-2 text-gray-600 font-medium">Annuler</button>
+                            <div className="flex justify-end gap-3 pt-2">
+                                <button onClick={() => setMoveModal(null)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg font-bold">Annuler</button>
                                 <button 
                                     onClick={() => executeMove(moveModal.order, moveModal.fromStatus, moveModal.toStatus, moveModal.qty)}
-                                    className="px-6 py-2 bg-brand-600 text-white rounded-lg font-bold shadow-lg shadow-brand-200"
+                                    className="px-6 py-2 bg-brand-600 text-white rounded-lg font-bold hover:bg-brand-700 shadow-lg"
                                 >
-                                    Confirmer le déplacement
+                                    Confirmer le passage
                                 </button>
                             </div>
                         </div>
@@ -592,84 +491,108 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL CREATION/MODIF */}
-            {isModalOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-[80] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[95vh] flex flex-col animate-in zoom-in duration-200 overflow-hidden">
-                        <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-                            <h3 className="font-bold text-lg">{isEditingOrder ? 'Modifier' : 'Nouvelle'} Commande</h3>
-                            <button onClick={() => setIsModalOpen(false)}><X size={24} className="text-gray-400"/></button>
+            {/* MODAL PLANIFICATION TACHE */}
+            {taskModalOpen && (
+                <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+                        <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl shrink-0">
+                            <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                                <Calendar size={18} className="text-brand-600"/>
+                                Planifier Production
+                            </h3>
+                            <button onClick={() => setTaskModalOpen(false)}><X size={20}/></button>
                         </div>
-                        <div className="p-6 overflow-y-auto flex-1 space-y-4">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium mb-1 text-gray-500">Client</label><select className="w-full p-2 border rounded font-bold" value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} disabled={isEditingOrder}><option value="">-- Client --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div>
-                                <div><label className="block text-sm font-medium mb-1 text-gray-500">Date Livraison Prévue</label><input type="date" className="w-full p-2 border rounded font-bold" value={dateLivraison} onChange={e => setDateLivraison(e.target.value)}/></div>
-                            </div>
-                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
-                                <h4 className="font-bold text-sm mb-2 text-gray-700">Articles à réaliser</h4>
-                                {orderElements.map((el) => (
-                                    <div key={el.id} className="flex gap-2 mb-2">
-                                        <input type="text" className="flex-1 p-2 border rounded text-sm" placeholder="Article (ex: Robe...)" value={el.nom} onChange={(e) => setOrderElements(orderElements.map(x => x.id === el.id ? {...x, nom: e.target.value} : x))} />
-                                        <input type="number" className="w-20 p-2 border rounded text-sm text-center" min="1" value={el.quantite} onChange={(e) => setOrderElements(orderElements.map(x => x.id === el.id ? {...x, quantite: parseInt(e.target.value)||1} : x))} />
-                                    </div>
-                                ))}
-                                <button onClick={() => setOrderElements([...orderElements, {id:Date.now().toString(), nom:'', quantite:1}])} className="text-xs text-brand-600 font-bold flex items-center gap-1 mt-1"><Plus size={14}/> Ajouter ligne</button>
-                            </div>
-                            <div className="bg-blue-50 p-4 rounded border border-blue-100">
-                                <h4 className="font-bold text-sm mb-3 text-blue-800 flex items-center gap-2"><LayoutGrid size={16}/> Ventilation par Statut (Fractionné)</h4>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-                                    {[StatutCommande.EN_ATTENTE, StatutCommande.EN_COUPE, StatutCommande.COUTURE, StatutCommande.FINITION, StatutCommande.PRET].map(s => (
-                                        <div key={s} className="bg-white p-2 rounded border border-blue-200 text-center">
-                                            <label className="block text-[9px] font-bold text-gray-400 uppercase mb-1">{s}</label>
-                                            <input type="number" min="0" className="w-full p-1 text-center font-black text-brand-700 bg-gray-50 rounded" value={ventilation[s] || 0} onChange={e => setVentilation({...ventilation, [s]: parseInt(e.target.value) || 0})}/>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
+                        
+                        <div className="p-6 space-y-5 overflow-y-auto">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Tailleurs assignés</label>
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                    {tailleurs.map(t => (
-                                        <label key={t.id} className={`flex items-center gap-2 p-2 border rounded text-xs cursor-pointer transition-colors ${selectedTailleurs.includes(t.id) ? 'bg-brand-50 border-brand-200 font-bold text-brand-700' : 'hover:bg-gray-50'}`}>
-                                            <input type="checkbox" checked={selectedTailleurs.includes(t.id)} onChange={e => {
-                                                if(e.target.checked) setSelectedTailleurs([...selectedTailleurs, t.id]);
-                                                else setSelectedTailleurs(selectedTailleurs.filter(id => id !== t.id));
-                                            }} className="rounded text-brand-600"/> {t.nom}
-                                        </label>
-                                    ))}
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Commande</label>
+                                <select 
+                                    className="w-full p-2.5 border border-gray-300 rounded-lg text-sm bg-white"
+                                    value={newTaskData.orderId}
+                                    onChange={(e) => {
+                                        const order = commandes.find(c => c.id === e.target.value);
+                                        setNewTaskData({ ...newTaskData, orderId: e.target.value, quantite: order?.quantite || 1, elementNom: order?.description || '' });
+                                    }}
+                                >
+                                    <option value="">-- Sélectionner Commande --</option>
+                                    {filteredCommandes.map(c => <option key={c.id} value={c.id}>{c.clientNom} (#{c.id.slice(-5)})</option>)}
+                                </select>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Action</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {PRODUCTION_ACTIONS.map(a => (
+                                            <button
+                                                key={a.id}
+                                                onClick={() => setNewTaskData({ ...newTaskData, action: a.id })}
+                                                className={`p-2 rounded-lg border flex flex-col items-center gap-1 transition-all ${newTaskData.action === a.id ? 'bg-brand-600 border-brand-600 text-white shadow-md' : 'bg-white text-gray-500 border-gray-200 hover:border-brand-200'}`}
+                                            >
+                                                <a.icon size={16} />
+                                                <span className="text-[10px] font-bold uppercase">{a.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Quantité</label>
+                                        <input 
+                                            type="number" 
+                                            className="w-full p-2.5 border rounded-lg font-bold text-center text-lg"
+                                            value={newTaskData.quantite}
+                                            onChange={(e) => setNewTaskData({ ...newTaskData, quantite: parseInt(e.target.value) || 1 })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Tailleur / Agent</label>
+                                        <select 
+                                            className="w-full p-2.5 border border-gray-300 rounded-lg text-sm bg-indigo-50 border-indigo-200 font-bold"
+                                            value={planningTarget?.tailorId || ''}
+                                            onChange={(e) => {
+                                                const t = tailleurs.find(t => t.id === e.target.value);
+                                                if (t) setPlanningTarget({ ...(planningTarget || { date: new Date() }), tailorId: t.id, tailorName: t.nom });
+                                            }}
+                                        >
+                                            <option value="">-- Choisir Tailleur --</option>
+                                            {tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}
+                                        </select>
+                                    </div>
                                 </div>
                             </div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                <div className="md:col-span-2"><label className="block text-sm font-medium mb-1 text-gray-500">Prix de Base (HT)</label><input type="number" className="w-full p-2 border rounded font-bold text-lg" value={prixBase} onChange={e => setPrixBase(parseInt(e.target.value) || 0)}/></div>
-                                <div><label className="block text-sm font-medium mb-1 text-gray-500">Remise</label><input type="number" className="w-full p-2 border rounded font-bold text-lg text-red-600" value={remise} onChange={e => setRemise(parseInt(e.target.value) || 0)}/></div>
-                                <div className="flex items-end pb-2"><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={tvaEnabled} onChange={e => setTvaEnabled(e.target.checked)} className="rounded text-brand-600"/><span className="text-sm font-bold text-gray-600">TVA ({COMPANY_CONFIG.tvaRate*100}%)</span></label></div>
-                            </div>
-                            <div><label className="block text-sm font-medium mb-1 text-gray-500">Acompte</label><input type="number" className="w-full p-2 border rounded font-bold text-lg text-green-700 bg-green-50" value={avance} onChange={e => setAvance(parseInt(e.target.value) || 0)} disabled={isEditingOrder}/></div>
-                        </div>
-                        <div className="p-4 border-t bg-gray-50 flex justify-between items-center">
-                            <div className="text-lg font-bold">Total: <span className="text-brand-600">{Math.max(0, prixBase - remise + (tvaEnabled ? Math.round((prixBase-remise)*COMPANY_CONFIG.tvaRate) : 0)).toLocaleString()} F</span></div>
-                            <div className="flex gap-3"><button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600">Annuler</button><button onClick={handleSaveOrder} className="px-8 py-2 bg-brand-600 text-white rounded font-bold shadow-lg">Enregistrer</button></div>
-                        </div>
-                    </div>
-                </div>
-            )}
-            
-            {/* ... AUTRES MODALS (SCANNER, PAIEMENT, ETC.) ... */}
-            {isScannerOpen && <QRScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScan={(id) => {
-                const cmd = commandes.find(c => c.id === id);
-                if(cmd) { handleOpenEditModal(cmd); setIsScannerOpen(false); }
-                else alert("Commande introuvable");
-            }} />}
 
-            {paymentModalOpen && selectedOrderForPayment && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-[90] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
-                        <div className="flex justify-between items-center mb-4"><h3 className="text-xl font-bold flex items-center gap-2 text-green-700"><Wallet size={24}/> Encaissement</h3><button onClick={() => setPaymentModalOpen(false)}><X size={20} className="text-gray-400"/></button></div>
-                        <div className="space-y-4">
-                            <div className="bg-gray-50 p-3 rounded text-xs"><p>Client: <strong className="uppercase">{selectedOrderForPayment.clientNom}</strong></p><p>Reste dû: <strong className="text-red-600 text-sm">{selectedOrderForPayment.reste.toLocaleString()} F</strong></p></div>
-                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Montant versé</label><input type="number" className="w-full p-2 border rounded font-bold text-lg bg-green-50 border-green-200" value={payAmount} onChange={e => setPayAmount(parseInt(e.target.value) || 0)} max={selectedOrderForPayment.reste} /></div>
-                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Caisse de réception</label><select className="w-full p-2 border rounded" value={payAccount} onChange={e => setPayAccount(e.target.value)}><option value="">-- Choisir Compte --</option>{comptes.map(acc => <option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>)}</select></div>
-                            <div className="flex justify-end gap-3 mt-6"><button onClick={() => setPaymentModalOpen(false)} className="px-4 py-2 text-gray-600">Annuler</button><button onClick={handleConfirmPayment} disabled={!payAccount || payAmount <= 0} className="px-4 py-2 bg-green-600 text-white rounded font-bold shadow-md disabled:opacity-50">Valider</button></div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Date Planifiée</label>
+                                <input 
+                                    type="date" 
+                                    className="w-full p-2.5 border rounded-lg text-sm bg-white"
+                                    value={planningTarget?.date.toISOString().split('T')[0] || new Date().toISOString().split('T')[0]}
+                                    onChange={(e) => setPlanningTarget({ ...(planningTarget || { tailorId: '', tailorName: '' }), date: new Date(e.target.value) })}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Note (Opt.)</label>
+                                <textarea 
+                                    className="w-full p-2 border rounded-lg text-xs" 
+                                    rows={2} 
+                                    placeholder="Instructions spécifiques..."
+                                    value={newTaskData.note}
+                                    onChange={(e) => setNewTaskData({ ...newTaskData, note: e.target.value })}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="p-4 bg-gray-50 border-t flex justify-end gap-3 shrink-0 rounded-b-xl">
+                            <button onClick={() => setTaskModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold hover:bg-gray-200 rounded-lg">Fermer</button>
+                            <button 
+                                onClick={handleSaveTask}
+                                disabled={!newTaskData.orderId || !planningTarget?.tailorId}
+                                className="px-6 py-2 bg-brand-600 text-white rounded-lg font-bold shadow-lg hover:bg-brand-700 disabled:opacity-50 flex items-center gap-2"
+                            >
+                                <CheckSquare size={18} /> Confirmer la planification
+                            </button>
                         </div>
                     </div>
                 </div>
