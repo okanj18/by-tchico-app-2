@@ -50,7 +50,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         order: Commande, fromStatus: StatutCommande, toStatus: StatutCommande, maxQty: number, qty: number, assignTailorId: string
     } | null>(null);
 
-    // States pour formulaires
+    // Form States
     const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<Commande | null>(null);
     const [payAmount, setPayAmount] = useState(0);
     const [payAccount, setPayAccount] = useState('');
@@ -111,8 +111,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     newRepartition[rule.to] = (newRepartition[rule.to] || 0) + qtyToMove;
                 }
             }
-        } else {
-            // Optionnel: Gérer le rollback si on remet en "A FAIRE"
         }
 
         let mostAdvanced = StatutCommande.EN_ATTENTE;
@@ -190,7 +188,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         setNewOrderData({ clientId: '', description: '', prixTotal: 0, avance: 0, elements: [] });
     };
 
-    // Fix Error: Cannot find name 'handleConfirmPayment'.
     const handleConfirmPayment = () => {
         if (!selectedOrderForPayment || payAmount <= 0) return;
         if (!payAccount) {
@@ -360,6 +357,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         <td className="p-3">
                                             <div className="font-bold text-gray-800">{order.clientNom}</div>
                                             <div className="text-[10px] text-gray-400">#{order.id.slice(-6)} • {order.description}</div>
+                                            <div className="text-[10px] text-orange-600 font-bold">Livraison: {new Date(order.dateLivraisonPrevue).toLocaleDateString()}</div>
                                         </td>
                                         <td className={`p-3 text-right font-bold ${order.reste > 0 ? 'text-red-600' : 'text-green-600'}`}>{order.reste.toLocaleString()} F</td>
                                         <td className="p-3">
@@ -367,7 +365,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                 {KANBAN_STATUS_ORDER.map(s => (order.repartitionStatuts?.[s] || 0) > 0 && (
                                                     <span key={s} className="px-1.5 py-0.5 bg-brand-50 text-brand-700 rounded text-[9px] font-bold border border-brand-100">{s}({order.repartitionStatuts![s]})</span>
                                                 ))}
-                                                {order.statut === StatutCommande.LIVRE && <span className="px-1.5 py-0.5 bg-green-50 text-green-700 rounded text-[9px] font-bold">ENTIÈREMENT LIVRÉ</span>}
+                                                {order.statut === StatutCommande.LIVRE && <span className="px-1.5 py-0.5 bg-green-50 text-green-700 rounded text-[9px] font-bold">LIVRÉ</span>}
                                             </div>
                                         </td>
                                         <td className="p-3 text-right">
@@ -376,6 +374,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                     <button onClick={() => setDeliveryModal({ order, maxQty: order.repartitionStatuts![StatutCommande.PRET], qty: order.repartitionStatuts![StatutCommande.PRET] })} className="px-2 py-1 text-green-600 bg-green-50 border border-green-200 hover:bg-green-100 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm"><Truck size={14}/> LIVRER</button>
                                                 )}
                                                 {order.reste > 0 && !order.archived && <button onClick={() => {setSelectedOrderForPayment(order); setPayAmount(order.reste); setPaymentModalOpen(true);}} className="p-1.5 text-orange-600 hover:bg-orange-50 rounded" title="Encaisser"><DollarSign size={18}/></button>}
+                                                <button onClick={() => { setNewTaskData({...newTaskData, orderId: order.id}); setTaskModalOpen(true); }} className="p-1.5 text-brand-600 hover:bg-brand-50 rounded" title="Assigner un tailleur"><UserPlus size={18}/></button>
                                                 <button onClick={() => alert(`Acomptes:\n${order.paiements?.map(p => `- ${new Date(p.date).toLocaleDateString()} : ${p.montant} F`).join('\n') || 'Aucun.'}`)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded" title="Détails versements"><Eye size={18}/></button>
                                                 {!order.archived && (order.statut === StatutCommande.LIVRE || order.statut === StatutCommande.ANNULE) && (
                                                     <button onClick={() => onArchiveOrder(order.id)} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded" title="Archiver la commande"><Archive size={18}/></button>
@@ -423,7 +422,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                     </div>
                                     <div className="space-y-2 mt-auto">
                                         <div className="flex justify-between text-xs font-bold"><span className="text-gray-500">Tâches en cours</span><span className="text-brand-600">{activeTasks.length}</span></div>
-                                        <div className="flex justify-between text-xs font-bold"><span className="text-gray-500">Volume pièces</span><span className="text-brand-600">{activeTasks.reduce((acc, t) => acc + t.quantite, 0)}</span></div>
+                                        <div className="flex justify-between text-xs font-bold"><span className="text-gray-500">Volume pièces</span><span className="text-brand-600">{(Object.values(activeTasks) as any[]).reduce((acc, t) => acc + t.quantite, 0)}</span></div>
                                     </div>
                                 </div>
                             );
@@ -432,7 +431,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 )}
             </div>
 
-            {/* MODALS (Restauration formulaires complets) */}
+            {/* MODALS RESTAURÉS */}
             
             {orderModalOpen && (
                 <div className="fixed inset-0 bg-black/60 z-[160] flex items-center justify-center p-4">
@@ -479,14 +478,15 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             <div><label className="block text-[10px] font-bold text-gray-500 mb-1">Commande Client</label><select className="w-full p-2 border rounded text-sm bg-gray-50" value={newTaskData.orderId} onChange={e => setNewTaskData({...newTaskData, orderId: e.target.value})}><option value="">-- Sélectionner Commande --</option>{commandes.filter(c => c.statut !== StatutCommande.LIVRE && !c.archived).map(c => <option key={c.id} value={c.id}>{c.clientNom} (#{c.id.slice(-5)})</option>)}</select></div>
                             <div><label className="block text-[10px] font-bold text-gray-500 mb-1">Action Requise</label><select className="w-full p-2 border rounded text-sm" value={newTaskData.action} onChange={e => setNewTaskData({...newTaskData, action: e.target.value as any})}><option value="COUPE">Coupe</option><option value="COUTURE">Couture</option><option value="FINITION">Finition / Repassage</option></select></div>
                             <div><label className="block text-[10px] font-bold text-gray-500 mb-1">Nombre de pièces</label><input type="number" className="w-full p-2 border rounded text-sm font-bold" value={newTaskData.quantite} onChange={e => setNewTaskData({...newTaskData, quantite: parseInt(e.target.value)||1})}/></div>
+                            <div><label className="block text-[10px] font-bold text-gray-500 mb-1">Tailleur</label><select className="w-full p-2 border rounded text-sm" value={newTaskData.tailleurId} onChange={e => setNewTaskData({...newTaskData, tailleurId: e.target.value})}><option value="">-- Choisir Tailleur --</option>{tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}</select></div>
                         </div>
                         <div className="flex justify-end gap-3 mt-8"><button onClick={() => setTaskModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Annuler</button><button onClick={() => {
                             const order = commandes.find(c => c.id === newTaskData.orderId);
-                            if (order && newTaskData.tailleurId) {
+                            if (order && (newTaskData.tailleurId || true)) {
                                 const newTask: TacheProduction = { id: `T_${Date.now()}`, commandeId: order.id, action: newTaskData.action, quantite: newTaskData.quantite, tailleurId: newTaskData.tailleurId, date: new Date().toISOString().split('T')[0], statut: 'A_FAIRE', note: newTaskData.note };
                                 onUpdateOrder({ ...order, taches: [...(order.taches || []), newTask] });
                                 setTaskModalOpen(false);
-                            } else { alert("Veuillez choisir une commande."); }
+                            } else { alert("Veuillez choisir une commande et un tailleur."); }
                         }} className="px-6 py-2 bg-brand-600 text-white rounded-lg font-bold shadow-md">Assigner</button></div>
                     </div>
                 </div>
@@ -505,7 +505,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             newRep[StatutCommande.PRET] = (newRep[StatutCommande.PRET] || 0) - qty;
                             if (newRep[StatutCommande.PRET] <= 0) delete newRep[StatutCommande.PRET];
                             newRep[StatutCommande.LIVRE] = (newRep[StatutCommande.LIVRE] || 0) + qty;
-                            // Fix Error: Operator '+' cannot be applied to types 'unknown' and 'unknown'.
                             const totalLivre = (Object.values(newRep) as number[]).reduce((acc, v) => acc + v, 0) === (newRep[StatutCommande.LIVRE] || 0);
                             onUpdateOrder({ ...order, repartitionStatuts: newRep, statut: totalLivre ? StatutCommande.LIVRE : order.statut as StatutCommande });
                             setDeliveryModal(null);
