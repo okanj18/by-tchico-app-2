@@ -1,8 +1,7 @@
-
 import React, { useState, useMemo } from 'react';
-import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction } from '../types';
-import { Scissors, LayoutList, Users, History, Search, Camera, Plus, X, Activity, Clock, Shirt, Calendar, CheckCircle, Zap, PenTool, PieChart, MoveRight, UserPlus, BarChart2, CheckSquare, RefreshCw, Columns, ChevronLeft, ChevronRight, Trophy, AlertTriangle } from 'lucide-react';
-import { QRGeneratorModal, QRScannerModal } from './QRTools';
+import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction, PaiementClient } from '../types';
+import { COMPANY_CONFIG } from '../config';
+import { Scissors, LayoutList, Users, History, Search, Camera, Plus, X, Activity, Clock, Shirt, Calendar, CheckCircle, Zap, PenTool, PieChart, MoveRight, UserPlus, BarChart2, CheckSquare, RefreshCw, Columns, ChevronLeft, ChevronRight, Trophy, AlertTriangle, Wallet, Printer, Trash2, Eye } from 'lucide-react';
 
 interface ProductionViewProps {
     commandes: Commande[];
@@ -42,6 +41,12 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [taskModalOpen, setTaskModalOpen] = useState(false);
+    const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+    const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<Commande | null>(null);
+    const [payAmount, setPayAmount] = useState(0);
+    const [payAccount, setPayAccount] = useState('');
+    const [payMethod, setPayMethod] = useState<ModePaiement>('ESPECE');
+
     const [planningTarget, setPlanningTarget] = useState<{ tailorId: string, tailorName: string, date: Date } | null>(null);
     const [draggedInfo, setDraggedInfo] = useState<{orderId: string, fromStatus: string} | null>(null);
     const [moveModal, setMoveModal] = useState<{order: Commande, fromStatus: string, toStatus: string, maxQty: number, qty: number} | null>(null);
@@ -61,9 +66,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             if (c.type !== 'SUR_MESURE') return false; 
             const isCompleted = c.statut === StatutCommande.LIVRE || c.statut === StatutCommande.ANNULE;
             
-            // Logique de filtrage par onglet
+            // Dans Historique on montre TOUT (actifs et finis) comme demandé par l'utilisateur
             if (viewMode === 'HISTORY') {
-                if (!isCompleted) return false;
+                // Pas de filtre sur le statut pour l'historique complet
             } else if (viewMode !== 'PERFORMANCE') {
                 if (isCompleted) return false;
             }
@@ -75,24 +80,74 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         }).sort((a, b) => new Date(b.dateCommande).getTime() - new Date(a.dateCommande).getTime());
     }, [commandes, searchTerm, viewMode]);
 
-    // --- LOGIQUE PERFORMANCE ---
-    const performanceStats = useMemo(() => {
-        const stats: Record<string, { done: number, pending: number, name: string }> = {};
-        tailleurs.forEach(t => { stats[t.id] = { done: 0, pending: 0, name: t.nom }; });
+    // --- GESTION TACHES (AGENDA) ---
+    const handleTaskClick = (order: Commande, task: TacheProduction) => {
+        const action = window.confirm(
+            `Tâche: ${task.action} pour ${order.clientNom}\n\n` +
+            `OK: Marquer comme ${task.statut === 'A_FAIRE' ? 'TERMINÉE' : 'À FAIRE'} ?\n` +
+            `ANNULER: Voulez-vous SUPPRIMER cette assignation ?`
+        );
 
-        commandes.forEach(order => {
-            order.taches?.forEach(t => {
-                if (stats[t.tailleurId]) {
-                    if (t.statut === 'FAIT') stats[t.tailleurId].done += t.quantite;
-                    else stats[t.tailleurId].pending += t.quantite;
-                }
-            });
-        });
+        if (action) {
+            // Basculer statut
+            const newStatus = task.statut === 'A_FAIRE' ? 'FAIT' : 'A_FAIRE';
+            const updatedTaches = (order.taches || []).map(t => t.id === task.id ? { ...t, statut: newStatus as any } : t);
+            onUpdateOrder({ ...order, taches: updatedTaches });
+        } else {
+            // Demander confirmation suppression
+            if (window.confirm("Confirmer la SUPPRESSION de cette tâche ?")) {
+                const updatedTaches = (order.taches || []).filter(t => t.id !== task.id);
+                onUpdateOrder({ ...order, taches: updatedTaches });
+            }
+        }
+    };
 
-        return Object.entries(stats)
-            .map(([id, data]) => ({ id, ...data }))
-            .sort((a, b) => b.done - a.done);
-    }, [commandes, tailleurs]);
+    /* Fix: Error in file components/ProductionView.tsx on line 428: Cannot find name 'openPaymentModal'. Added the missing handler below. */
+    const openPaymentModal = (order: Commande) => {
+        setSelectedOrderForPayment(order);
+        setPayAmount(order.reste);
+        setPayAccount('');
+        setPayMethod('ESPECE');
+        setPaymentModalOpen(true);
+    };
+
+    const handleConfirmPayment = () => {
+        if (!selectedOrderForPayment || payAmount <= 0 || !payAccount) {
+            alert("Veuillez remplir tous les champs de paiement.");
+            return;
+        }
+        onAddPayment(selectedOrderForPayment.id, payAmount, payMethod, "Règlement atelier", new Date().toISOString(), payAccount);
+        setPaymentModalOpen(false);
+        setSelectedOrderForPayment(null);
+    };
+
+    const generatePrint = (order: Commande) => {
+        const printWindow = window.open('', '', 'width=400,height=600');
+        if (!printWindow) return;
+        const logoUrl = companyAssets?.logoStr || "";
+        const html = `
+            <html>
+            <head><style>body { font-family: monospace; padding: 20px; font-size: 12px; } .header{text-align:center; margin-bottom:15px;} .row{display:flex; justify-content:space-between; margin:3px 0;}</style></head>
+            <body>
+                <div class="header">
+                    ${logoUrl ? `<img src="${logoUrl}" style="max-height:60px; margin-bottom:10px;" />` : ''}
+                    <h3>${COMPANY_CONFIG.name}</h3>
+                    <p>Ref: #${order.id.slice(-6)}</p>
+                </div>
+                <p>Client: ${order.clientNom}</p>
+                <p>Date: ${new Date(order.dateCommande).toLocaleDateString()}</p>
+                <hr/>
+                <p>${order.description}</p>
+                <hr/>
+                <div class="row"><span>TOTAL:</span><span>${order.prixTotal} F</span></div>
+                <div class="row"><span>PAYÉ:</span><span>${order.avance} F</span></div>
+                <div class="row"><b>RESTE:</b><b>${order.reste} F</b></div>
+                <script>setTimeout(() => { window.print(); window.close(); }, 500);</script>
+            </body></html>
+        `;
+        printWindow.document.write(html);
+        printWindow.document.close();
+    };
 
     const handleDragStart = (orderId: string, fromStatus: string) => setDraggedInfo({ orderId, fromStatus });
 
@@ -188,7 +243,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                 <div className="flex items-center gap-4">
                     <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier Production</h2>
-                    <button onClick={() => setIsScannerOpen(true)} className="bg-gray-800 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs font-bold hover:bg-black transition-all shadow-sm"><Camera size={14}/> Scanner Badge</button>
+                    <button onClick={() => setIsScannerOpen(true)} className="bg-gray-800 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs font-bold hover:bg-black shadow-sm"><Camera size={14}/> Scanner Badge</button>
                 </div>
                 <div className="flex flex-wrap bg-white border p-1 rounded-lg shadow-sm">
                     <button onClick={() => setViewMode('PLANNING')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === 'PLANNING' ? 'bg-brand-50 text-brand-700' : 'text-gray-500'}`}><Calendar size={14}/> Agenda</button>
@@ -201,7 +256,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             </div>
 
             {/* BARRE DE RECHERCHE */}
-            <div className="bg-white p-3 rounded-lg border flex gap-3 shrink-0">
+            <div className="bg-white p-3 rounded-lg border flex gap-3 shrink-0 shadow-sm">
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-2.5 text-gray-400" size={16}/>
                     <input 
@@ -215,7 +270,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 {viewMode === 'PLANNING' && (
                     <div className="flex gap-2 items-center">
                         <button onClick={() => setAgendaBaseDate(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })} className="p-2 border rounded hover:bg-gray-50"><ChevronLeft size={16}/></button>
-                        <span className="text-xs font-bold text-gray-600 min-w-[120px] text-center">Secteur: {agendaBaseDate.toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}</span>
+                        <span className="text-xs font-bold text-gray-600 min-w-[140px] text-center">Secteur: {agendaBaseDate.toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}</span>
                         <button onClick={() => setAgendaBaseDate(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })} className="p-2 border rounded hover:bg-gray-50"><ChevronRight size={16}/></button>
                     </div>
                 )}
@@ -249,15 +304,23 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                 const d = new Date(agendaBaseDate); d.setDate(d.getDate() + i);
                                                 const tasks = getTasksForTailor(tailor.id, d);
                                                 return (
-                                                    <td key={i} className="p-2 border-r last:border-r-0 h-24 vertical-top relative cursor-pointer hover:bg-brand-50/20" 
+                                                    <td key={i} className="p-2 border-r last:border-r-0 h-28 vertical-top relative cursor-pointer hover:bg-brand-50/20" 
                                                         onClick={() => { setPlanningTarget({ tailorId: tailor.id, tailorName: tailor.nom, date: d }); setTaskModalOpen(true); }}>
-                                                        <div className="space-y-1">
+                                                        <div className="space-y-1 h-full overflow-y-auto no-scrollbar">
                                                             {tasks.map(({task, order}) => (
-                                                                <div key={task.id} className={`p-1 rounded text-[9px] border ${task.statut === 'FAIT' ? 'bg-green-50 text-green-700' : 'bg-brand-50 text-brand-800 border-brand-200'}`}>
-                                                                    <div className="font-bold">{task.action} x{task.quantite}</div>
+                                                                <div 
+                                                                    key={task.id} 
+                                                                    onClick={(e) => { e.stopPropagation(); handleTaskClick(order, task); }}
+                                                                    className={`p-1 rounded text-[9px] border shadow-sm transition-all hover:scale-105 ${task.statut === 'FAIT' ? 'bg-green-100 text-green-800' : 'bg-brand-50 text-brand-800 border-brand-200 border-l-4 border-l-brand-500'}`}
+                                                                >
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="font-bold">{task.action} x{task.quantite}</span>
+                                                                        {task.statut === 'FAIT' && <CheckCircle size={10} />}
+                                                                    </div>
                                                                     <div className="truncate opacity-75">{order.clientNom}</div>
                                                                 </div>
                                                             ))}
+                                                            {tasks.length === 0 && <div className="h-full flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"><Plus size={14} className="text-gray-300"/></div>}
                                                         </div>
                                                     </td>
                                                 );
@@ -283,7 +346,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-2 space-y-3">
                                     {filteredCommandes.filter(c => (c.repartitionStatuts?.[status] || 0) > 0 || (!c.repartitionStatuts && c.statut === status)).map(order => (
-                                        <div key={order.id} draggable onDragStart={() => handleDragStart(order.id, status)} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 cursor-grab hover:border-brand-300">
+                                        <div key={order.id} draggable onDragStart={() => handleDragStart(order.id, status)} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 cursor-grab hover:border-brand-300 transition-all">
                                             <div className="flex justify-between items-start mb-1 text-[10px] font-mono text-gray-400">
                                                 <span>#{order.id.slice(-5)}</span>
                                                 <span className="bg-brand-50 text-brand-700 px-1.5 rounded font-bold">Qté: {order.repartitionStatuts?.[status] || order.quantite}</span>
@@ -312,7 +375,12 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         <td className="p-3 text-xs text-gray-500 truncate max-w-xs">{order.description}</td>
                                         <td className="p-3 font-bold text-orange-600">{new Date(order.dateLivraisonPrevue).toLocaleDateString()}</td>
                                         <td className="p-3"><span className="px-2 py-1 bg-gray-100 rounded text-[10px] font-bold uppercase">{order.statut}</span></td>
-                                        <td className="p-3 text-right"><button onClick={() => { setNewTaskData({...newTaskData, orderId: order.id}); setTaskModalOpen(true); }} className="p-1.5 text-brand-600 hover:bg-brand-50 rounded"><UserPlus size={18}/></button></td>
+                                        <td className="p-3 text-right">
+                                            <div className="flex justify-end gap-1">
+                                                <button onClick={() => { setNewTaskData({...newTaskData, orderId: order.id}); setTaskModalOpen(true); }} className="p-1.5 text-brand-600 hover:bg-brand-50 rounded" title="Assigner"><UserPlus size={18}/></button>
+                                                <button onClick={() => generatePrint(order)} className="p-1.5 text-gray-500 hover:bg-gray-50 rounded" title="Imprimer"><Printer size={18}/></button>
+                                            </div>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -320,7 +388,66 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     </div>
                 )}
 
-                {/* --- GESTION TAILLEURS (RESTORED) --- */}
+                {/* --- HISTORIQUE COMPLET (RESTORED & ENHANCED) --- */}
+                {viewMode === 'HISTORY' && (
+                    <div className="bg-white border rounded-xl overflow-hidden shadow-sm h-full flex flex-col">
+                        <div className="p-3 bg-gray-50 border-b flex items-center justify-between text-xs font-bold text-brand-900">
+                            <span className="flex items-center gap-2"><History size={14}/> Historique des Commandes (Tout statut)</span>
+                            <span>{filteredCommandes.length} commandes trouvées</span>
+                        </div>
+                        <div className="overflow-auto flex-1">
+                            <table className="w-full text-sm text-left border-collapse">
+                                <thead className="bg-gray-100 text-gray-600 font-bold border-b sticky top-0 z-10">
+                                    <tr>
+                                        <th className="p-3">Client / Ref</th>
+                                        <th className="p-3">Date Cmd</th>
+                                        <th className="p-3">Date Liv.</th>
+                                        <th className="p-3 text-center">Statut</th>
+                                        <th className="p-3 text-right">Total</th>
+                                        <th className="p-3 text-right">Payé</th>
+                                        <th className="p-3 text-right">Reste</th>
+                                        <th className="p-3 text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {filteredCommandes.map(order => (
+                                        <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                                            <td className="p-3">
+                                                <div className="font-bold text-gray-800">{order.clientNom}</div>
+                                                <div className="text-[10px] text-gray-400 font-mono">#{order.id.slice(-6)}</div>
+                                            </td>
+                                            <td className="p-3 text-gray-500">{new Date(order.dateCommande).toLocaleDateString()}</td>
+                                            <td className="p-3 text-orange-700 font-medium">{new Date(order.dateLivraisonPrevue).toLocaleDateString()}</td>
+                                            <td className="p-3 text-center">
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${order.statut === StatutCommande.LIVRE ? 'bg-green-100 text-green-700' : order.statut === StatutCommande.ANNULE ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                    {order.statut.toUpperCase()}
+                                                </span>
+                                            </td>
+                                            <td className="p-3 text-right font-bold text-gray-700">{order.prixTotal.toLocaleString()} F</td>
+                                            <td className="p-3 text-right text-green-600 font-medium">{order.avance.toLocaleString()} F</td>
+                                            <td className="p-3 text-right">
+                                                <span className={`font-bold ${order.reste > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                                    {order.reste.toLocaleString()} F
+                                                </span>
+                                            </td>
+                                            <td className="p-3 text-center">
+                                                <div className="flex justify-center gap-1">
+                                                    {order.reste > 0 && order.statut !== StatutCommande.ANNULE && (
+                                                        <button onClick={() => openPaymentModal(order)} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Encaisser"><Wallet size={16}/></button>
+                                                    )}
+                                                    <button onClick={() => generatePrint(order)} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded" title="Imprimer"><Printer size={16}/></button>
+                                                    <button onClick={() => alert(`Détails acompte:\n${order.paiements?.map(p => `- ${new Date(p.date).toLocaleDateString()} : ${p.montant} F (${p.moyenPaiement})`).join('\n') || 'Aucun acompte enregistré.'}`)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded" title="Acomptes"><Eye size={16}/></button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
+                {/* --- TAILLEURS & PERFORMANCE (RESTORED) --- */}
                 {viewMode === 'TAILORS' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto h-full p-1">
                         {tailleurs.map(tailor => {
@@ -329,114 +456,20 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 <div key={tailor.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
                                     <div className="flex items-center gap-4 mb-4">
                                         <div className="w-12 h-12 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-lg">{tailor.nom.charAt(0)}</div>
-                                        <div>
-                                            <h3 className="font-bold text-gray-800">{tailor.nom}</h3>
-                                            <p className="text-xs text-gray-500 uppercase tracking-tighter">{tailor.role}</p>
-                                        </div>
+                                        <div><h3 className="font-bold text-gray-800">{tailor.nom}</h3><p className="text-xs text-gray-500 uppercase tracking-tighter">{tailor.role}</p></div>
                                         <div className={`ml-auto w-3 h-3 rounded-full ${tailor.actif !== false ? 'bg-green-500' : 'bg-gray-300'}`}></div>
                                     </div>
                                     <div className="space-y-3">
-                                        <div className="flex justify-between text-sm">
-                                            <span className="text-gray-500">Tâches en cours</span>
-                                            <span className="font-bold text-brand-600">{activeTasks.length}</span>
-                                        </div>
-                                        <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
-                                            <div className="bg-brand-500 h-full transition-all" style={{ width: `${Math.min(100, activeTasks.length * 20)}%` }}></div>
-                                        </div>
+                                        <div className="flex justify-between text-sm"><span className="text-gray-500">Tâches en cours</span><span className="font-bold text-brand-600">{activeTasks.length}</span></div>
+                                        <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden"><div className="bg-brand-500 h-full transition-all" style={{ width: `${Math.min(100, activeTasks.length * 20)}%` }}></div></div>
                                         <div className="pt-2 border-t border-gray-50">
-                                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Dernières assignations</p>
-                                            {activeTasks.slice(0, 3).map(t => (
-                                                <div key={t.id} className="flex justify-between text-[10px] py-1 border-b border-gray-50 last:border-0">
-                                                    <span>{t.action} x{t.quantite}</span>
-                                                    <span className="text-gray-400">{new Date(t.date).toLocaleDateString()}</span>
-                                                </div>
-                                            ))}
-                                            {activeTasks.length === 0 && <p className="text-[10px] italic text-gray-400">Disponible pour de nouvelles tâches.</p>}
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Assignations Actuelles</p>
+                                            {activeTasks.slice(0, 3).map(t => (<div key={t.id} className="flex justify-between text-[10px] py-1 border-b border-gray-50 last:border-0"><span>{t.action} x{t.quantite}</span><span className="text-gray-400">{new Date(t.date).toLocaleDateString()}</span></div>))}
                                         </div>
                                     </div>
                                 </div>
                             );
                         })}
-                    </div>
-                )}
-
-                {/* --- PERFORMANCE (RESTORED) --- */}
-                {viewMode === 'PERFORMANCE' && (
-                    <div className="space-y-6 overflow-y-auto h-full p-1">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
-                                <div><p className="text-xs text-gray-500 font-bold uppercase">Productivité Globale</p><p className="text-2xl font-bold text-gray-900">{commandes.flatMap(o => o.taches || []).filter(t => t.statut === 'FAIT').length} <span className="text-xs font-normal">Tâches finies</span></p></div>
-                                <div className="p-3 bg-green-50 text-green-600 rounded-full"><Zap size={24}/></div>
-                            </div>
-                            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
-                                <div><p className="text-xs text-gray-500 font-bold uppercase">Taux de Complétion</p><p className="text-2xl font-bold text-gray-900">{Math.round((commandes.flatMap(o => o.taches || []).filter(t => t.statut === 'FAIT').length / (commandes.flatMap(o => o.taches || []).length || 1)) * 100)}%</p></div>
-                                <div className="p-3 bg-blue-50 text-blue-600 rounded-full"><BarChart2 size={24}/></div>
-                            </div>
-                            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
-                                <div><p className="text-xs text-gray-500 font-bold uppercase">Meilleur Tailleur</p><p className="text-2xl font-bold text-brand-600">{performanceStats[0]?.name || 'N/A'}</p></div>
-                                <div className="p-3 bg-brand-50 text-brand-600 rounded-full"><Trophy size={24}/></div>
-                            </div>
-                        </div>
-
-                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                            <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-                                <h3 className="font-bold text-gray-800">Classement Productivité (Tâches validées)</h3>
-                            </div>
-                            <div className="p-4 space-y-4">
-                                {performanceStats.map((stat, index) => (
-                                    <div key={stat.id} className="flex items-center gap-4">
-                                        <div className="w-8 font-bold text-gray-400">#{index + 1}</div>
-                                        <div className="flex-1">
-                                            <div className="flex justify-between mb-1">
-                                                <span className="text-sm font-bold text-gray-800">{stat.name}</span>
-                                                <span className="text-sm font-bold text-brand-600">{stat.done} unités</span>
-                                            </div>
-                                            <div className="w-full bg-gray-100 h-3 rounded-full overflow-hidden flex">
-                                                <div className="bg-green-500 h-full" style={{ width: `${(stat.done / (stat.done + stat.pending || 1)) * 100}%` }}></div>
-                                                <div className="bg-orange-300 h-full" style={{ width: `${(stat.pending / (stat.done + stat.pending || 1)) * 100}%` }}></div>
-                                            </div>
-                                            <div className="flex gap-4 mt-1">
-                                                <span className="text-[10px] flex items-center gap-1 text-green-600"><CheckSquare size={10}/> Terminées: {stat.done}</span>
-                                                <span className="text-[10px] flex items-center gap-1 text-orange-600"><Clock size={10}/> En cours: {stat.pending}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* --- HISTORIQUE (RESTORED) --- */}
-                {viewMode === 'HISTORY' && (
-                    <div className="bg-white border rounded-xl overflow-hidden shadow-sm h-full flex flex-col">
-                        <div className="p-3 bg-gray-50 border-b flex items-center gap-2 text-xs font-bold text-orange-800">
-                            <AlertTriangle size={14}/> Les commandes livrées ou annulées sont archivées ici.
-                        </div>
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-gray-50 text-gray-600 font-bold border-b sticky top-0">
-                                <tr><th className="p-3">Client / Date</th><th className="p-3">Description</th><th className="p-3">Statut Final</th><th className="p-3 text-right">Total</th><th className="p-3 text-center">Actions</th></tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100 overflow-y-auto">
-                                {filteredCommandes.map(order => (
-                                    <tr key={order.id} className="hover:bg-gray-50 opacity-80">
-                                        <td className="p-3">
-                                            <div className="font-bold text-gray-800">{order.clientNom}</div>
-                                            <div className="text-[10px] text-gray-400">{new Date(order.dateCommande).toLocaleDateString()}</div>
-                                        </td>
-                                        <td className="p-3 text-xs text-gray-500 truncate max-w-xs">{order.description}</td>
-                                        <td className="p-3">
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${order.statut === StatutCommande.LIVRE ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                                {order.statut.toUpperCase()}
-                                            </span>
-                                        </td>
-                                        <td className="p-3 text-right font-bold text-gray-700">{order.prixTotal.toLocaleString()} F</td>
-                                        <td className="p-3 text-center"><button onClick={() => alert("Impression du dossier technique...")} className="p-1.5 text-gray-400 hover:text-gray-600"><History size={18}/></button></td>
-                                    </tr>
-                                ))}
-                                {filteredCommandes.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-gray-400">Aucune commande archivée trouvée.</td></tr>}
-                            </tbody>
-                        </table>
                     </div>
                 )}
             </div>
@@ -494,21 +527,43 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL TRANSFERT (KANBAN) */}
-            {moveModal && (
-                <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
-                        <div className="flex items-center gap-3 text-brand-600 mb-4"><RefreshCw size={24}/><h3 className="text-lg font-bold">Passer en {moveModal.toStatus}</h3></div>
-                        <p className="text-sm text-gray-600 mb-4">Combien de pièces voulez-vous transférer ?</p>
+            {/* MODAL ENCAISSEMENT (POUR HISTORIQUE) */}
+            {paymentModalOpen && selectedOrderForPayment && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[120] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-xl font-bold flex items-center gap-2 text-green-600"><Wallet size={24}/> Encaisser Reste</h3>
+                            <button onClick={() => setPaymentModalOpen(false)}><X size={20}/></button>
+                        </div>
                         <div className="space-y-4">
-                            <div className="flex items-center gap-4">
-                                <input type="range" min="1" max={moveModal.maxQty} value={moveModal.qty} onChange={e => setMoveModal({...moveModal, qty: parseInt(e.target.value)})} className="flex-1 accent-brand-600"/>
-                                <span className="font-bold text-xl text-brand-700 bg-brand-50 px-4 py-2 rounded-lg border border-brand-200">{moveModal.qty} / {moveModal.maxQty}</span>
+                            <div className="bg-gray-50 p-3 rounded">
+                                <div className="flex justify-between text-sm"><span>Total Commande:</span><span className="font-bold">{selectedOrderForPayment.prixTotal} F</span></div>
+                                <div className="flex justify-between text-sm text-red-600"><span>Reste dû:</span><span className="font-bold">{selectedOrderForPayment.reste} F</span></div>
                             </div>
-                            <div className="flex justify-end gap-3 pt-2">
-                                <button onClick={() => setMoveModal(null)} className="px-4 py-2 text-gray-500 font-bold">Annuler</button>
-                                <button onClick={() => executeMove(moveModal.order, moveModal.fromStatus, moveModal.toStatus, moveModal.qty)} className="px-6 py-2 bg-brand-600 text-white rounded-lg font-bold hover:bg-brand-700 shadow-lg">Confirmer</button>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Montant Reçu</label>
+                                <input type="number" className="w-full p-2 border rounded font-bold text-lg text-brand-700" value={payAmount} onChange={e => setPayAmount(parseInt(e.target.value)||0)}/>
                             </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Caisse de Destination</label>
+                                <select className="w-full p-2 border rounded text-sm" value={payAccount} onChange={e => setPayAccount(e.target.value)}>
+                                    <option value="">-- Choisir Caisse --</option>
+                                    {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Méthode</label>
+                                <select className="w-full p-2 border rounded text-sm" value={payMethod} onChange={e => setPayMethod(e.target.value as ModePaiement)}>
+                                    <option value="ESPECE">Espèce</option>
+                                    <option value="WAVE">Wave</option>
+                                    <option value="ORANGE_MONEY">Orange Money</option>
+                                    <option value="VIREMENT">Virement</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-3 mt-6">
+                            <button onClick={() => setPaymentModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Annuler</button>
+                            <button onClick={handleConfirmPayment} className="px-6 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 shadow-md">Valider Encaissement</button>
                         </div>
                     </div>
                 </div>
