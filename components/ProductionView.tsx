@@ -2,7 +2,8 @@
 import React, { useState, useMemo } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Scissors, LayoutList, Users, History, Search, Camera, X, Activity, Clock, Shirt, Calendar, CheckCircle, Zap, PenTool, Columns, ChevronLeft, ChevronRight, Trophy, Wallet, Printer, Eye, UserPlus, Plus, Save } from 'lucide-react';
+// Fixed: Added missing ArrowRightLeft to imports
+import { Scissors, LayoutList, Users, History, Search, Camera, X, Activity, Clock, Shirt, Calendar, CheckCircle, Zap, PenTool, Columns, ChevronLeft, ChevronRight, Trophy, Wallet, Printer, Eye, UserPlus, Plus, Save, Truck, ArrowRightLeft } from 'lucide-react';
 import { QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
@@ -20,7 +21,6 @@ interface ProductionViewProps {
     companyAssets?: CompanyAssets;
 }
 
-// Actions simplifiées pour une synchronisation robuste
 const PRODUCTION_ACTIONS: { id: ActionProduction, label: string, icon: any, color: string }[] = [
     { id: 'COUPE', label: 'Coupe', icon: Scissors, color: 'text-blue-600 bg-blue-50 border-blue-200' },
     { id: 'COUTURE', label: 'Couture / Montage', icon: Shirt, color: 'text-indigo-600 bg-indigo-50 border-indigo-200' },
@@ -54,6 +54,17 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [taskModalOpen, setTaskModalOpen] = useState(false);
     const [orderModalOpen, setOrderModalOpen] = useState(false);
     const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+    
+    // Modal intelligent de transfert Kanban
+    const [kanbanMoveModal, setKanbanMoveModal] = useState<{
+        order: Commande,
+        fromStatus: StatutCommande,
+        toStatus: StatutCommande,
+        maxQty: number,
+        qty: number,
+        assignTailorId: string
+    } | null>(null);
+
     const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<Commande | null>(null);
     const [payAmount, setPayAmount] = useState(0);
     const [payAccount, setPayAccount] = useState('');
@@ -62,15 +73,13 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
     const [planningTarget, setPlanningTarget] = useState<{ tailorId: string, tailorName: string, date: Date } | null>(null);
     const [draggedInfo, setDraggedInfo] = useState<{orderId: string, fromStatus: string} | null>(null);
-    const [moveModal, setMoveModal] = useState<{order: Commande, fromStatus: string, toStatus: string, maxQty: number, qty: number} | null>(null);
 
     const [newTaskData, setNewTaskData] = useState<{ 
         orderId: string, 
         action: ActionProduction, 
         quantite: number, 
-        note: string,
-        elementNom: string 
-    }>({ orderId: '', action: 'COUTURE', quantite: 1, note: '', elementNom: '' });
+        note: string
+    }>({ orderId: '', action: 'COUTURE', quantite: 1, note: '' });
 
     const [newOrderData, setNewOrderData] = useState<Partial<Commande>>({
         clientId: '', clientNom: '', description: '', quantite: 1, prixTotal: 0, avance: 0, dateLivraisonPrevue: ''
@@ -121,7 +130,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         );
     };
 
-    // --- SYNCHRONISATION AGENDA (ACTIONS) -> BUCKETS ---
     const handleTaskStatusChange = (order: Commande, task: TacheProduction, newStatut: 'A_FAIRE' | 'FAIT') => {
         const updatedTaches = (order.taches || []).map(t => t.id === task.id ? { ...t, statut: newStatut } : t);
         let newRepartition = { ...(order.repartitionStatuts || { [StatutCommande.EN_ATTENTE]: order.quantite }) };
@@ -132,12 +140,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 'COUTURE': { from: StatutCommande.EN_COUPE, to: StatutCommande.COUTURE },
                 'FINITION': { from: StatutCommande.COUTURE, to: StatutCommande.FINITION }
             };
-
             const rule = mapping[task.action];
             if (rule) {
                 const availableInSource = newRepartition[rule.from] || 0;
                 const qtyToMove = Math.min(task.quantite, availableInSource);
-                
                 if (qtyToMove > 0) {
                     newRepartition[rule.from] -= qtyToMove;
                     if (newRepartition[rule.from] <= 0) delete newRepartition[rule.from];
@@ -146,19 +152,13 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             }
         }
 
-        // Calculer le statut global comme étant l'étape la plus avancée contenant au moins une pièce
         let mostAdvanced = StatutCommande.EN_ATTENTE;
         KANBAN_STATUS_ORDER.forEach(s => { if ((newRepartition[s] || 0) > 0) mostAdvanced = s as StatutCommande; });
-
         onUpdateOrder({ ...order, taches: updatedTaches, repartitionStatuts: newRepartition, statut: mostAdvanced });
     };
 
     const handleTaskClick = (order: Commande, task: TacheProduction) => {
-        const action = window.confirm(
-            `Action: ${task.action} x${task.quantite} pour ${order.clientNom}\n\n` +
-            `OK: Valider comme TERMINÉ (Déplacera les pièces) ?\n` +
-            `ANNULER: Supprimer cette assignation ?`
-        );
+        const action = window.confirm(`Action: ${task.action} x${task.quantite} pour ${order.clientNom}\n\nOK: Valider comme TERMINÉ ?\nANNULER: Supprimer ?`);
         if (action) handleTaskStatusChange(order, task, task.statut === 'A_FAIRE' ? 'FAIT' : 'A_FAIRE');
         else if (window.confirm("Supprimer l'assignation ?")) {
             const updatedTaches = (order.taches || []).filter(t => t.id !== task.id);
@@ -167,7 +167,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     };
 
     const handleSaveQuickOrder = () => {
-        if (!newOrderData.clientId || !newOrderData.quantite || !newOrderData.prixTotal) return;
+        if (!newOrderData.clientId || !newOrderData.quantite || !newOrderData.prixTotal || !payAccount) {
+            alert("Veuillez remplir le client, le prix et choisir une caisse.");
+            return;
+        }
         const client = clients.find(c => c.id === newOrderData.clientId);
         const order: Commande = {
             id: `CMD_SM_${Date.now()}`,
@@ -190,44 +193,98 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         setNewOrderData({ clientId: '', quantite: 1, prixTotal: 0, avance: 0 });
     };
 
-    const performanceStats = useMemo(() => {
-        const stats: Record<string, { done: number, pending: number, name: string, points: number }> = {};
-        tailleurs.forEach(t => { stats[t.id] = { done: 0, pending: 0, name: t.nom, points: 0 }; });
-        commandes.forEach(order => {
-            order.taches?.forEach(t => {
-                if (stats[t.tailleurId]) {
-                    if (t.statut === 'FAIT') {
-                        stats[t.tailleurId].done += t.quantite;
-                        stats[t.tailleurId].points += (t.quantite * 10); 
-                    } else {
-                        stats[t.tailleurId].pending += t.quantite;
-                    }
-                }
-            });
-        });
-        return Object.entries(stats).map(([id, data]) => ({ id, ...data })).sort((a, b) => b.points - a.points);
-    }, [commandes, tailleurs]);
-
     const handleDragStart = (orderId: string, fromStatus: string) => setDraggedInfo({ orderId, fromStatus });
-    const handleDrop = (toStatus: string) => {
+    
+    const handleDrop = (toStatus: StatutCommande) => {
         if (!draggedInfo || draggedInfo.fromStatus === toStatus) { setDraggedInfo(null); return; }
         const order = commandes.find(c => c.id === draggedInfo.orderId);
         if (!order) return;
-        const currentQtyInSource = order.repartitionStatuts ? (order.repartitionStatuts[draggedInfo.fromStatus] || 0) : (order.statut === draggedInfo.fromStatus ? order.quantite : 0);
-        if (currentQtyInSource === 1) executeMove(order, draggedInfo.fromStatus, toStatus, 1);
-        else if (currentQtyInSource > 1) setMoveModal({ order, fromStatus: draggedInfo.fromStatus, toStatus, maxQty: currentQtyInSource, qty: currentQtyInSource });
+        
+        const fromStatus = draggedInfo.fromStatus as StatutCommande;
+        const currentQtyInSource = order.repartitionStatuts ? (order.repartitionStatuts[fromStatus] || 0) : (order.statut === fromStatus ? order.quantite : 0);
+
+        if (currentQtyInSource <= 0) { setDraggedInfo(null); return; }
+
+        setKanbanMoveModal({
+            order,
+            fromStatus,
+            toStatus,
+            maxQty: currentQtyInSource,
+            qty: currentQtyInSource,
+            assignTailorId: ''
+        });
         setDraggedInfo(null);
     };
 
-    const executeMove = (order: Commande, from: string, to: string, qty: number) => {
+    const executeKanbanMove = () => {
+        if (!kanbanMoveModal) return;
+        const { order, fromStatus, toStatus, qty, assignTailorId } = kanbanMoveModal;
+        
         const newRepartition = { ...(order.repartitionStatuts || { [order.statut]: order.quantite }) };
-        newRepartition[from] = (newRepartition[from] || 0) - qty;
-        if (newRepartition[from] <= 0) delete newRepartition[from];
-        newRepartition[to] = (newRepartition[to] || 0) + qty;
+        newRepartition[fromStatus] = (newRepartition[fromStatus] || 0) - qty;
+        if (newRepartition[fromStatus] <= 0) delete newRepartition[fromStatus];
+        newRepartition[toStatus] = (newRepartition[toStatus] || 0) + qty;
+
         let mostAdvanced = order.statut as StatutCommande;
         KANBAN_STATUS_ORDER.forEach(s => { if ((newRepartition[s] || 0) > 0) mostAdvanced = s as StatutCommande; });
-        onUpdateOrder({ ...order, repartitionStatuts: newRepartition, statut: mostAdvanced });
-        setMoveModal(null);
+
+        let updatedTaches = [...(order.taches || [])];
+        if (assignTailorId) {
+            // Déterminer l'action en fonction de l'étape de destination
+            let action: ActionProduction = 'COUTURE';
+            if (toStatus === StatutCommande.EN_COUPE) action = 'COUPE';
+            if (toStatus === StatutCommande.FINITION) action = 'FINITION';
+            
+            const newTask: TacheProduction = {
+                id: `TASK_KB_${Date.now()}`,
+                commandeId: order.id,
+                action,
+                quantite: qty,
+                tailleurId: assignTailorId,
+                date: new Date().toISOString().split('T')[0],
+                statut: 'A_FAIRE'
+            };
+            updatedTaches.push(newTask);
+        }
+
+        onUpdateOrder({ ...order, repartitionStatuts: newRepartition, statut: mostAdvanced, taches: updatedTaches });
+        setKanbanMoveModal(null);
+    };
+
+    const handleDeliverOrder = (order: Commande) => {
+        if (order.reste > 0) {
+            if (!window.confirm(`⚠️ Attention : Il reste ${order.reste} F à payer. Voulez-vous encaisser et livrer ?`)) return;
+            openPaymentModal(order);
+        } else {
+            if (window.confirm("Confirmer la livraison de cette commande ?")) {
+                onUpdateStatus(order.id, StatutCommande.LIVRE);
+            }
+        }
+    };
+
+    // Fixed: Defined missing openPaymentModal function
+    const openPaymentModal = (order: Commande) => {
+        setSelectedOrderForPayment(order);
+        setPayAmount(order.reste);
+        setPayAccount('');
+        setPayMethod('ESPECE');
+        setPayDate(new Date().toISOString().split('T')[0]);
+        setPaymentModalOpen(true);
+    };
+
+    // Fixed: Defined missing handleConfirmPayment function
+    const handleConfirmPayment = () => {
+        if (!selectedOrderForPayment || payAmount <= 0 || !payAccount) return;
+        
+        onAddPayment(selectedOrderForPayment.id, payAmount, payMethod, "Solde commande à la livraison", payDate, payAccount);
+        
+        // Auto-deliver if paid in full
+        if (selectedOrderForPayment.reste <= payAmount) {
+            onUpdateStatus(selectedOrderForPayment.id, StatutCommande.LIVRE);
+        }
+        
+        setPaymentModalOpen(false);
+        setSelectedOrderForPayment(null);
     };
 
     const handleSaveTask = () => {
@@ -261,6 +318,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
     return (
         <div className="space-y-6 h-[calc(100vh-8rem)] flex flex-col">
+            {/* HEADER STABLE */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                 <div className="flex items-center gap-3">
                     <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier Production</h2>
@@ -270,10 +328,16 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     </div>
                 </div>
                 <div className="flex flex-wrap bg-white border p-1 rounded-lg shadow-sm">
-                    {['PLANNING', 'KANBAN', 'ORDERS', 'TAILORS', 'PERFORMANCE', 'HISTORY'].map((mode: any) => (
-                        <button key={mode} onClick={() => setViewMode(mode)} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === mode ? 'bg-brand-50 text-brand-700' : 'text-gray-500'}`}>
-                            {mode === 'PLANNING' && <Calendar size={14}/>} {mode === 'KANBAN' && <Columns size={14}/>} {mode === 'ORDERS' && <LayoutList size={14}/>} {mode === 'TAILORS' && <Users size={14}/>} {mode === 'PERFORMANCE' && <Trophy size={14}/>} {mode === 'HISTORY' && <History size={14}/>}
-                            <span className="capitalize">{mode.toLowerCase()}</span>
+                    {[
+                        {id: 'PLANNING', label: 'Agenda', icon: Calendar},
+                        {id: 'KANBAN', label: 'Kanban', icon: Columns},
+                        {id: 'ORDERS', label: 'Liste', icon: LayoutList},
+                        {id: 'TAILORS', label: 'Tailleurs', icon: Users},
+                        {id: 'PERFORMANCE', label: 'Performance', icon: Trophy},
+                        {id: 'HISTORY', label: 'Historique', icon: History}
+                    ].map((mode: any) => (
+                        <button key={mode.id} onClick={() => setViewMode(mode.id)} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${viewMode === mode.id ? 'bg-brand-50 text-brand-700' : 'text-gray-500'}`}>
+                            <mode.icon size={14}/> <span>{mode.label}</span>
                         </button>
                     ))}
                 </div>
@@ -284,10 +348,11 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             </div>
 
             <div className="flex-1 overflow-hidden">
+                {/* KANBAN */}
                 {viewMode === 'KANBAN' && (
                     <div className="flex gap-4 h-full overflow-x-auto pb-4 custom-scrollbar">
                         {KANBAN_STATUS_ORDER.map((status, index) => (
-                            <div key={status} className="flex-1 min-w-[280px] bg-gray-100/50 rounded-xl flex flex-col border border-gray-200" onDragOver={e => e.preventDefault()} onDrop={() => handleDrop(status)}>
+                            <div key={status} className="flex-1 min-w-[280px] bg-gray-100/50 rounded-xl flex flex-col border border-gray-200" onDragOver={e => e.preventDefault()} onDrop={() => handleDrop(status as StatutCommande)}>
                                 <div className="p-3 border-b flex justify-between items-center bg-white rounded-t-xl">
                                     <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">{getStatusIcon(status)} {status}</h3>
                                     <span className="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full font-bold">{filteredCommandes.reduce((acc, c) => acc + (c.repartitionStatuts?.[status] || (c.statut === status ? c.quantite : 0)), 0)}</span>
@@ -314,7 +379,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     </div>
                 )}
 
-                {viewMode === 'ORDERS' && (
+                {/* LISTE ET HISTORIQUE */}
+                {(viewMode === 'ORDERS' || viewMode === 'HISTORY') && (
                     <div className="bg-white border rounded-xl overflow-hidden shadow-sm h-full flex flex-col">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 text-gray-600 font-bold border-b sticky top-0 z-10"><tr><th className="p-3">Client / Réf</th><th className="p-3">Livraison</th><th className="p-3">Statut Réel (Flux)</th><th className="p-3 text-right">Actions</th></tr></thead>
@@ -326,6 +392,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         <td className="p-3">{renderDetailedStatus(order)}</td>
                                         <td className="p-3 text-right">
                                             <div className="flex justify-end gap-1">
+                                                {order.statut === StatutCommande.PRET && (
+                                                    <button onClick={() => handleDeliverOrder(order)} className="p-1.5 text-green-600 bg-green-50 hover:bg-green-100 rounded flex items-center gap-1 font-bold text-[10px]"><Truck size={14}/> LIVRER</button>
+                                                )}
                                                 <button onClick={() => { setNewTaskData({...newTaskData, orderId: order.id}); setTaskModalOpen(true); }} className="p-1.5 text-brand-600 hover:bg-brand-50 rounded"><UserPlus size={18}/></button>
                                                 <button onClick={() => alert(`Acomptes:\n${order.paiements?.map(p => `- ${new Date(p.date).toLocaleDateString()} : ${p.montant} F`).join('\n') || 'Aucun.'}`)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"><Eye size={18}/></button>
                                             </div>
@@ -337,6 +406,49 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     </div>
                 )}
 
+                {/* TAILLEURS */}
+                {viewMode === 'TAILORS' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto h-full p-1">
+                        {tailleurs.map(tailor => {
+                            const activeTasks = (commandes.flatMap(o => o.taches || [])).filter(t => t.tailleurId === tailor.id && t.statut === 'A_FAIRE');
+                            return (
+                                <div key={tailor.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:border-brand-300 transition-all flex flex-col">
+                                    <div className="flex items-center gap-4 mb-4">
+                                        <div className="w-12 h-12 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-lg">{tailor.nom.charAt(0)}</div>
+                                        <div className="flex-1"><h3 className="font-bold text-gray-800 truncate">{tailor.nom}</h3><p className="text-[10px] text-gray-500 uppercase tracking-tighter">{tailor.role}</p></div>
+                                    </div>
+                                    <div className="space-y-3 flex-1">
+                                        <div className="flex justify-between text-sm"><span className="text-gray-500">Tâches en cours</span><span className="font-bold text-brand-600">{activeTasks.length}</span></div>
+                                        <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden"><div className="bg-brand-500 h-full transition-all" style={{ width: `${Math.min(100, activeTasks.length * 20)}%` }}></div></div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {/* PERFORMANCE */}
+                {viewMode === 'PERFORMANCE' && (
+                    <div className="bg-white border rounded-xl p-6 shadow-sm h-full overflow-y-auto">
+                        <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><Trophy className="text-brand-600"/> Classement Production</h3>
+                        <div className="space-y-4">
+                            {tailleurs.map((tailor, i) => {
+                                const done = (commandes.flatMap(o => o.taches || [])).filter(t => t.tailleurId === tailor.id && t.statut === 'FAIT').reduce((acc, t) => acc + t.quantite, 0);
+                                return (
+                                    <div key={tailor.id} className="flex items-center gap-4">
+                                        <div className="w-8 text-center font-bold text-gray-400">#{i+1}</div>
+                                        <div className="flex-1">
+                                            <div className="flex justify-between text-sm mb-1 font-bold"><span>{tailor.nom}</span><span>{done} pièces</span></div>
+                                            <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden"><div className="bg-green-500 h-full" style={{width: `${Math.min(100, done * 5)}%`}}></div></div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
+                {/* AGENDA */}
                 {viewMode === 'PLANNING' && (
                     <div className="bg-white border rounded-xl shadow-sm h-full flex flex-col overflow-hidden">
                         <div className="flex-1 overflow-auto">
@@ -383,20 +495,40 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 )}
             </div>
 
-            {/* MODALS : PLANIFICATION, NOUVELLE COMMANDE */}
-            {taskModalOpen && (
-                <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md animate-in zoom-in duration-200">
-                        <div className="p-4 border-b bg-gray-50 flex justify-between items-center"><h3 className="font-bold text-gray-800">Assigner Tâche</h3><button onClick={() => setTaskModalOpen(false)}><X size={20}/></button></div>
-                        <div className="p-6 space-y-4">
-                            <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Commande</label><select className="w-full p-2 border rounded-lg text-sm bg-white" value={newTaskData.orderId} onChange={e => { const o = commandes.find(c => c.id === e.target.value); setNewTaskData({...newTaskData, orderId: e.target.value, quantite: o?.quantite || 1}); }}><option value="">-- Choisir --</option>{commandes.filter(c => c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE).map(c => <option key={c.id} value={c.id}>{c.clientNom} (#{c.id.slice(-5)})</option>)}</select></div>
-                            <div className="grid grid-cols-2 gap-4"><div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Action</label><select className="w-full p-2 border rounded-lg text-sm" value={newTaskData.action} onChange={e => setNewTaskData({...newTaskData, action: e.target.value as ActionProduction})}>{PRODUCTION_ACTIONS.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}</select></div><div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Quantité</label><input type="number" className="w-full p-2 border rounded-lg text-sm font-bold" value={newTaskData.quantite} onChange={e => setNewTaskData({...newTaskData, quantite: parseInt(e.target.value)||1})}/></div></div>
+            {/* MODALS */}
+            
+            {/* MODAL TRANSFERT KANBAN INTELLIGENT */}
+            {kanbanMoveModal && (
+                <div className="fixed inset-0 bg-black/60 z-[150] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm animate-in zoom-in duration-200">
+                        <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                            <h3 className="font-bold text-gray-800 flex items-center gap-2"><ArrowRightLeft size={18} className="text-brand-600"/> Déplacer vers : {kanbanMoveModal.toStatus}</h3>
+                            <button onClick={() => setKanbanMoveModal(null)}><X size={20}/></button>
                         </div>
-                        <div className="p-4 bg-gray-50 border-t flex justify-end gap-3 rounded-b-xl"><button onClick={() => setTaskModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Annuler</button><button onClick={handleSaveTask} disabled={!newTaskData.orderId || !planningTarget?.tailorId} className="px-6 py-2 bg-brand-600 text-white rounded-lg font-bold shadow-lg hover:bg-brand-700 disabled:opacity-50">Confirmer</button></div>
+                        <div className="p-6 space-y-4">
+                            <p className="text-xs text-gray-500 italic">Commande de {kanbanMoveModal.order.clientNom}</p>
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Nombre d'unités à déplacer</label>
+                                <input type="number" min="1" max={kanbanMoveModal.maxQty} className="w-full p-2 border rounded-lg font-bold" value={kanbanMoveModal.qty} onChange={e => setKanbanMoveModal({...kanbanMoveModal, qty: Math.min(kanbanMoveModal.maxQty, parseInt(e.target.value)||1)})}/>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Assigner à un tailleur (Facultatif)</label>
+                                <select className="w-full p-2 border rounded-lg text-sm bg-indigo-50" value={kanbanMoveModal.assignTailorId} onChange={e => setKanbanMoveModal({...kanbanMoveModal, assignTailorId: e.target.value})}>
+                                    <option value="">-- Aucun --</option>
+                                    {tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}
+                                </select>
+                                <p className="text-[8px] text-gray-400 mt-1">Si sélectionné, une tâche sera créée dans l'Agenda.</p>
+                            </div>
+                        </div>
+                        <div className="p-4 bg-gray-50 border-t flex justify-end gap-2">
+                            <button onClick={() => setKanbanMoveModal(null)} className="px-4 py-2 text-gray-500 text-sm font-bold">Annuler</button>
+                            <button onClick={executeKanbanMove} className="px-6 py-2 bg-brand-600 text-white rounded-lg text-sm font-bold shadow-md">Valider le flux</button>
+                        </div>
                     </div>
                 </div>
             )}
 
+            {/* MODAL NOUVELLE COMMANDE - AVEC CHOIX CAISSE */}
             {orderModalOpen && (
                 <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-md animate-in zoom-in duration-200">
@@ -405,8 +537,32 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Client</label><select className="w-full p-2 border rounded-lg text-sm bg-white" value={newOrderData.clientId} onChange={e => setNewOrderData({...newOrderData, clientId: e.target.value})}><option value="">-- Sélectionner --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div>
                             <div className="grid grid-cols-2 gap-4"><div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Quantité</label><input type="number" className="w-full p-2 border rounded-lg text-sm font-bold" value={newOrderData.quantite} onChange={e => setNewOrderData({...newOrderData, quantite: parseInt(e.target.value)||1})}/></div><div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Livraison</label><input type="date" className="w-full p-2 border rounded-lg text-sm" value={newOrderData.dateLivraisonPrevue} onChange={e => setNewOrderData({...newOrderData, dateLivraisonPrevue: e.target.value})}/></div></div>
                             <div className="grid grid-cols-2 gap-4"><div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Prix Total</label><input type="number" className="w-full p-2 border rounded-lg text-sm font-bold" value={newOrderData.prixTotal || ''} onChange={e => setNewOrderData({...newOrderData, prixTotal: parseInt(e.target.value)||0})}/></div><div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Avance</label><input type="number" className="w-full p-2 border rounded-lg text-sm font-bold bg-green-50" value={newOrderData.avance || ''} onChange={e => setNewOrderData({...newOrderData, avance: parseInt(e.target.value)||0})}/></div></div>
+                            {/* CHOIX DE LA CAISSE POUR L'AVANCE - Fixed: Changed setAccountId to setPayAccount */}
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Caisse d'encaissement</label>
+                                <select className="w-full p-2 border rounded-lg text-sm bg-blue-50 border-blue-100" value={payAccount} onChange={e => setPayAccount(e.target.value)}>
+                                    <option value="">-- Choisir Caisse --</option>
+                                    {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
+                                </select>
+                            </div>
                         </div>
-                        <div className="p-4 bg-gray-50 border-t flex justify-end gap-3 rounded-b-xl"><button onClick={() => setOrderModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Annuler</button><button onClick={handleSaveQuickOrder} className="px-6 py-2 bg-brand-600 text-white rounded-lg font-bold">Enregistrer</button></div>
+                        <div className="p-4 bg-gray-50 border-t flex justify-end gap-3 rounded-b-xl"><button onClick={() => setOrderModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Annuler</button><button onClick={handleSaveQuickOrder} className="px-6 py-2 bg-brand-600 text-white rounded-lg font-bold shadow-lg hover:bg-brand-700">Enregistrer</button></div>
+                    </div>
+                </div>
+            )}
+
+            {paymentModalOpen && selectedOrderForPayment && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[120] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-4"><h3 className="text-xl font-bold flex items-center gap-2 text-green-600"><Wallet size={24}/> Encaisser Reste</h3><button onClick={() => setPaymentModalOpen(false)}><X size={20}/></button></div>
+                        <div className="space-y-4">
+                            <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Montant Reçu</label><input type="number" className="w-full p-2 border rounded font-bold text-lg text-brand-700" value={payAmount} onChange={e => setPayAmount(parseInt(e.target.value)||0)}/></div>
+                            {/* Fixed: Changed setAccountId to setPayAccount */}
+                            <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Caisse</label><select className="w-full p-2 border rounded text-sm" value={payAccount} onChange={e => setPayAccount(e.target.value)}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                            <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Méthode</label><select className="w-full p-2 border rounded text-sm" value={payMethod} onChange={e => setPayMethod(e.target.value as ModePaiement)}><option value="ESPECE">Espèce</option><option value="WAVE">Wave</option><option value="ORANGE_MONEY">Orange Money</option><option value="VIREMENT">Virement</option></select></div>
+                        </div>
+                        {/* Fixed: Confirms payment with handleConfirmPayment */}
+                        <div className="flex justify-end gap-3 mt-6"><button onClick={() => setPaymentModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Annuler</button><button onClick={handleConfirmPayment} disabled={!payAccount} className="px-6 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 shadow-md">Valider</button></div>
                     </div>
                 </div>
             )}
