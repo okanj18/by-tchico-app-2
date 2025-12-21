@@ -3,7 +3,6 @@ import React, { useState, useMemo } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction, PaiementClient } from '../types';
 import { COMPANY_CONFIG } from '../config';
 import { Scissors, LayoutList, Users, History, Search, Camera, Plus, X, Activity, Clock, Shirt, Calendar, CheckCircle, Zap, PenTool, PieChart, MoveRight, UserPlus, BarChart2, CheckSquare, RefreshCw, Columns, ChevronLeft, ChevronRight, Trophy, AlertTriangle, Wallet, Printer, Trash2, Eye, Filter } from 'lucide-react';
-// Added missing QRScannerModal import to fix the missing scanner functionality
 import { QRScannerModal } from './QRTools';
 
 interface ProductionViewProps {
@@ -15,7 +14,6 @@ interface ProductionViewProps {
     onUpdateStatus: (id: string, status: StatutCommande) => void;
     onCreateOrder: (order: Commande, consommations: { articleId: string, variante: string, quantite: number }[], paymentMethod?: ModePaiement, accountId?: string) => void;
     onUpdateOrder: (order: Commande, accountId?: string, paymentMethod?: ModePaiement) => void;
-    onAddPayment: (orderId: string, amount: number, method: ModePaiement, note: string, date: string, accountId?: string) => void;
     onAddPayment: (orderId: string, amount: number, method: ModePaiement, note: string, date: string, accountId?: string) => void;
     onArchiveOrder: (orderId: string) => void;
     comptes: CompteFinancier[];
@@ -39,7 +37,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [searchTerm, setSearchTerm] = useState('');
     const [historyFilterStatus, setHistoryFilterStatus] = useState<string>('ALL');
     const [historyFilterPayment, setHistoryFilterPayment] = useState<string>('ALL');
-
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    
     const [agendaBaseDate, setAgendaBaseDate] = useState(() => {
         const d = new Date();
         d.setHours(0,0,0,0);
@@ -52,9 +51,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [payAmount, setPayAmount] = useState(0);
     const [payAccount, setPayAccount] = useState('');
     const [payMethod, setPayMethod] = useState<ModePaiement>('ESPECE');
-
-    // Added missing isScannerOpen state to fix the error in the handleScanAttendance usage
-    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    // FIX: Added payDate state to resolve missing variable error
+    const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
 
     const [planningTarget, setPlanningTarget] = useState<{ tailorId: string, tailorName: string, date: Date } | null>(null);
     const [draggedInfo, setDraggedInfo] = useState<{orderId: string, fromStatus: string} | null>(null);
@@ -68,18 +66,24 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         elementNom: string 
     }>({ orderId: '', action: 'COUTURE', quantite: 1, note: '', elementNom: '' });
 
-    const tailleurs = employes.filter(e => e.role === RoleEmploye.TAILLEUR || e.role === RoleEmploye.CHEF_ATELIER || e.role === RoleEmploye.STAGIAIRE);
+    // Filtrer les tailleurs actifs
+    const tailleurs = useMemo(() => employes.filter(e => 
+        (e.role === RoleEmploye.TAILLEUR || e.role === RoleEmploye.CHEF_ATELIER || e.role === RoleEmploye.STAGIAIRE) && e.actif !== false
+    ), [employes]);
 
     const filteredCommandes = useMemo(() => {
         return commandes.filter(c => {
             if (c.type !== 'SUR_MESURE') return false; 
+            
             const isCompleted = c.statut === StatutCommande.LIVRE || c.statut === StatutCommande.ANNULE;
             
+            // Logique de filtrage par onglet
             if (viewMode === 'HISTORY') {
                 if (historyFilterStatus !== 'ALL' && c.statut !== historyFilterStatus) return false;
                 if (historyFilterPayment === 'UNPAID' && c.reste <= 0) return false;
                 if (historyFilterPayment === 'PAID' && c.reste > 0) return false;
             } else if (viewMode !== 'PERFORMANCE') {
+                // Pour tout sauf Historique et Performance, on cache les terminés
                 if (isCompleted) return false;
             }
 
@@ -105,21 +109,18 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             };
 
             const rule = mapping[task.action];
-            if (rule && newRepartition[rule.from]) {
+            if (rule && (newRepartition[rule.from] || 0) > 0) {
                 const qtyToMove = Math.min(task.quantite, newRepartition[rule.from]);
                 newRepartition[rule.from] -= qtyToMove;
                 if (newRepartition[rule.from] <= 0) delete newRepartition[rule.from];
                 newRepartition[rule.to] = (newRepartition[rule.to] || 0) + qtyToMove;
             }
-        } else {
-            // Si on repasse en "A Faire", on pourrait envisager un retour en arrière, 
-            // mais par sécurité on ne change pas le Kanban automatiquement pour éviter les erreurs.
         }
 
         // Calcul du statut principal basé sur la nouvelle répartition
         const statusOrder = [StatutCommande.EN_ATTENTE, StatutCommande.EN_COUPE, StatutCommande.COUTURE, StatutCommande.FINITION, StatutCommande.PRET];
         let mostAdvanced = order.statut as string;
-        statusOrder.forEach(s => { if (newRepartition[s] > 0) mostAdvanced = s; });
+        statusOrder.forEach(s => { if ((newRepartition[s] || 0) > 0) mostAdvanced = s; });
 
         onUpdateOrder({ ...order, taches: updatedTaches, repartitionStatuts: newRepartition, statut: mostAdvanced });
     };
@@ -151,7 +152,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 if (stats[t.tailleurId]) {
                     if (t.statut === 'FAIT') {
                         stats[t.tailleurId].done += t.quantite;
-                        stats[t.tailleurId].points += (t.quantite * 10); // 10 pts par pièce finie
+                        stats[t.tailleurId].points += (t.quantite * 10); 
                     } else {
                         stats[t.tailleurId].pending += t.quantite;
                     }
@@ -168,6 +169,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         setSelectedOrderForPayment(order);
         setPayAmount(order.reste);
         setPayAccount('');
+        // FIX: Reset payDate to today when opening modal
+        setPayDate(new Date().toISOString().split('T')[0]);
         setPaymentModalOpen(true);
     };
 
@@ -203,7 +206,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
         const statusOrder = [StatutCommande.EN_ATTENTE, StatutCommande.EN_COUPE, StatutCommande.COUTURE, StatutCommande.FINITION, StatutCommande.PRET];
         let mostAdvanced = order.statut as string;
-        statusOrder.forEach(s => { if (newRepartition[s] > 0) mostAdvanced = s; });
+        statusOrder.forEach(s => { if ((newRepartition[s] || 0) > 0) mostAdvanced = s; });
 
         onUpdateOrder({ ...order, repartitionStatuts: newRepartition, statut: mostAdvanced });
         setMoveModal(null);
@@ -241,18 +244,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         }
     };
 
-    // Added missing handleScanAttendance function to process scanned QR codes
-    const handleScanAttendance = (scannedText: string) => {
-        const emp = employes.find(e => e.id === scannedText.trim());
-        if (emp) {
-            setSearchTerm(emp.nom);
-        } else {
-            const order = commandes.find(c => c.id === scannedText.trim() || c.id.endsWith(scannedText.trim()));
-            if (order) setSearchTerm(order.id.slice(-5));
-        }
-        setIsScannerOpen(false);
-    };
-
     return (
         <div className="space-y-6 h-[calc(100vh-8rem)] flex flex-col">
             {/* HEADER NAVIGATION */}
@@ -275,7 +266,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             <div className="bg-white p-3 rounded-lg border flex flex-wrap gap-3 shrink-0 shadow-sm items-center">
                 <div className="relative flex-1 min-w-[200px]">
                     <Search className="absolute left-3 top-2.5 text-gray-400" size={16}/>
-                    <input type="text" placeholder="Rechercher client, commande..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500" />
+                    <input type="text" placeholder="Rechercher client, commande, tailleur..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500" />
                 </div>
                 {viewMode === 'HISTORY' && (
                     <div className="flex gap-2">
@@ -293,7 +284,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 {viewMode === 'PLANNING' && (
                     <div className="flex gap-2 items-center">
                         <button onClick={() => setAgendaBaseDate(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })} className="p-2 border rounded hover:bg-gray-50"><ChevronLeft size={16}/></button>
-                        <span className="text-xs font-bold text-gray-600 min-w-[140px] text-center">{agendaBaseDate.toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}</span>
+                        <span className="text-xs font-bold text-gray-600 min-w-[140px] text-center font-mono">{agendaBaseDate.toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}</span>
                         <button onClick={() => setAgendaBaseDate(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })} className="p-2 border rounded hover:bg-gray-50"><ChevronRight size={16}/></button>
                     </div>
                 )}
@@ -360,8 +351,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-2 space-y-3">
                                     {filteredCommandes.filter(c => (c.repartitionStatuts?.[status] || 0) > 0 || (!c.repartitionStatuts && c.statut === status)).map(order => {
-                                        const doneTasks = order.taches?.filter(t => t.statut === 'FAIT').length || 0;
-                                        const totalTasks = order.taches?.length || 0;
+                                        const doneTasks = (order.taches || []).filter(t => t.statut === 'FAIT').length;
+                                        const totalTasks = (order.taches || []).length;
                                         return (
                                             <div key={order.id} draggable onDragStart={() => handleDragStart(order.id, status)} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 cursor-grab hover:border-brand-300">
                                                 <div className="flex justify-between items-start mb-1 text-[10px] font-mono text-gray-400">
@@ -387,7 +378,72 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     </div>
                 )}
 
-                {/* --- PERFORMANCE --- */}
+                {/* --- LISTE ACTIVE (RESTORED) --- */}
+                {viewMode === 'ORDERS' && (
+                    <div className="bg-white border rounded-xl overflow-hidden shadow-sm h-full flex flex-col">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-50 text-gray-600 font-bold border-b sticky top-0">
+                                <tr>
+                                    <th className="p-3">Client / Réf</th>
+                                    <th className="p-3">Description</th>
+                                    <th className="p-3">Livraison</th>
+                                    <th className="p-3">Statut Actuel</th>
+                                    <th className="p-3 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 overflow-y-auto">
+                                {filteredCommandes.map(order => (
+                                    <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                                        <td className="p-3">
+                                            <div className="font-bold text-gray-800">{order.clientNom}</div>
+                                            <div className="text-[10px] font-mono text-gray-400">#{order.id.slice(-6)}</div>
+                                        </td>
+                                        <td className="p-3 text-xs text-gray-500 truncate max-w-xs">{order.description}</td>
+                                        <td className="p-3 font-bold text-orange-600">{new Date(order.dateLivraisonPrevue).toLocaleDateString()}</td>
+                                        <td className="p-3"><span className="px-2 py-1 bg-gray-100 rounded text-[10px] font-bold uppercase border border-gray-200">{order.statut}</span></td>
+                                        <td className="p-3 text-right">
+                                            <div className="flex justify-end gap-1">
+                                                <button onClick={() => { setNewTaskData({...newTaskData, orderId: order.id}); setTaskModalOpen(true); }} className="p-1.5 text-brand-600 hover:bg-brand-50 rounded" title="Assigner Tâche"><UserPlus size={18}/></button>
+                                                <button onClick={() => generatePrint(order)} className="p-1.5 text-gray-500 hover:bg-brand-50 rounded" title="Imprimer"><Printer size={18}/></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {filteredCommandes.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-gray-400 italic">Aucune commande sur-mesure active.</td></tr>}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+
+                {/* --- TAILLEURS (RESTORED) --- */}
+                {viewMode === 'TAILORS' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto h-full p-1">
+                        {tailleurs.map(tailor => {
+                            const activeTasks = (commandes.flatMap(o => o.taches || [])).filter(t => t.tailleurId === tailor.id && t.statut === 'A_FAIRE');
+                            return (
+                                <div key={tailor.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:border-brand-300 transition-all">
+                                    <div className="flex items-center gap-4 mb-4">
+                                        <div className="w-12 h-12 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-lg">{tailor.nom.charAt(0)}</div>
+                                        <div><h3 className="font-bold text-gray-800">{tailor.nom}</h3><p className="text-xs text-gray-500 uppercase tracking-tighter">{tailor.role}</p></div>
+                                        <div className={`ml-auto w-3 h-3 rounded-full ${tailor.actif !== false ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                                    </div>
+                                    <div className="space-y-3">
+                                        <div className="flex justify-between text-sm"><span className="text-gray-500">Tâches en cours</span><span className="font-bold text-brand-600">{activeTasks.length}</span></div>
+                                        <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden"><div className="bg-brand-500 h-full transition-all" style={{ width: `${Math.min(100, activeTasks.length * 20)}%` }}></div></div>
+                                        <div className="pt-2 border-t border-gray-50">
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Assignations</p>
+                                            {activeTasks.slice(0, 3).map(t => (<div key={t.id} className="flex justify-between text-[10px] py-1 border-b border-gray-50 last:border-0"><span>{t.action} x{t.quantite}</span><span className="text-gray-400">{new Date(t.date).toLocaleDateString()}</span></div>))}
+                                            {activeTasks.length === 0 && <p className="text-[10px] italic text-gray-400">Aucune tâche assignée.</p>}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {tailleurs.length === 0 && <div className="col-span-full py-10 text-center text-gray-400 italic">Aucun tailleur actif trouvé.</div>}
+                    </div>
+                )}
+
+                {/* --- PERFORMANCE (RESTORED) --- */}
                 {viewMode === 'PERFORMANCE' && (
                     <div className="space-y-6 overflow-y-auto h-full p-1">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -466,6 +522,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                             </td>
                                         </tr>
                                     ))}
+                                    {filteredCommandes.length === 0 && <tr><td colSpan={7} className="p-10 text-center text-gray-400 italic">Aucune commande trouvée dans l'historique.</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -527,18 +584,24 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Montant Reçu</label><input type="number" className="w-full p-2 border rounded font-bold text-lg text-brand-700" value={payAmount} onChange={e => setPayAmount(parseInt(e.target.value)||0)}/></div>
                             <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Caisse de Destination</label><select className="w-full p-2 border rounded text-sm" value={payAccount} onChange={e => setPayAccount(e.target.value)}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
                             <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Méthode</label><select className="w-full p-2 border rounded text-sm" value={payMethod} onChange={e => setPayMethod(e.target.value as ModePaiement)}><option value="ESPECE">Espèce</option><option value="WAVE">Wave</option><option value="ORANGE_MONEY">Orange Money</option><option value="VIREMENT">Virement</option></select></div>
+                            {/* FIX: Added date input to set payDate */}
+                            <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Date Paiement</label><input type="date" className="w-full p-2 border rounded text-sm" value={payDate} onChange={e => setPayDate(e.target.value)}/></div>
                         </div>
-                        <div className="flex justify-end gap-3 mt-6"><button onClick={() => setPaymentModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Annuler</button><button onClick={() => { if(!payAccount) { alert("Choisissez une caisse."); return; } onAddPayment(selectedOrderForPayment.id, payAmount, payMethod, "Règlement atelier", new Date().toISOString(), payAccount); setPaymentModalOpen(false); }} className="px-6 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 shadow-md">Valider Encaissement</button></div>
+                        {/* FIX: Corrected onClick to use defined variables and added payDate to onAddPayment call */}
+                        <div className="flex justify-end gap-3 mt-6"><button onClick={() => setPaymentModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Annuler</button><button onClick={() => { if(!payAccount) { alert("Choisissez une caisse."); return; } onAddPayment(selectedOrderForPayment.id, payAmount, payMethod, "Règlement atelier", payDate, payAccount); setPaymentModalOpen(false); }} className="px-6 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 shadow-md">Valider Encaissement</button></div>
                     </div>
                 </div>
             )}
 
-            {/* Added missing QRScannerModal render to fix scanner access */}
             {isScannerOpen && (
                 <QRScannerModal 
                     isOpen={isScannerOpen} 
                     onClose={() => setIsScannerOpen(false)} 
-                    onScan={handleScanAttendance} 
+                    onScan={(text) => {
+                        const emp = employes.find(e => e.id === text.trim());
+                        if (emp) setSearchTerm(emp.nom);
+                        setIsScannerOpen(false);
+                    }} 
                 />
             )}
         </div>
