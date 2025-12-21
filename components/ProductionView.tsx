@@ -112,8 +112,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             const rule = mapping[task.action];
             if (rule) {
                 // On s'assure que la colonne de départ a assez de pièces
-                // Sinon on prend ce qu'il y a (cas d'incohérence manuelle précédente)
                 const availableInSource = newRepartition[rule.from] || 0;
+                // On déplace au maximum la quantité de la tâche, sans dépasser ce qui est dispo dans la colonne
                 const qtyToMove = Math.min(task.quantite, availableInSource);
                 
                 if (qtyToMove > 0) {
@@ -222,11 +222,15 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         const order = commandes.find(c => c.id === newTaskData.orderId);
         if (!order) return;
 
+        // VERIFICATION : Ne pas assigner plus que la quantité de la commande
+        const maxAssignable = order.quantite;
+        const finalQty = Math.min(newTaskData.quantite, maxAssignable);
+
         const newTask: TacheProduction = {
             id: `TASK_${Date.now()}`, 
             commandeId: order.id, 
             action: newTaskData.action,
-            quantite: newTaskData.quantite, 
+            quantite: finalQty, 
             date: planningTarget.date.toISOString().split('T')[0], 
             tailleurId: planningTarget.tailorId, 
             statut: 'A_FAIRE',
@@ -349,9 +353,20 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-2 space-y-3">
                                     {filteredCommandes.filter(c => (c.repartitionStatuts?.[status] || 0) > 0 || (!c.repartitionStatuts && c.statut === status)).map(order => {
-                                        // CORRECTION : Calcul du ratio par pièces terminées vs pièces commande
-                                        const donePieces = (order.taches || []).filter(t => t.statut === 'FAIT').reduce((acc,t)=>acc+t.quantite, 0);
+                                        // CORRECTION : Progression spécifique à l'étape actuelle pour éviter les cumuls types "5/2"
+                                        let actionKey: ActionProduction = 'COUTURE';
+                                        if (status === StatutCommande.EN_COUPE) actionKey = 'COUPE';
+                                        else if (status === StatutCommande.COUTURE) actionKey = 'COUTURE';
+                                        else if (status === StatutCommande.FINITION) actionKey = 'FINITION';
+                                        
                                         const totalPieces = order.quantite; 
+                                        const donePiecesInStage = (order.taches || [])
+                                            .filter(t => t.statut === 'FAIT' && t.action === actionKey)
+                                            .reduce((acc, t) => acc + t.quantite, 0);
+
+                                        // On plafonne l'affichage à la quantité de la commande
+                                        const safeDone = Math.min(donePiecesInStage, totalPieces);
+                                        
                                         return (
                                             <div key={order.id} draggable onDragStart={() => handleDragStart(order.id, status)} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 cursor-grab hover:border-brand-300">
                                                 <div className="flex justify-between items-start mb-1 text-[10px] font-mono text-gray-400">
@@ -362,9 +377,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                 <p className="text-[10px] text-gray-500 line-clamp-2">{order.description}</p>
                                                 <div className="mt-2 flex items-center gap-2">
                                                     <div className="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
-                                                        <div className={`h-full ${donePieces >= totalPieces ? 'bg-green-500' : 'bg-brand-500'}`} style={{ width: `${Math.min(100, (donePieces/totalPieces)*100)}%` }}></div>
+                                                        <div className={`h-full ${safeDone >= totalPieces ? 'bg-green-500' : 'bg-brand-500'}`} style={{ width: `${(safeDone/totalPieces)*100}%` }}></div>
                                                     </div>
-                                                    <span className={`text-[8px] font-bold ${donePieces >= totalPieces ? 'text-green-600' : 'text-brand-600'}`}>{donePieces}/{totalPieces} pc.</span>
+                                                    <span className={`text-[8px] font-bold ${safeDone >= totalPieces ? 'text-green-600' : 'text-brand-600'}`}>{safeDone}/{totalPieces} pc.</span>
                                                 </div>
                                             </div>
                                         );
