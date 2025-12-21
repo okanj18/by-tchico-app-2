@@ -96,32 +96,32 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         let newRepartition = { ...(order.repartitionStatuts || { [StatutCommande.EN_ATTENTE]: order.quantite }) };
         
         if (newStatut === 'FAIT') {
-            // Le principe : Une action terminée fait passer les pièces au statut suivant dans KANBAN_STATUS_ORDER
-            // On identifie le statut source associé à l'action
-            const actionToStatus: Record<string, StatutCommande> = {
-                'COUPE': StatutCommande.EN_COUPE,
-                'COUTURE': StatutCommande.COUTURE,
-                'FINITION': StatutCommande.FINITION,
-                'REPASSAGE': StatutCommande.FINITION // Repassage fait partie de la finition
+            // MAPPING ACTION -> TRANSITION DE STATUT KANBAN
+            const transitions: Record<string, { from: StatutCommande, to: StatutCommande }> = {
+                'COUPE': { from: StatutCommande.EN_ATTENTE, to: StatutCommande.EN_COUPE },
+                'COUTURE': { from: StatutCommande.EN_COUPE, to: StatutCommande.COUTURE },
+                'FINITION': { from: StatutCommande.COUTURE, to: StatutCommande.FINITION },
+                'REPASSAGE': { from: StatutCommande.FINITION, to: StatutCommande.PRET }
             };
 
-            const sourceStatus = actionToStatus[task.action];
-            if (sourceStatus) {
-                const currentIdx = KANBAN_STATUS_ORDER.indexOf(sourceStatus);
-                const targetStatus = KANBAN_STATUS_ORDER[currentIdx + 1] || StatutCommande.PRET;
-                
-                const availableInSource = newRepartition[sourceStatus] || 0;
+            const rule = transitions[task.action];
+            if (rule) {
+                // On vérifie qu'il y a assez de pièces dans l'étape source pour les faire avancer
+                const availableInSource = newRepartition[rule.from] || 0;
                 const qtyToMove = Math.min(task.quantite, availableInSource);
                 
                 if (qtyToMove > 0) {
-                    newRepartition[sourceStatus] -= qtyToMove;
-                    if (newRepartition[sourceStatus] <= 0) delete newRepartition[sourceStatus];
-                    newRepartition[targetStatus] = (newRepartition[targetStatus] || 0) + qtyToMove;
+                    newRepartition[rule.from] -= qtyToMove;
+                    if (newRepartition[rule.from] <= 0) delete newRepartition[rule.from];
+                    newRepartition[rule.to] = (newRepartition[rule.to] || 0) + qtyToMove;
                 }
             }
+        } else {
+            // OPTIONNEL: ROLLBACK si on remet en "À FAIRE"
+            // (Nécessite de connaître le statut cible pour faire l'inverse)
         }
 
-        // Recalculer le statut global de la commande (le plus avancé avec des pièces)
+        // Recalculer le statut global de la commande
         let mostAdvanced = StatutCommande.EN_ATTENTE;
         KANBAN_STATUS_ORDER.forEach(s => { if ((newRepartition[s] || 0) > 0) mostAdvanced = s as StatutCommande; });
         if ((newRepartition[StatutCommande.LIVRE] || 0) > 0 && Object.keys(newRepartition).length === 1) mostAdvanced = StatutCommande.LIVRE;
@@ -136,18 +136,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         const order = commandes.find(c => c.id === orderId);
         if (!order) return;
         
-        // On récupère la quantité présente dans la colonne source
         const currentQty = order.repartitionStatuts ? (order.repartitionStatuts[fromStatus] || 0) : (order.statut === fromStatus ? order.quantite : 0);
         if (currentQty <= 0) return;
 
-        setKanbanMoveModal({ 
-            order, 
-            fromStatus: fromStatus as StatutCommande, 
-            toStatus, 
-            maxQty: currentQty, 
-            qty: currentQty, 
-            assignTailorId: '' 
-        });
+        setKanbanMoveModal({ order, fromStatus: fromStatus as StatutCommande, toStatus, maxQty: currentQty, qty: currentQty, assignTailorId: '' });
     };
 
     const executeKanbanMove = () => {
@@ -155,18 +147,15 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         const { order, fromStatus, toStatus, qty, assignTailorId } = kanbanMoveModal;
         const newRepartition = { ...(order.repartitionStatuts || { [order.statut]: order.quantite }) };
         
-        // Soustraire de la source, ajouter à la destination
         newRepartition[fromStatus] = (newRepartition[fromStatus] || 0) - qty;
         if (newRepartition[fromStatus] <= 0) delete newRepartition[fromStatus];
         newRepartition[toStatus] = (newRepartition[toStatus] || 0) + qty;
 
-        // Statut global : Le plus avancé dans le flux KANBAN_STATUS_ORDER qui a au moins 1 pièce
-        let mostAdvanced = StatutCommande.EN_ATTENTE;
+        let mostAdvanced = order.statut as StatutCommande;
         KANBAN_STATUS_ORDER.forEach(s => { if ((newRepartition[s] || 0) > 0) mostAdvanced = s as StatutCommande; });
 
         let updatedTaches = [...(order.taches || [])];
         if (assignTailorId) {
-            // Associer une action selon la colonne cible
             let action: ActionProduction = 'COUTURE';
             if (toStatus === StatutCommande.EN_COUPE) action = 'COUPE';
             else if (toStatus === StatutCommande.FINITION) action = 'FINITION';
@@ -189,7 +178,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const handleSaveQuickOrder = () => {
         const totalQty = (newOrderData.elements || []).reduce((acc, el) => acc + el.quantite, 0);
         if (!newOrderData.clientId || totalQty <= 0 || !newOrderData.prixTotal || !payAccount) {
-            alert("Veuillez remplir : client, articles, prix total et choisir une caisse.");
+            alert("Remplissez client, articles, prix et choisissez une caisse.");
             return;
         }
         const client = clients.find(c => c.id === newOrderData.clientId);
@@ -218,7 +207,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
     const handleConfirmPayment = () => {
         if (!selectedOrderForPayment || payAmount <= 0) return;
-        if (!payAccount) { alert("Veuillez sélectionner un compte."); return; }
+        if (!payAccount) { alert("Choisissez une caisse."); return; }
         onAddPayment(selectedOrderForPayment.id, payAmount, payMethod, "Versement production", payDate, payAccount);
         setPaymentModalOpen(false);
         setSelectedOrderForPayment(null);
@@ -229,13 +218,19 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         return commandes.flatMap(c => c.taches || []).filter(t => t.statut === 'A_FAIRE' && t.date < todayStr).length;
     };
 
+    // --- HELPER VISIBILITÉ TAILLEURS ---
+    const getAssignedTailorsNames = (order: Commande) => {
+        const activeTailsIds = Array.from(new Set((order.taches || []).filter(t => t.statut === 'A_FAIRE').map(t => t.tailleurId)));
+        return activeTailsIds.map(id => employes.find(e => e.id === id)?.nom).filter(Boolean);
+    };
+
     return (
         <div className="space-y-6 h-[calc(100vh-8rem)] flex flex-col">
             {/* NAVIGATION HEADER */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                 <div className="flex items-center gap-3">
                     <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier Production</h2>
-                    <button onClick={() => setOrderModalOpen(true)} className="bg-brand-600 text-white px-3 py-2 rounded-lg flex items-center gap-2 text-xs font-bold hover:bg-brand-700 shadow-md"><Plus size={14}/> Nouvelle Commande</button>
+                    <button onClick={() => setOrderModalOpen(true)} className="bg-brand-600 text-white px-3 py-2 rounded-lg flex items-center gap-2 text-xs font-bold hover:bg-brand-700 shadow-md transition-transform active:scale-95"><Plus size={14}/> Nouvelle Commande</button>
                 </div>
                 <div className="flex flex-wrap bg-white border p-1 rounded-lg shadow-sm">
                     {[
@@ -261,7 +256,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             <div className="flex items-center gap-2">
                                 <button onClick={() => { const d = new Date(agendaBaseDate); d.setDate(d.getDate()-7); setAgendaBaseDate(d); }} className="p-1.5 hover:bg-gray-200 rounded border border-gray-300"><ChevronLeft size={18}/></button>
                                 <button onClick={() => { const d = new Date(agendaBaseDate); d.setDate(d.getDate()+7); setAgendaBaseDate(d); }} className="p-1.5 hover:bg-gray-200 rounded border border-gray-300"><ChevronRight size={18}/></button>
-                                <span className="font-bold text-sm ml-2">Calendrier de Production</span>
+                                <span className="font-bold text-sm ml-2">Flux Artisanat</span>
                             </div>
                             {getOverdueCount() > 0 && (
                                 <div className="bg-red-100 text-red-700 px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-2 animate-pulse">
@@ -299,7 +294,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                                 const isTodayUndone = t.statut === 'A_FAIRE' && t.date === todayStr;
                                                                 return (
                                                                     <div key={t.id} onClick={(e) => { e.stopPropagation(); handleTaskStatusChange(t.order, t, t.statut === 'A_FAIRE' ? 'FAIT' : 'A_FAIRE'); }}
-                                                                        className={`p-1.5 rounded text-[9px] border shadow-sm transition-all hover:scale-105 ${
+                                                                        className={`p-1.5 rounded text-[9px] border shadow-sm transition-all hover:scale-105 active:scale-95 ${
                                                                             t.statut === 'FAIT' ? 'bg-green-100 text-green-800 border-green-200 opacity-60' :
                                                                             isLate ? 'bg-red-500 text-white border-red-600 font-bold' :
                                                                             isTodayUndone ? 'bg-orange-100 text-orange-800 border-orange-300 border-l-4 border-l-orange-600' :
@@ -325,7 +320,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     </div>
                 )}
 
-                {/* 2. KANBAN (Flux de pièces) */}
+                {/* 2. KANBAN (Flux de pièces avec artisans visibles) */}
                 {viewMode === 'KANBAN' && (
                     <div className="flex gap-4 h-full overflow-x-auto pb-4 custom-scrollbar">
                         {KANBAN_STATUS_ORDER.map((status) => (
@@ -343,11 +338,24 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                     {filteredCommandes.filter(c => (c.repartitionStatuts?.[status] || 0) > 0 || (!c.repartitionStatuts && c.statut === status)).map(order => {
                                         const repartition = order.repartitionStatuts || { [order.statut]: order.quantite };
                                         const qtyInColumn = repartition[status] || 0;
+                                        const assignedNames = getAssignedTailorsNames(order);
+
                                         return (
                                             <div key={order.id} draggable onDragStart={(e) => e.dataTransfer.setData('orderMove', JSON.stringify({id: order.id, from: status}))} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 cursor-grab hover:border-brand-300 transition-shadow">
                                                 <div className="flex justify-between items-start mb-1 text-[10px] font-mono text-gray-400"><span>#{order.id.slice(-6)}</span><span className="bg-brand-50 text-brand-700 px-1.5 rounded font-bold">Qté: {qtyInColumn}</span></div>
                                                 <p className="font-bold text-gray-800 text-sm mb-1">{order.clientNom}</p>
                                                 <p className="text-[10px] text-gray-500 italic line-clamp-1 border-l pl-2">{order.description}</p>
+                                                
+                                                {/* Artisans assignés */}
+                                                {assignedNames.length > 0 && (
+                                                    <div className="mt-2 pt-2 border-t flex flex-wrap gap-1">
+                                                        {assignedNames.map(name => (
+                                                            <span key={name} className="text-[8px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100 font-bold flex items-center gap-1">
+                                                                <Users size={8}/> {name}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })}
@@ -361,7 +369,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 {(viewMode === 'ORDERS' || viewMode === 'HISTORY') && (
                     <div className="bg-white border rounded-xl overflow-hidden shadow-sm h-full flex flex-col">
                         <div className="p-3 bg-gray-50 border-b flex items-center justify-between shrink-0">
-                            <div className="relative w-64"><Search className="absolute left-2 top-2 text-gray-400" size={14}/><input type="text" placeholder="Rechercher..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-8 pr-3 py-1.5 border rounded-lg text-xs bg-white focus:ring-2 focus:ring-brand-500"/></div>
+                            <div className="relative w-64"><Search className="absolute left-2 top-2 text-gray-400" size={14}/><input type="text" placeholder="Rechercher..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-8 pr-3 py-1.5 border rounded-lg text-xs bg-white"/></div>
                             {viewMode === 'HISTORY' && (
                                 <select className="text-xs p-1.5 border rounded-lg bg-white font-bold" value={historyFilterStatus} onChange={e => setHistoryFilterStatus(e.target.value)}>
                                     <option value="ALL">Tout l'historique archivé</option>
@@ -377,42 +385,53 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         <th className="p-3">Client / Commande</th>
                                         <th className="p-3 text-right">Reste</th>
                                         <th className="p-3">Flux Production</th>
+                                        <th className="p-3">Équipe Assignée</th>
                                         <th className="p-3 text-right">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
-                                    {filteredCommandes.map(order => (
-                                        <tr key={order.id} className={`hover:bg-gray-50 transition-colors ${order.archived ? 'opacity-60 bg-gray-50' : ''}`}>
-                                            <td className="p-3">
-                                                <div className="font-bold text-gray-800">{order.clientNom}</div>
-                                                <div className="text-[10px] text-gray-400 mt-0.5">#{order.id.slice(-6)} • {order.description}</div>
-                                                <div className="text-[10px] text-orange-600 font-bold mt-1">Livraison: {new Date(order.dateLivraisonPrevue).toLocaleDateString()}</div>
-                                            </td>
-                                            <td className={`p-3 text-right font-bold ${order.reste > 0 ? 'text-red-600' : 'text-green-600'}`}>{order.reste.toLocaleString()} F</td>
-                                            <td className="p-3">
-                                                <div className="flex flex-wrap gap-1">
-                                                    {KANBAN_STATUS_ORDER.map(s => (order.repartitionStatuts?.[s] || 0) > 0 && (
-                                                        <span key={s} className="px-1.5 py-0.5 bg-brand-50 text-brand-700 rounded text-[9px] font-bold border border-brand-100">{s}({order.repartitionStatuts![s]})</span>
-                                                    ))}
-                                                    {(order.repartitionStatuts?.[StatutCommande.LIVRE] || 0) > 0 && (
-                                                        <span className="px-1.5 py-0.5 bg-green-50 text-green-700 rounded text-[9px] font-bold border border-green-200">LIVRÉ({order.repartitionStatuts![StatutCommande.LIVRE]})</span>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="p-3 text-right">
-                                                <div className="flex justify-end gap-1">
-                                                    {(order.repartitionStatuts?.[StatutCommande.PRET] || 0) > 0 && (
-                                                        <button onClick={() => setDeliveryModal({ order, maxQty: order.repartitionStatuts![StatutCommande.PRET], qty: order.repartitionStatuts![StatutCommande.PRET] })} className="px-2 py-1 text-green-600 bg-green-50 border border-green-200 hover:bg-green-100 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm transition-transform active:scale-95"><Truck size={14}/> LIVRER</button>
-                                                    )}
-                                                    {order.reste > 0 && !order.archived && <button onClick={() => {setSelectedOrderForPayment(order); setPayAmount(order.reste); setPaymentModalOpen(true);}} className="p-1.5 text-orange-600 hover:bg-orange-50 rounded-lg transition-all" title="Encaisser"><DollarSign size={18}/></button>}
-                                                    <button onClick={() => alert(`Acomptes:\n${order.paiements?.map(p => `- ${new Date(p.date).toLocaleDateString()} : ${p.montant} F`).join('\n') || 'Aucun versement.'}`)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all" title="Historique règlements"><Eye size={18}/></button>
-                                                    {!order.archived && (order.statut === StatutCommande.LIVRE || order.statut === StatutCommande.ANNULE) && (
-                                                        <button onClick={() => onArchiveOrder(order.id)} className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all" title="Archiver la commande"><Archive size={18}/></button>
-                                                    )}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {filteredCommandes.map(order => {
+                                        const artisans = getAssignedTailorsNames(order);
+                                        return (
+                                            <tr key={order.id} className={`hover:bg-gray-50 transition-colors ${order.archived ? 'opacity-60 bg-gray-50' : ''}`}>
+                                                <td className="p-3">
+                                                    <div className="font-bold text-gray-800">{order.clientNom}</div>
+                                                    <div className="text-[10px] text-gray-400 mt-0.5">#{order.id.slice(-6)} • {order.description}</div>
+                                                </td>
+                                                <td className={`p-3 text-right font-bold ${order.reste > 0 ? 'text-red-600' : 'text-green-600'}`}>{order.reste.toLocaleString()} F</td>
+                                                <td className="p-3">
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {KANBAN_STATUS_ORDER.map(s => (order.repartitionStatuts?.[s] || 0) > 0 && (
+                                                            <span key={s} className="px-1.5 py-0.5 bg-brand-50 text-brand-700 rounded text-[9px] font-bold border border-brand-100">{s}({order.repartitionStatuts![s]})</span>
+                                                        ))}
+                                                        {(order.repartitionStatuts?.[StatutCommande.LIVRE] || 0) > 0 && (
+                                                            <span className="px-1.5 py-0.5 bg-green-50 text-green-700 rounded text-[9px] font-bold border border-green-200">LIVRÉ({order.repartitionStatuts![StatutCommande.LIVRE]})</span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="p-3">
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {artisans.map(name => (
+                                                            <span key={name} className="text-[9px] text-gray-600 border px-1.5 rounded">{name}</span>
+                                                        ))}
+                                                        {artisans.length === 0 && <span className="text-[9px] text-gray-300 italic">Non assigné</span>}
+                                                    </div>
+                                                </td>
+                                                <td className="p-3 text-right">
+                                                    <div className="flex justify-end gap-1">
+                                                        {(order.repartitionStatuts?.[StatutCommande.PRET] || 0) > 0 && (
+                                                            <button onClick={() => setDeliveryModal({ order, maxQty: order.repartitionStatuts![StatutCommande.PRET], qty: order.repartitionStatuts![StatutCommande.PRET] })} className="px-2 py-1 text-green-600 bg-green-50 border border-green-200 hover:bg-green-100 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm transition-transform active:scale-95"><Truck size={14}/> LIVRER</button>
+                                                        )}
+                                                        {order.reste > 0 && !order.archived && <button onClick={() => {setSelectedOrderForPayment(order); setPayAmount(order.reste); setPaymentModalOpen(true);}} className="p-1.5 text-orange-600 hover:bg-orange-50 rounded-lg transition-all" title="Encaisser"><DollarSign size={18}/></button>}
+                                                        <button onClick={() => { setNewTaskData({...newTaskData, orderId: order.id}); setTaskModalOpen(true); }} className="p-1.5 text-brand-600 hover:bg-brand-50 rounded-lg border border-transparent hover:border-brand-200 transition-all" title="Assigner un tailleur"><UserPlus size={18}/></button>
+                                                        {!order.archived && (order.statut === StatutCommande.LIVRE || order.statut === StatutCommande.ANNULE) && (
+                                                            <button onClick={() => onArchiveOrder(order.id)} className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all" title="Archiver la commande"><Archive size={18}/></button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
@@ -470,8 +489,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 )}
             </div>
 
-            {/* MODALS RESTAURÉS */}
-            
+            {/* MODALS (Identiques à la version précédente avec logique stable) */}
             {orderModalOpen && (
                 <div className="fixed inset-0 bg-black/60 z-[160] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-md animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
@@ -548,21 +566,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     </div>
                 </div>
             )}
-
-            {/* MODAL ENCAISSEMENT */}
-            {paymentModalOpen && selectedOrderForPayment && (
-                <div className="fixed inset-0 bg-black/60 z-[160] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200">
-                        <div className="flex justify-between items-center mb-8"><h3 className="text-xl font-bold flex items-center gap-2 text-green-700 uppercase tracking-tighter"><Wallet size={24}/> Encaisser Reliquat</h3><button onClick={() => setPaymentModalOpen(false)}><X size={24}/></button></div>
-                        <div className="space-y-6">
-                            <div><label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Montant Reçu (Reste: {selectedOrderForPayment.reste} F)</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-xl text-brand-700 bg-gray-50 outline-none" value={payAmount} onChange={e => setPayAmount(parseInt(e.target.value)||0)}/></div>
-                            <div><label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Caisse de destination</label><select className="w-full p-3 border-2 border-blue-300 rounded-xl text-sm font-bold bg-blue-50 outline-none" value={payAccount} onChange={e => setPayAccount(e.target.value)}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
-                        </div>
-                        <div className="flex justify-end gap-3 mt-10"><button onClick={() => setPaymentModalOpen(false)} className="px-6 py-2 text-gray-500 font-bold uppercase text-xs">Annuler</button><button onClick={handleConfirmPayment} disabled={!payAccount} className="px-10 py-3 bg-green-600 text-white rounded-xl font-bold uppercase text-xs shadow-lg shadow-green-100 disabled:opacity-50">Confirmer</button></div>
-                    </div>
-                </div>
-            )}
-
+            
             {/* MODAL LIVRAISON PARTIELLE */}
             {deliveryModal && (
                 <div className="fixed inset-0 bg-black/60 z-[150] flex items-center justify-center p-4">
@@ -577,11 +581,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             if (newRep[StatutCommande.PRET] <= 0) delete newRep[StatutCommande.PRET];
                             newRep[StatutCommande.LIVRE] = (newRep[StatutCommande.LIVRE] || 0) + qty;
                             
-                            // Si toutes les pièces du total sont livrées
                             const piecesRestantes = Object.keys(newRep).filter(k => k !== StatutCommande.LIVRE).reduce((acc, k) => acc + (newRep[k] || 0), 0);
-                            const fullyDelivered = piecesRestantes === 0;
-                            
-                            onUpdateOrder({ ...order, repartitionStatuts: newRep, statut: fullyDelivered ? StatutCommande.LIVRE : order.statut as StatutCommande });
+                            onUpdateOrder({ ...order, repartitionStatuts: newRep, statut: piecesRestantes === 0 ? StatutCommande.LIVRE : order.statut as StatutCommande });
                             setDeliveryModal(null);
                         }} className="px-8 py-3 bg-green-600 text-white rounded-xl font-bold uppercase text-xs shadow-lg shadow-green-100">Valider</button></div>
                     </div>
