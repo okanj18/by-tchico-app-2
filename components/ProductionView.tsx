@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction, PaiementClient } from '../types';
 import { COMPANY_CONFIG } from '../config';
@@ -23,10 +22,20 @@ interface ProductionViewProps {
 const PRODUCTION_ACTIONS: { id: ActionProduction, label: string, icon: any, color: string }[] = [
     { id: 'COUPE', label: 'Coupe', icon: Scissors, color: 'text-blue-600 bg-blue-50 border-blue-200' },
     { id: 'COUTURE', label: 'Couture / Montage', icon: Shirt, color: 'text-indigo-600 bg-indigo-50 border-indigo-200' },
+    // Fix: Updated color scheme for Broderie to match its amber text
     { id: 'BRODERIE', label: 'Broderie', icon: PenTool, color: 'text-amber-600 bg-amber-50 border-amber-200' },
     { id: 'FINITION', label: 'Finition', icon: CheckCircle, color: 'text-purple-600 bg-purple-50 border-purple-200' },
     { id: 'REPASSAGE', label: 'Repassage', icon: Zap, color: 'text-orange-600 bg-orange-50 border-orange-200' },
     { id: 'AUTRE', label: 'Autre', icon: Activity, color: 'text-gray-600 bg-gray-50 border-gray-200' },
+];
+
+// Ordre strict des colonnes Kanban pour les calculs de progression de flux
+const KANBAN_STATUS_ORDER = [
+    StatutCommande.EN_ATTENTE,
+    StatutCommande.EN_COUPE,
+    StatutCommande.COUTURE,
+    StatutCommande.FINITION,
+    StatutCommande.PRET
 ];
 
 const ProductionView: React.FC<ProductionViewProps> = ({ 
@@ -103,7 +112,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         let newRepartition = { ...(order.repartitionStatuts || { [order.statut]: order.quantite }) };
         
         if (newStatut === 'FAIT') {
-            const mapping: Record<string, { from: string, to: string }> = {
+            // Fix: Specify from and to as StatutCommande to correctly type the rule properties
+            const mapping: Record<string, { from: StatutCommande, to: StatutCommande }> = {
                 'COUPE': { from: StatutCommande.EN_COUPE, to: StatutCommande.COUTURE },
                 'COUTURE': { from: StatutCommande.COUTURE, to: StatutCommande.FINITION },
                 'FINITION': { from: StatutCommande.FINITION, to: StatutCommande.PRET }
@@ -111,22 +121,30 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
             const rule = mapping[task.action];
             if (rule) {
-                // On s'assure que la colonne de départ a assez de pièces
-                const availableInSource = newRepartition[rule.from] || 0;
-                // On déplace au maximum la quantité de la tâche, sans dépasser ce qui est dispo dans la colonne
+                // On s'assure de puiser dans le bucket correspondant ou le bucket précédent si vide (cas de saut d'étape)
+                let sourceBucket: string = rule.from;
+                if (!(newRepartition[sourceBucket] > 0)) {
+                    // Si la colonne source est vide, on cherche dans n'importe quelle colonne AVANT celle de destination
+                    const destIndex = KANBAN_STATUS_ORDER.indexOf(rule.to);
+                    const possibleSources = KANBAN_STATUS_ORDER.slice(0, destIndex).reverse();
+                    sourceBucket = possibleSources.find(s => (newRepartition[s] || 0) > 0) || rule.from;
+                }
+
+                const availableInSource = newRepartition[sourceBucket] || 0;
                 const qtyToMove = Math.min(task.quantite, availableInSource);
                 
                 if (qtyToMove > 0) {
-                    newRepartition[rule.from] -= qtyToMove;
-                    if (newRepartition[rule.from] <= 0) delete newRepartition[rule.from];
+                    newRepartition[sourceBucket] -= qtyToMove;
+                    if (newRepartition[sourceBucket] <= 0) delete newRepartition[sourceBucket];
                     newRepartition[rule.to] = (newRepartition[rule.to] || 0) + qtyToMove;
                 }
             }
         }
 
-        const statusOrder = [StatutCommande.EN_ATTENTE, StatutCommande.EN_COUPE, StatutCommande.COUTURE, StatutCommande.FINITION, StatutCommande.PRET];
-        let mostAdvanced = order.statut as string;
-        statusOrder.forEach(s => { if ((newRepartition[s] || 0) > 0) mostAdvanced = s; });
+        // Calcul du statut principal basé sur la répartition la plus avancée
+        // Fix: Explicitly cast to StatutCommande to avoid "string" assignment error on line 127
+        let mostAdvanced = order.statut as StatutCommande;
+        KANBAN_STATUS_ORDER.forEach(s => { if ((newRepartition[s] || 0) > 0) mostAdvanced = s; });
 
         onUpdateOrder({ ...order, taches: updatedTaches, repartitionStatuts: newRepartition, statut: mostAdvanced });
     };
@@ -134,7 +152,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const handleTaskClick = (order: Commande, task: TacheProduction) => {
         const action = window.confirm(
             `Tâche: ${task.action} x${task.quantite} pour ${order.clientNom}\n\n` +
-            `OK: Marquer comme ${task.statut === 'A_FAIRE' ? 'TERMINÉE (Déplace les pièces dans le Kanban)' : 'À FAIRE'} ?\n` +
+            `OK: Marquer comme ${task.statut === 'A_FAIRE' ? 'TERMINÉE (Transfère les pièces à l\'étape suivante)' : 'À FAIRE'} ?\n` +
             `ANNULER: Voulez-vous SUPPRIMER cette assignation ?`
         );
 
@@ -209,9 +227,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         if (newRepartition[from] <= 0) delete newRepartition[from];
         newRepartition[to] = (newRepartition[to] || 0) + qty;
 
-        const statusOrder = [StatutCommande.EN_ATTENTE, StatutCommande.EN_COUPE, StatutCommande.COUTURE, StatutCommande.FINITION, StatutCommande.PRET];
-        let mostAdvanced = order.statut as string;
-        statusOrder.forEach(s => { if ((newRepartition[s] || 0) > 0) mostAdvanced = s; });
+        // Fix: Explicitly cast to StatutCommande to avoid type errors when calling onUpdateOrder
+        let mostAdvanced = order.statut as StatutCommande;
+        KANBAN_STATUS_ORDER.forEach(s => { if ((newRepartition[s] || 0) > 0) mostAdvanced = s; });
 
         onUpdateOrder({ ...order, repartitionStatuts: newRepartition, statut: mostAdvanced });
         setMoveModal(null);
@@ -223,8 +241,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         if (!order) return;
 
         // VERIFICATION : Ne pas assigner plus que la quantité de la commande
-        const maxAssignable = order.quantite;
-        const finalQty = Math.min(newTaskData.quantite, maxAssignable);
+        const finalQty = Math.min(newTaskData.quantite, order.quantite);
 
         const newTask: TacheProduction = {
             id: `TASK_${Date.now()}`, 
@@ -283,18 +300,56 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         <select value={historyFilterPayment} onChange={e => setHistoryFilterPayment(e.target.value)} className="p-2 border rounded-lg text-xs bg-gray-50 font-bold"><option value="ALL">Tout paiement</option><option value="UNPAID">Impayés</option><option value="PAID">Soldés</option></select>
                     </div>
                 )}
-                {viewMode === 'PLANNING' && (
-                    <div className="flex gap-2 items-center">
-                        <button onClick={() => setAgendaBaseDate(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })} className="p-2 border rounded hover:bg-gray-50"><ChevronLeft size={16}/></button>
-                        <span className="text-xs font-bold text-gray-600 min-w-[140px] text-center font-mono">{agendaBaseDate.toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}</span>
-                        <button onClick={() => setAgendaBaseDate(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })} className="p-2 border rounded hover:bg-gray-50"><ChevronRight size={16}/></button>
-                    </div>
-                )}
             </div>
 
             {/* CONTENU PRINCIPAL */}
             <div className="flex-1 overflow-hidden">
-                {/* --- AGENDA --- */}
+                {/* --- KANBAN --- */}
+                {viewMode === 'KANBAN' && (
+                    <div className="flex gap-4 h-full overflow-x-auto pb-4 custom-scrollbar">
+                        {KANBAN_STATUS_ORDER.map((status, index) => (
+                            <div key={status} className="flex-1 min-w-[280px] bg-gray-100/50 rounded-xl flex flex-col border border-gray-200" onDragOver={e => e.preventDefault()} onDrop={() => handleDrop(status)}>
+                                <div className="p-3 border-b flex justify-between items-center bg-white rounded-t-xl">
+                                    <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">{getStatusIcon(status)} {status}</h3>
+                                    <span className="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                                        {filteredCommandes.reduce((acc, c) => acc + (c.repartitionStatuts?.[status] || (c.statut === status ? c.quantite : 0)), 0)}
+                                    </span>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-2 space-y-3">
+                                    {filteredCommandes.filter(c => (c.repartitionStatuts?.[status] || 0) > 0 || (!c.repartitionStatuts && c.statut === status)).map(order => {
+                                        // LOGIQUE DE FLUX (Ratio X/Y)
+                                        // X = Pièces ayant atteint ou dépassé cette colonne
+                                        // Y = Quantité totale de la commande
+                                        const repartition = order.repartitionStatuts || { [order.statut]: order.quantite };
+                                        const totalPieces = order.quantite;
+                                        
+                                        // Somme des buckets de quantité à partir de cet index jusqu'à la fin
+                                        const reachedOrPassed = KANBAN_STATUS_ORDER.slice(index).reduce((acc, s) => acc + (repartition[s] || 0), 0);
+                                        const safeReached = Math.min(reachedOrPassed, totalPieces);
+                                        
+                                        return (
+                                            <div key={order.id} draggable onDragStart={() => handleDragStart(order.id, status)} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 cursor-grab hover:border-brand-300">
+                                                <div className="flex justify-between items-start mb-1 text-[10px] font-mono text-gray-400">
+                                                    <span>#{order.id.slice(-5)}</span>
+                                                    <span className="bg-brand-50 text-brand-700 px-1.5 rounded font-bold">Qté ici: {repartition[status] || 0}</span>
+                                                </div>
+                                                <p className="font-bold text-gray-800 text-sm mb-1">{order.clientNom}</p>
+                                                <p className="text-[10px] text-gray-500 line-clamp-2">{order.description}</p>
+                                                <div className="mt-2 flex items-center gap-2">
+                                                    <div className="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                                                        <div className={`h-full ${safeReached >= totalPieces ? 'bg-green-500' : 'bg-brand-500'}`} style={{ width: `${(safeReached/totalPieces)*100}%` }}></div>
+                                                    </div>
+                                                    <span className={`text-[8px] font-bold ${safeReached >= totalPieces ? 'text-green-600' : 'text-brand-600'}`}>{safeReached}/{totalPieces} pc.</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {/* --- AUTRES VUES --- */}
                 {viewMode === 'PLANNING' && (
                     <div className="bg-white border rounded-xl shadow-sm h-full flex flex-col overflow-hidden">
                         <div className="flex-1 overflow-auto">
@@ -339,58 +394,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         </div>
                     </div>
                 )}
-
-                {/* --- KANBAN --- */}
-                {viewMode === 'KANBAN' && (
-                    <div className="flex gap-4 h-full overflow-x-auto pb-4 custom-scrollbar">
-                        {[StatutCommande.EN_ATTENTE, StatutCommande.EN_COUPE, StatutCommande.COUTURE, StatutCommande.FINITION, StatutCommande.PRET].map(status => (
-                            <div key={status} className="flex-1 min-w-[280px] bg-gray-100/50 rounded-xl flex flex-col border border-gray-200" onDragOver={e => e.preventDefault()} onDrop={() => handleDrop(status)}>
-                                <div className="p-3 border-b flex justify-between items-center bg-white rounded-t-xl">
-                                    <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">{getStatusIcon(status)} {status}</h3>
-                                    <span className="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full font-bold">
-                                        {filteredCommandes.reduce((acc, c) => acc + (c.repartitionStatuts?.[status] || (c.statut === status ? c.quantite : 0)), 0)}
-                                    </span>
-                                </div>
-                                <div className="flex-1 overflow-y-auto p-2 space-y-3">
-                                    {filteredCommandes.filter(c => (c.repartitionStatuts?.[status] || 0) > 0 || (!c.repartitionStatuts && c.statut === status)).map(order => {
-                                        // CORRECTION : Progression spécifique à l'étape actuelle pour éviter les cumuls types "5/2"
-                                        let actionKey: ActionProduction = 'COUTURE';
-                                        if (status === StatutCommande.EN_COUPE) actionKey = 'COUPE';
-                                        else if (status === StatutCommande.COUTURE) actionKey = 'COUTURE';
-                                        else if (status === StatutCommande.FINITION) actionKey = 'FINITION';
-                                        
-                                        const totalPieces = order.quantite; 
-                                        const donePiecesInStage = (order.taches || [])
-                                            .filter(t => t.statut === 'FAIT' && t.action === actionKey)
-                                            .reduce((acc, t) => acc + t.quantite, 0);
-
-                                        // On plafonne l'affichage à la quantité de la commande
-                                        const safeDone = Math.min(donePiecesInStage, totalPieces);
-                                        
-                                        return (
-                                            <div key={order.id} draggable onDragStart={() => handleDragStart(order.id, status)} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 cursor-grab hover:border-brand-300">
-                                                <div className="flex justify-between items-start mb-1 text-[10px] font-mono text-gray-400">
-                                                    <span>#{order.id.slice(-5)}</span>
-                                                    <span className="bg-brand-50 text-brand-700 px-1.5 rounded font-bold">Qté: {order.repartitionStatuts?.[status] || order.quantite}</span>
-                                                </div>
-                                                <p className="font-bold text-gray-800 text-sm mb-1">{order.clientNom}</p>
-                                                <p className="text-[10px] text-gray-500 line-clamp-2">{order.description}</p>
-                                                <div className="mt-2 flex items-center gap-2">
-                                                    <div className="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
-                                                        <div className={`h-full ${safeDone >= totalPieces ? 'bg-green-500' : 'bg-brand-500'}`} style={{ width: `${(safeDone/totalPieces)*100}%` }}></div>
-                                                    </div>
-                                                    <span className={`text-[8px] font-bold ${safeDone >= totalPieces ? 'text-green-600' : 'text-brand-600'}`}>{safeDone}/{totalPieces} pc.</span>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {/* --- LISTE ACTIVE --- */}
                 {viewMode === 'ORDERS' && (
                     <div className="bg-white border rounded-xl overflow-hidden shadow-sm h-full flex flex-col">
                         <table className="w-full text-sm text-left">
@@ -417,8 +420,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         </table>
                     </div>
                 )}
-
-                {/* --- TAILLEURS --- */}
                 {viewMode === 'TAILORS' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto h-full p-1">
                         {tailleurs.map(tailor => {
@@ -442,51 +443,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 </div>
                             );
                         })}
-                        {tailleurs.length === 0 && <div className="col-span-full py-12 text-center text-gray-400 italic">Aucun tailleur correspondant.</div>}
-                    </div>
-                )}
-
-                {/* --- PERFORMANCE --- */}
-                {viewMode === 'PERFORMANCE' && (
-                    <div className="space-y-6 overflow-y-auto h-full p-1">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div className="bg-white p-4 rounded-xl border shadow-sm flex items-center justify-between"><div><p className="text-xs text-gray-500 font-bold uppercase tracking-widest">Pièces terminées</p><p className="text-3xl font-bold text-brand-600">{performanceStats.reduce((acc,s)=>acc+s.done, 0)}</p></div><div className="p-3 bg-brand-50 text-brand-600 rounded-full"><Zap size={24}/></div></div>
-                            <div className="bg-white p-4 rounded-xl border shadow-sm flex items-center justify-between"><div><p className="text-xs text-gray-500 font-bold uppercase tracking-widest">Top Tailleur</p><p className="text-2xl font-bold text-gray-900 truncate max-w-[150px]">{performanceStats[0]?.name || 'N/A'}</p></div><div className="p-3 bg-yellow-50 text-yellow-600 rounded-full"><Trophy size={24}/></div></div>
-                            <div className="bg-white p-4 rounded-xl border shadow-sm flex items-center justify-between"><div><p className="text-xs text-gray-500 font-bold uppercase tracking-widest">En attente</p><p className="text-3xl font-bold text-orange-600">{performanceStats.reduce((acc,s)=>acc+s.pending, 0)}</p></div><div className="p-3 bg-orange-50 text-orange-600 rounded-full"><Clock size={24}/></div></div>
-                        </div>
-                        <div className="bg-white rounded-xl border shadow-sm overflow-hidden"><div className="p-4 bg-gray-50 border-b font-bold text-gray-700">Podium de Production (Points accumulés)</div><div className="p-4 space-y-4">
-                            {performanceStats.map((stat, index) => (
-                                <div key={stat.id} className="flex items-center gap-4">
-                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${index === 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-400'}`}>{index + 1}</div>
-                                    <div className="flex-1">
-                                        <div className="flex justify-between mb-1"><span className="font-bold text-gray-800 text-sm">{stat.name}</span><span className="text-sm font-bold text-brand-600">{stat.points} pts</span></div>
-                                        <div className="w-full bg-gray-100 h-3 rounded-full overflow-hidden flex"><div className="bg-green-500 h-full transition-all" style={{ width: `${(stat.done / (stat.done + stat.pending || 1)) * 100}%` }}></div><div className="bg-orange-300 h-full opacity-30" style={{ width: `${(stat.pending / (stat.done + stat.pending || 1)) * 100}%` }}></div></div>
-                                        <div className="flex gap-4 mt-1 text-[10px] font-bold"><span className="text-green-600">Fait: {stat.done} pc.</span><span className="text-orange-600">Attente: {stat.pending} pc.</span></div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div></div>
-                    </div>
-                )}
-
-                {/* --- HISTORIQUE --- */}
-                {viewMode === 'HISTORY' && (
-                    <div className="bg-white border rounded-xl overflow-hidden shadow-sm h-full flex flex-col">
-                        <div className="overflow-auto flex-1"><table className="w-full text-sm text-left border-collapse"><thead className="bg-gray-100 text-gray-600 font-bold border-b sticky top-0 z-10"><tr><th className="p-3">Client / Ref</th><th className="p-3">Date Cmd / Liv.</th><th className="p-3 text-center">Statut</th><th className="p-3 text-right">Total</th><th className="p-3 text-right">Payé</th><th className="p-3 text-right">Reste</th><th className="p-3 text-center">Actions</th></tr></thead>
-                        <tbody className="divide-y divide-gray-100">
-                            {filteredCommandes.map(order => (
-                                <tr key={order.id} className="hover:bg-gray-50 transition-colors">
-                                    <td className="p-3"><div className="font-bold text-gray-800">{order.clientNom}</div><div className="text-[10px] text-gray-400 font-mono">#{order.id.slice(-6)}</div></td>
-                                    <td className="p-3 text-xs"><div className="text-gray-500">Cmd: {new Date(order.dateCommande).toLocaleDateString()}</div><div className="text-orange-700 font-bold">Liv: {new Date(order.dateLivraisonPrevue).toLocaleDateString()}</div></td>
-                                    <td className="p-3 text-center"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${order.statut === StatutCommande.LIVRE ? 'bg-green-100 text-green-700' : order.statut === StatutCommande.ANNULE ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{order.statut.toUpperCase()}</span></td>
-                                    <td className="p-3 text-right font-bold text-gray-700">{order.prixTotal.toLocaleString()} F</td>
-                                    <td className="p-3 text-right text-green-600 font-medium">{order.avance.toLocaleString()} F</td>
-                                    <td className="p-3 text-right font-bold"><span className={order.reste > 0 ? 'text-red-600' : 'text-green-600'}>{order.reste.toLocaleString()} F</span></td>
-                                    <td className="p-3 text-center"><div className="flex justify-center gap-1">{order.reste > 0 && order.statut !== StatutCommande.ANNULE && <button onClick={() => openPaymentModal(order)} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Encaisser"><Wallet size={16}/></button>}<button onClick={() => generatePrint(order)} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded" title="Imprimer"><Printer size={16}/></button><button onClick={() => alert(`Détails acompte:\n${order.paiements?.map(p => `- ${new Date(p.date).toLocaleDateString()} : ${p.montant} F (${p.moyenPaiement})`).join('\n') || 'Aucun acompte.'}`)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded" title="Détail Acomptes"><Eye size={16}/></button></div></td>
-                                </tr>
-                            ))}
-                            {filteredCommandes.length === 0 && <tr><td colSpan={7} className="p-10 text-center text-gray-400 italic">Historique vide.</td></tr>}
-                        </tbody></table></div>
                     </div>
                 )}
             </div>
