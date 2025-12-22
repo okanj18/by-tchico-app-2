@@ -94,6 +94,37 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         }).sort((a, b) => new Date(b.dateCommande).getTime() - new Date(a.dateCommande).getTime());
     }, [commandes, searchTerm, viewMode, listFilter]);
 
+    // --- LOGIQUE CALCUL RELIQUAT POUR NOUVELLE TACHE ---
+
+    const getTaskAvailability = (orderId: string, action: ActionProduction) => {
+        const order = commandes.find(c => c.id === orderId);
+        if (!order) return { total: 0, assigned: 0, remaining: 0 };
+
+        const totalQty = order.quantite || 0;
+        const alreadyAssigned = (order.taches || [])
+            .filter(t => t.action === action)
+            .reduce((acc, t) => acc + t.quantite, 0);
+        
+        return {
+            total: totalQty,
+            assigned: alreadyAssigned,
+            remaining: Math.max(0, totalQty - alreadyAssigned)
+        };
+    };
+
+    const availability = useMemo(() => {
+        return getTaskAvailability(newTaskData.orderId, newTaskData.action);
+    }, [newTaskData.orderId, newTaskData.action, commandes]);
+
+    // Ajustement auto de la quantité si elle dépasse le reliquat
+    React.useEffect(() => {
+        if (newTaskData.quantite > availability.remaining && availability.remaining > 0) {
+            setNewTaskData(prev => ({ ...prev, quantite: availability.remaining }));
+        } else if (availability.remaining === 0) {
+            setNewTaskData(prev => ({ ...prev, quantite: 0 }));
+        }
+    }, [availability.remaining]);
+
     // --- LOGIQUE VISIBILITÉ TAILLEURS CIBLÉE AVEC CODE COULEUR ---
 
     const getAssignedTailorsWithStatus = (order: Commande, status: StatutCommande | string) => {
@@ -109,7 +140,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
         const todayStr = new Date().toISOString().split('T')[0];
 
-        // On récupère toutes les tâches de cette étape
         return (order.taches || [])
             .filter(t => t.action === targetAction)
             .map(t => {
@@ -319,7 +349,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     </div>
                 )}
 
-                {/* 2. KANBAN (Flux avec tailleurs ciblés ET code couleur Orange/Vert) */}
+                {/* 2. KANBAN */}
                 {viewMode === 'KANBAN' && (
                     <div className="flex gap-4 h-full overflow-x-auto pb-4 custom-scrollbar">
                         {KANBAN_STATUS_ORDER.map((status) => (
@@ -337,8 +367,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                     {filteredCommandes.filter(c => (c.repartitionStatuts?.[status] || 0) > 0 || (!c.repartitionStatuts && c.statut === status)).map(order => {
                                         const repartition = order.repartitionStatuts || { [order.statut]: order.quantite };
                                         const qtyInColumn = repartition[status] || 0;
-                                        
-                                        // Synchronisation : Qui travaille sur CETTE étape et quel est son statut ?
                                         const targetedTailors = getAssignedTailorsWithStatus(order, status);
 
                                         return (
@@ -347,7 +375,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                 <p className="font-bold text-gray-800 text-sm mb-1">{order.clientNom}</p>
                                                 <p className="text-[10px] text-gray-500 italic line-clamp-1 border-l-2 border-gray-100 pl-2">{order.description}</p>
                                                 
-                                                {/* Équipe assignée avec code couleur Orange (à faire) / Vert (fait) / Rouge (retard) */}
                                                 {targetedTailors.length > 0 ? (
                                                     <div className="mt-3 pt-2 border-t border-gray-50 flex flex-wrap gap-1.5">
                                                         {targetedTailors.map((t, idx) => (
@@ -423,7 +450,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     </div>
                 )}
 
-                {/* 4. CHARGE TAILLEURS (VERSION TABLEAU DE BORD PERFORMANCE) */}
+                {/* 4. TAILLEURS / CHARGE */}
                 {viewMode === 'TAILORS' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 overflow-y-auto h-full p-4 custom-scrollbar animate-in fade-in duration-300">
                         {tailleurs.map(tailor => {
@@ -437,59 +464,17 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
                             return (
                                 <div key={tailor.id} className="bg-white rounded-2xl shadow-lg border border-gray-100 flex flex-col hover:border-brand-500 transition-all group overflow-hidden relative">
-                                    {/* En-tête Statut */}
                                     <div className={`p-1.5 text-center text-[10px] font-black uppercase tracking-widest ${lateTasks > 0 ? 'bg-red-600 text-white' : 'bg-brand-900 text-brand-100'}`}>
                                         {lateTasks > 0 ? `${lateTasks} Retards Critiques` : piecesPending > 0 ? 'En Production' : 'Disponible'}
                                     </div>
-                                    
                                     <div className="p-6 flex-1 flex flex-col">
                                         <div className="flex items-center gap-4 mb-6">
                                             <div className="w-16 h-16 rounded-2xl bg-brand-50 text-brand-900 border border-brand-200 flex items-center justify-center font-black text-2xl group-hover:bg-brand-900 group-hover:text-white transition-colors shadow-sm">{tailor.nom.charAt(0)}</div>
-                                            <div>
-                                                <h3 className="font-black text-gray-800 text-lg leading-tight uppercase tracking-tighter">{tailor.nom}</h3>
-                                                <p className="text-[10px] text-brand-600 font-black uppercase tracking-widest mt-1 opacity-70">{tailor.role}</p>
-                                            </div>
+                                            <div><h3 className="font-black text-gray-800 text-lg leading-tight uppercase tracking-tighter">{tailor.nom}</h3><p className="text-[10px] text-brand-600 font-black uppercase tracking-widest mt-1 opacity-70">{tailor.role}</p></div>
                                         </div>
-
                                         <div className="grid grid-cols-2 gap-3 mb-6">
-                                            <div className="bg-orange-50 border border-orange-100 p-3 rounded-xl text-center">
-                                                <p className="text-[9px] font-black text-orange-400 uppercase mb-1">À Faire</p>
-                                                <p className="text-xl font-black text-orange-700">{piecesPending}</p>
-                                                <p className="text-[8px] text-orange-400 font-bold uppercase mt-1">Pièces</p>
-                                            </div>
-                                            <div className="bg-green-50 border border-green-100 p-3 rounded-xl text-center">
-                                                <p className="text-[9px] font-black text-green-400 uppercase mb-1">Terminé</p>
-                                                <p className="text-xl font-black text-green-700">{piecesDone}</p>
-                                                <p className="text-[8px] text-green-400 font-bold uppercase mt-1">Pièces</p>
-                                            </div>
-                                        </div>
-
-                                        {/* Prochaines Priorités */}
-                                        <div className="mt-auto">
-                                            <h4 className="text-[10px] font-black text-gray-400 uppercase mb-3 flex items-center gap-2">
-                                                <Zap size={12} className="text-yellow-500"/> Prochaines Priorités
-                                            </h4>
-                                            <div className="space-y-2">
-                                                {activeTasks.slice(0, 3).map(t => {
-                                                    const isLate = t.date < todayStr;
-                                                    return (
-                                                        <div key={t.id} className={`flex justify-between items-center text-[10px] p-2.5 rounded-lg border font-bold ${isLate ? 'bg-red-50 border-red-100 text-red-700' : 'bg-gray-50 border-gray-100 text-gray-700'}`}>
-                                                            <div className="truncate flex-1 pr-2">
-                                                                <span className="block opacity-60 text-[8px]">{t.order.clientNom}</span>
-                                                                <span className="truncate">{t.action} x{t.quantite}</span>
-                                                            </div>
-                                                            <span className={`px-2 py-0.5 rounded uppercase text-[8px] ${isLate ? 'bg-red-600 text-white animate-pulse' : 'bg-white border text-gray-400'}`}>
-                                                                {isLate ? 'Retard' : 'Prévu'}
-                                                            </span>
-                                                        </div>
-                                                    );
-                                                })}
-                                                {activeTasks.length === 0 && (
-                                                    <div className="text-center py-4 text-gray-300 italic text-[10px] border-2 border-dashed border-gray-50 rounded-xl">
-                                                        Aucune tâche en attente.
-                                                    </div>
-                                                )}
-                                            </div>
+                                            <div className="bg-orange-50 border border-orange-100 p-3 rounded-xl text-center"><p className="text-[9px] font-black text-orange-400 uppercase mb-1">À Faire</p><p className="text-xl font-black text-orange-700">{piecesPending}</p></div>
+                                            <div className="bg-green-50 border border-green-100 p-3 rounded-xl text-center"><p className="text-[9px] font-black text-green-400 uppercase mb-1">Terminé</p><p className="text-xl font-black text-green-700">{piecesDone}</p></div>
                                         </div>
                                     </div>
                                 </div>
@@ -527,75 +512,52 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 )}
             </div>
 
-            {/* MODALS REUTILISÉS */}
-            {orderModalOpen && (
-                <div className="fixed inset-0 bg-black/70 z-[160] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
-                        <div className="p-5 border-b bg-gray-50 flex justify-between items-center"><h3 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-tighter"><Plus size={20} className="text-brand-600"/> Nouvelle Production</h3><button onClick={() => setOrderModalOpen(false)} className="hover:bg-gray-200 p-2 rounded-full"><X size={20}/></button></div>
-                        <div className="p-8 overflow-y-auto flex-1 space-y-6">
-                            <div><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Client</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl text-sm font-bold bg-gray-50" value={newOrderData.clientId} onChange={e => setNewOrderData({...newOrderData, clientId: e.target.value})}><option value="">-- Sélectionner --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div>
-                            <div><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Description</label><input type="text" className="w-full p-3 border-2 border-gray-100 rounded-xl text-sm font-bold bg-gray-50" value={newOrderData.description} onChange={e => setNewOrderData({...newOrderData, description: e.target.value})} placeholder="Ex: Ensemble Bazin 3 pièces" /></div>
-                            <div className="bg-brand-50 p-5 rounded-2xl border-2 border-brand-100">
-                                <label className="block text-[10px] font-black text-brand-700 uppercase tracking-widest mb-3">Articles</label>
-                                <div className="flex gap-2 mb-4">
-                                    <input type="text" placeholder="Désignation..." className="flex-1 p-2.5 text-xs border rounded-lg" value={tempElement.nom} onChange={e => setTempElement({...tempElement, nom: e.target.value})} />
-                                    <input type="number" className="w-16 p-2.5 text-xs border rounded-lg text-center" value={tempElement.quantite} onChange={e => setTempElement({...tempElement, quantite: parseInt(e.target.value)||1})} />
-                                    <button onClick={() => { if(tempElement.nom) { setNewOrderData({...newOrderData, elements: [...(newOrderData.elements||[]), {...tempElement}]}); setTempElement({nom:'', quantite:1}); } }} className="bg-gray-800 text-white p-2.5 rounded-lg"><Plus size={18}/></button>
-                                </div>
-                                <div className="space-y-1.5">{newOrderData.elements?.map((el, idx) => (
-                                    <div key={idx} className="flex justify-between items-center bg-white p-2 border rounded-lg text-[11px] font-bold"><span>{el.nom} x{el.quantite}</span><button onClick={() => setNewOrderData({...newOrderData, elements: newOrderData.elements?.filter((_, i) => i !== idx)})} className="text-red-500"><Trash2 size={14}/></button></div>
-                                ))}</div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-6">
-                                <div><label className="block text-[10px] font-black text-gray-500 uppercase mb-2">Prix Total</label><input type="number" className="w-full p-3 border-2 border-gray-100 rounded-xl text-lg font-black text-brand-700 bg-gray-50" value={newOrderData.prixTotal || ''} onChange={e => setNewOrderData({...newOrderData, prixTotal: parseInt(e.target.value)||0})}/></div>
-                                <div><label className="block text-[10px] font-black text-gray-500 uppercase mb-2">Avance</label><input type="number" className="w-full p-3 border-2 border-green-100 rounded-xl text-lg font-black text-green-700 bg-green-50" value={newOrderData.avance || ''} onChange={e => setNewOrderData({...newOrderData, avance: parseInt(e.target.value)||0})}/></div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-6">
-                                <div><label className="block text-[10px] font-black text-gray-500 uppercase mb-2">Échéance</label><input type="date" className="w-full p-3 border-2 border-gray-100 rounded-xl text-sm font-bold bg-gray-50" value={newOrderData.dateLivraisonPrevue} onChange={e => setNewOrderData({...newOrderData, dateLivraisonPrevue: e.target.value})}/></div>
-                                <div><label className="block text-[10px] font-black text-gray-500 uppercase mb-2">Compte</label><select className="w-full p-3 border-2 border-blue-100 rounded-xl text-sm font-bold bg-blue-50" value={payAccount} onChange={e => setPayAccount(e.target.value)}><option value="">-- Choisir --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div>
-                            </div>
-                        </div>
-                        <div className="p-6 bg-gray-50 border-t flex justify-end gap-4 rounded-b-2xl"><button onClick={() => setOrderModalOpen(false)} className="px-6 py-3 text-gray-500 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={handleSaveQuickOrder} className="px-10 py-3 bg-brand-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl">Enregistrer</button></div>
-                    </div>
-                </div>
-            )}
-
-            {/* MODAL ASSIGNATION TACHE */}
+            {/* MODAL NOUVELLE TACHE (AVEC GESTION RELIQUAT) */}
             {taskModalOpen && (
                 <div className="fixed inset-0 bg-black/70 z-[170] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200">
-                        <div className="flex justify-between items-center mb-8 border-b pb-4"><h3 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-tighter"><UserPlus size={22} className="text-brand-600"/> Nouvelle Tâche</h3><button onClick={() => setTaskModalOpen(false)}><X size={24}/></button></div>
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200 border border-gray-200">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4"><h3 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-tighter"><UserPlus size={22} className="text-brand-600"/> Nouvelle Tâche</h3><button onClick={() => setTaskModalOpen(false)}><X size={24}/></button></div>
                         <div className="space-y-6">
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Commande</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl text-sm font-bold bg-gray-50" value={newTaskData.orderId} onChange={e => setNewTaskData({...newTaskData, orderId: e.target.value})}><option value="">-- Sélectionner --</option>{commandes.filter(c => !c.archived && c.statut !== StatutCommande.LIVRE).map(c => <option key={c.id} value={c.id}>{c.clientNom} (#{c.id.slice(-6)})</option>)}</select></div>
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Étape</label><select className="w-full p-3 border-2 border-brand-100 rounded-xl text-sm font-bold bg-brand-50 text-brand-700" value={newTaskData.action} onChange={e => setNewTaskData({...newTaskData, action: e.target.value as any})}><option value="COUPE">Coupe</option><option value="COUTURE">Couture / Montage</option><option value="FINITION">Finition</option><option value="REPASSAGE">Repassage / Prêt</option></select></div>
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Artisan</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl text-sm font-bold bg-gray-50" value={newTaskData.tailleurId} onChange={e => setNewTaskData({...newTaskData, tailleurId: e.target.value})}><option value="">-- Choisir --</option>{tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}</select></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Commande Client</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl text-sm font-bold bg-gray-50 outline-none" value={newTaskData.orderId} onChange={e => setNewTaskData({...newTaskData, orderId: e.target.value})}><option value="">-- Sélectionner --</option>{commandes.filter(c => !c.archived && c.statut !== StatutCommande.LIVRE).map(c => <option key={c.id} value={c.id}>{c.clientNom} (#{c.id.slice(-6)})</option>)}</select></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Étape de Production</label><select className="w-full p-3 border-2 border-brand-100 rounded-xl text-sm font-bold bg-brand-50 text-brand-700 outline-none" value={newTaskData.action} onChange={e => setNewTaskData({...newTaskData, action: e.target.value as any})}><option value="COUPE">Coupe</option><option value="COUTURE">Couture / Montage</option><option value="FINITION">Finition</option><option value="REPASSAGE">Repassage / Prêt</option></select></div>
+                            
+                            {/* INDICATEUR DE RELIQUAT */}
+                            {newTaskData.orderId && (
+                                <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
+                                    <div className="flex justify-between text-[10px] font-black uppercase mb-1.5"><span className="text-gray-500">Statut Étape :</span><span className={availability.remaining > 0 ? 'text-green-600' : 'text-red-600'}>{availability.assigned} / {availability.total} assignés</span></div>
+                                    <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden shadow-inner"><div className="bg-brand-600 h-full transition-all" style={{ width: `${(availability.assigned / availability.total) * 100}%` }}></div></div>
+                                    {availability.remaining > 0 ? (<p className="text-[9px] text-gray-400 mt-2 font-bold italic">Reliquat disponible : {availability.remaining} pièces</p>) : (<p className="text-[9px] text-red-600 mt-2 font-black flex items-center gap-1"><AlertTriangle size={10}/> Toutes les pièces sont déjà assignées !</p>)}
+                                </div>
+                            )}
+
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Nombre de Pièces</label><input type="number" min="1" max={availability.remaining} disabled={availability.remaining === 0} className="w-full p-3 border-2 border-gray-100 rounded-xl text-lg font-black bg-gray-50 outline-none focus:border-brand-500 disabled:opacity-50" value={newTaskData.quantite} onChange={e => setNewTaskData({...newTaskData, quantite: Math.min(availability.remaining, parseInt(e.target.value)||0)})}/></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Artisan Artisan</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl text-sm font-bold bg-gray-50 outline-none focus:border-brand-500" value={newTaskData.tailleurId} onChange={e => setNewTaskData({...newTaskData, tailleurId: e.target.value})}><option value="">-- Choisir Artisan --</option>{tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}</select></div>
                         </div>
-                        <div className="flex justify-end gap-3 mt-10"><button onClick={() => setTaskModalOpen(false)} className="px-6 py-3 text-gray-500 font-black uppercase text-[10px]">Annuler</button><button onClick={() => {
+                        <div className="flex justify-end gap-3 mt-10"><button onClick={() => setTaskModalOpen(false)} className="px-6 py-3 text-gray-500 font-bold uppercase text-[10px] tracking-widest">Annuler</button><button disabled={!newTaskData.tailleurId || newTaskData.quantite <= 0} onClick={() => {
                             const order = commandes.find(c => c.id === newTaskData.orderId);
                             if (order && newTaskData.tailleurId) {
                                 const newTask: TacheProduction = { id: `T_${Date.now()}`, commandeId: order.id, action: newTaskData.action, quantite: newTaskData.quantite, tailleurId: newTaskData.tailleurId, date: new Date().toISOString().split('T')[0], statut: 'A_FAIRE' };
                                 onUpdateOrder({ ...order, taches: [...(order.taches || []), newTask] });
                                 setTaskModalOpen(false);
                             }
-                        }} className="px-8 py-3 bg-brand-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg">Confirmer</button></div>
+                        }} className="px-8 py-3 bg-brand-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-brand-100 hover:bg-brand-700 transition-all disabled:opacity-50">Confirmer Assignation</button></div>
                     </div>
                 </div>
             )}
 
-            {/* MODAL KANBAN MOVE */}
-            {kanbanMoveModal && (
-                <div className="fixed inset-0 bg-black/70 z-[180] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200 border-2 border-brand-500">
-                        <h3 className="text-xl font-black text-gray-800 mb-6 flex items-center gap-2 uppercase tracking-tighter"><ArrowRightLeft className="text-brand-600"/> Pousser Flux</h3>
-                        <div className="space-y-5">
-                            <p className="text-xs text-gray-500 font-bold uppercase">De <span className="text-gray-800">{kanbanMoveModal.fromStatus}</span> → <span className="text-brand-600">{kanbanMoveModal.toStatus}</span></p>
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Nb pièces</label><input type="number" min="1" max={kanbanMoveModal.maxQty} className="w-full p-3 border-2 border-gray-100 rounded-xl text-lg font-black bg-gray-50" value={kanbanMoveModal.qty} onChange={e => setKanbanMoveModal({...kanbanMoveModal, qty: Math.min(kanbanMoveModal.maxQty, parseInt(e.target.value)||1)})}/></div>
-                            <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
-                                <label className="block text-[10px] font-black text-indigo-700 uppercase mb-2 tracking-widest">Assigner le nouvel artisan ?</label>
-                                <select className="w-full p-2 border-2 border-indigo-200 rounded-lg text-xs font-bold" value={kanbanMoveModal.assignTailorId} onChange={e => setKanbanMoveModal({...kanbanMoveModal, assignTailorId: e.target.value})}><option value="">-- Ne pas assigner --</option>{tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}</select>
-                            </div>
+            {/* MODALS REUTILISÉS (ORDEURS, KANBAN, ETC.) */}
+            {orderModalOpen && (
+                <div className="fixed inset-0 bg-black/70 z-[160] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+                        <div className="p-5 border-b bg-gray-50 flex justify-between items-center shrink-0"><h3 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-tighter"><Plus size={20} className="text-brand-600"/> Nouvelle Production</h3><button onClick={() => setOrderModalOpen(false)}><X size={20}/></button></div>
+                        <div className="p-8 overflow-y-auto flex-1 space-y-6">
+                            <div><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Client</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl text-sm font-bold bg-gray-50" value={newOrderData.clientId} onChange={e => setNewOrderData({...newOrderData, clientId: e.target.value})}><option value="">-- Sélectionner --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div>
+                            <div><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Description</label><input type="text" className="w-full p-3 border-2 border-gray-100 rounded-xl text-sm font-bold bg-gray-50" value={newOrderData.description} onChange={e => setNewOrderData({...newOrderData, description: e.target.value})} placeholder="Ex: Ensemble Bazin 3 pièces" /></div>
+                            <div className="bg-brand-50 p-5 rounded-2xl border-2 border-brand-100"><label className="block text-[10px] font-black text-brand-700 uppercase tracking-widest mb-3">Articles</label><div className="flex gap-2 mb-4"><input type="text" placeholder="Désignation..." className="flex-1 p-2.5 text-xs border rounded-lg" value={tempElement.nom} onChange={e => setTempElement({...tempElement, nom: e.target.value})} /><input type="number" className="w-16 p-2.5 text-xs border rounded-lg text-center" value={tempElement.quantite} onChange={e => setTempElement({...tempElement, quantite: parseInt(e.target.value)||1})} /><button onClick={() => { if(tempElement.nom) { setNewOrderData({...newOrderData, elements: [...(newOrderData.elements||[]), {...tempElement}]}); setTempElement({nom:'', quantite:1}); } }} className="bg-gray-800 text-white p-2.5 rounded-lg"><Plus size={18}/></button></div><div className="space-y-1.5">{newOrderData.elements?.map((el, idx) => (<div key={idx} className="flex justify-between items-center bg-white p-2 border rounded-lg text-[11px] font-bold"><span>{el.nom} x{el.quantite}</span><button onClick={() => setNewOrderData({...newOrderData, elements: newOrderData.elements?.filter((_, i) => i !== idx)})} className="text-red-500"><Trash2 size={14}/></button></div>))}</div></div>
+                            <div className="grid grid-cols-2 gap-6"><div><label className="block text-[10px] font-black text-gray-500 uppercase mb-2">Prix Total</label><input type="number" className="w-full p-3 border-2 border-gray-100 rounded-xl text-lg font-black text-brand-700 bg-gray-50" value={newOrderData.prixTotal || ''} onChange={e => setNewOrderData({...newOrderData, prixTotal: parseInt(e.target.value)||0})}/></div><div><label className="block text-[10px] font-black text-gray-500 uppercase mb-2">Avance</label><input type="number" className="w-full p-3 border-2 border-green-100 rounded-xl text-lg font-black text-green-700 bg-green-50" value={newOrderData.avance || ''} onChange={e => setNewOrderData({...newOrderData, avance: parseInt(e.target.value)||0})}/></div></div>
+                            <div className="grid grid-cols-2 gap-6"><div><label className="block text-[10px] font-black text-gray-500 uppercase mb-2">Échéance</label><input type="date" className="w-full p-3 border-2 border-gray-100 rounded-xl text-sm font-bold bg-gray-50" value={newOrderData.dateLivraisonPrevue} onChange={e => setNewOrderData({...newOrderData, dateLivraisonPrevue: e.target.value})}/></div><div><label className="block text-[10px] font-black text-gray-500 uppercase mb-2">Compte</label><select className="w-full p-3 border-2 border-blue-100 rounded-xl text-sm font-bold bg-blue-50" value={payAccount} onChange={e => setPayAccount(e.target.value)}><option value="">-- Choisir --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div></div>
                         </div>
-                        <div className="flex justify-end gap-3 mt-8"><button onClick={() => setKanbanMoveModal(null)} className="px-6 py-2 text-gray-500 font-bold uppercase text-[10px]">Annuler</button><button onClick={executeKanbanMove} className="px-8 py-3 bg-brand-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg">Valider</button></div>
+                        <div className="p-6 bg-gray-50 border-t flex justify-end gap-4 rounded-b-2xl shrink-0"><button onClick={() => setOrderModalOpen(false)} className="px-6 py-3 text-gray-500 font-black uppercase text-[10px] tracking-widest hover:bg-gray-200 rounded-xl">Annuler</button><button onClick={handleSaveQuickOrder} className="px-10 py-3 bg-brand-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl">Enregistrer</button></div>
                     </div>
                 </div>
             )}
