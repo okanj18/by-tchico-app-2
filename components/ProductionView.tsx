@@ -57,8 +57,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [payMethod, setPayMethod] = useState<ModePaiement>('ESPECE');
     const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
 
-    const [newTaskData, setNewTaskData] = useState<{ orderId: string, action: ActionProduction, quantite: number, note: string, tailleurId: string }>({ 
-        orderId: '', action: 'COUTURE', quantite: 1, note: '', tailleurId: '' 
+    // Initialisation étendue de newTaskData avec la date
+    const [newTaskData, setNewTaskData] = useState<{ orderId: string, action: ActionProduction, quantite: number, note: string, tailleurId: string, date: string }>({ 
+        orderId: '', action: 'COUTURE', quantite: 1, note: '', tailleurId: '', date: new Date().toISOString().split('T')[0] 
     });
 
     const tailleurs = useMemo(() => {
@@ -155,14 +156,27 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const handleFinalDelivery = () => {
         if (!deliveryModal) return;
         const { order, qty } = deliveryModal;
+
+        // VERIFICATION DU SOLDE
+        if (order.reste > 0) {
+            const confirmUnpaid = window.confirm(`⚠️ ATTENTION : La commande de ${order.clientNom} n'est pas soldée !\nIl reste ${order.reste.toLocaleString()} F à payer.\n\nVoulez-vous quand même confirmer la livraison de ${qty} pièce(s) ?`);
+            if (!confirmUnpaid) return;
+        } else {
+            const confirmSimple = window.confirm(`Confirmer la livraison de ${qty} pièce(s) pour ${order.clientNom} ?`);
+            if (!confirmSimple) return;
+        }
+
         const newRepartition = { ...(order.repartitionStatuts || { [StatutCommande.PRET]: order.quantite }) };
         newRepartition[StatutCommande.PRET] = (newRepartition[StatutCommande.PRET] || 0) - qty;
         if (newRepartition[StatutCommande.PRET] <= 0) delete newRepartition[StatutCommande.PRET];
         newRepartition[StatutCommande.LIVRE] = (newRepartition[StatutCommande.LIVRE] || 0) + qty;
+        
         let allDelivered = true;
         KANBAN_STATUS_ORDER.forEach(s => { if ((newRepartition[s] || 0) > 0) allDelivered = false; });
+        
         onUpdateOrder({ ...order, repartitionStatuts: newRepartition, statut: allDelivered ? StatutCommande.LIVRE : order.statut });
-        setDeliveryModal(null); alert(`${qty} pièce(s) marquée(s) livrée(s).`);
+        setDeliveryModal(null); 
+        alert(`${qty} pièce(s) marquée(s) livrée(s) avec succès.`);
     };
 
     const handleConfirmPayment = () => {
@@ -174,7 +188,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     return (
         <div className="space-y-6 h-[calc(100vh-8rem)] flex flex-col">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
-                <div className="flex items-center gap-3"><h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier Production</h2><button onClick={() => setOrderModalOpen(true)} className="bg-brand-600 text-white px-3 py-2 rounded-lg flex items-center gap-2 text-xs font-bold hover:bg-brand-700 shadow-md"><Plus size={14}/> Nouvelle Commande</button></div>
+                <div className="flex items-center gap-3"><h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier Production</h2><button onClick={() => { setNewTaskData({ ...newTaskData, orderId: '', tailleurId: '', date: new Date().toISOString().split('T')[0] }); setTaskModalOpen(true); }} className="bg-brand-600 text-white px-3 py-2 rounded-lg flex items-center gap-2 text-xs font-bold hover:bg-brand-700 shadow-md"><Plus size={14}/> Nouvelle Tâche</button></div>
                 <div className="flex flex-wrap bg-white border p-1 rounded-lg shadow-sm">
                     {[{id: 'PLANNING', label: 'Agenda', icon: Calendar},{id: 'KANBAN', label: 'Tableau Kanban', icon: Columns},{id: 'ORDERS', label: 'Toutes les Commandes', icon: LayoutList},{id: 'TAILORS', label: 'Charge Tailleurs', icon: Users},{id: 'PERFORMANCE', label: 'Top Artisans', icon: Trophy}].map((mode) => (
                         <button key={mode.id} onClick={() => setViewMode(mode.id as any)} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 transition-colors ${viewMode === mode.id ? 'bg-brand-50 text-brand-700 shadow-inner' : 'text-gray-500 hover:bg-gray-50'}`}><mode.icon size={14}/> <span>{mode.label}</span></button>
@@ -202,7 +216,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                 const d = new Date(agendaBaseDate); d.setDate(d.getDate() + i);
                                                 const dateStr = d.toISOString().split('T')[0];
                                                 const tasks = commandes.flatMap(o => (o.taches || []).map(t => ({...t, order: o}))).filter(t => t.tailleurId === tailor.id && t.date === dateStr);
-                                                return <td key={i} className="p-1 border-r h-32 vertical-top relative cursor-pointer hover:bg-brand-50/10" onClick={() => { setNewTaskData({...newTaskData, tailleurId: tailor.id}); setTaskModalOpen(true); }}><div className="space-y-1 h-full overflow-y-auto no-scrollbar">{tasks.map(t => <div key={t.id} onClick={(e) => { e.stopPropagation(); handleTaskStatusChange(t.order, t, t.statut === 'A_FAIRE' ? 'FAIT' : 'A_FAIRE'); }} className={`p-1.5 rounded text-[9px] border shadow-sm transition-all hover:scale-105 ${t.statut === 'FAIT' ? 'bg-green-100 text-green-800 border-green-200 opacity-60' : (t.date < new Date().toISOString().split('T')[0] ? 'bg-red-600 text-white border-red-700 font-bold' : 'bg-white text-brand-800 border-brand-200')}`}><div className="flex justify-between items-center font-bold"><span>{t.action} x{t.quantite}</span>{t.statut === 'FAIT' ? <CheckCircle size={10}/> : <Clock size={10}/>}</div><div className="truncate opacity-80">{t.order.clientNom}</div></div>)}</div></td>;
+                                                return <td key={i} className="p-1 border-r h-32 vertical-top relative cursor-pointer hover:bg-brand-50/10" onClick={() => { setNewTaskData({...newTaskData, tailleurId: tailor.id, date: dateStr}); setTaskModalOpen(true); }}><div className="space-y-1 h-full overflow-y-auto no-scrollbar">{tasks.map(t => <div key={t.id} onClick={(e) => { e.stopPropagation(); handleTaskStatusChange(t.order, t, t.statut === 'A_FAIRE' ? 'FAIT' : 'A_FAIRE'); }} className={`p-1.5 rounded text-[9px] border shadow-sm transition-all hover:scale-105 ${t.statut === 'FAIT' ? 'bg-green-100 text-green-800 border-green-200 opacity-60' : (t.date < new Date().toISOString().split('T')[0] ? 'bg-red-600 text-white border-red-700 font-bold' : 'bg-white text-brand-800 border-brand-200')}`}><div className="flex justify-between items-center font-bold"><span>{t.action} x{t.quantite}</span>{t.statut === 'FAIT' ? <CheckCircle size={10}/> : <Clock size={10}/>}</div><div className="truncate opacity-80">{t.order.clientNom}</div></div>)}</div></td>;
                                             })}
                                         </tr>
                                     ))}
@@ -261,7 +275,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                     <div className="flex justify-end gap-1.5">
                                                         {qtyPret > 0 && (<button onClick={() => setDeliveryModal({ order, maxQty: qtyPret, qty: qtyPret })} className="px-3 py-1.5 text-green-600 bg-green-50 border border-green-200 hover:bg-green-100 rounded-lg text-[10px] font-black flex items-center gap-1.5 shadow-sm transition-transform active:scale-95"><Truck size={14}/> LIVRER</button>)}
                                                         {order.reste > 0 && (<button onClick={() => {setSelectedOrderForPayment(order); setPayAmount(order.reste); setPaymentModalOpen(true);}} className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg border border-transparent hover:border-orange-200 transition-all"><DollarSign size={18}/></button>)}
-                                                        <button onClick={() => { setNewTaskData({...newTaskData, orderId: order.id}); setTaskModalOpen(true); }} className="p-2 text-brand-600 hover:bg-brand-50 rounded-lg border border-transparent hover:border-brand-200 transition-all"><UserPlus size={18}/></button>
+                                                        <button onClick={() => { setNewTaskData({...newTaskData, orderId: order.id, date: new Date().toISOString().split('T')[0]}); setTaskModalOpen(true); }} className="p-2 text-brand-600 hover:bg-brand-50 rounded-lg border border-transparent hover:border-brand-200 transition-all" title="Assigner Tâche"><UserPlus size={18}/></button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -274,22 +288,29 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 )}
             </div>
 
-            {/* MODAL LISTE RETARDS */}
-            {overdueModalOpen && (
+            {/* MODAL TACHE MANUELLE (ACTUALISÉ) */}
+            {taskModalOpen && (
                 <div className="fixed inset-0 bg-black/70 z-[200] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh] overflow-hidden">
-                        <div className="p-4 border-b bg-red-600 text-white flex justify-between items-center shrink-0">
-                            <h3 className="font-bold flex items-center gap-2 uppercase tracking-tighter"><AlertTriangle size={20}/> Tâches en Retard</h3>
-                            <button onClick={() => setOverdueModalOpen(false)}><X size={24}/></button>
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200 border border-gray-200">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4"><h3 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-tighter"><UserPlus size={22} className="text-brand-600"/> Nouvelle Tâche</h3><button onClick={() => setTaskModalOpen(false)}><X size={24}/></button></div>
+                        <div className="space-y-6">
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Commande Client</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl text-sm font-bold bg-gray-50 outline-none" value={newTaskData.orderId} onChange={e => setNewTaskData({...newTaskData, orderId: e.target.value})}><option value="">-- Sélectionner Commande --</option>{commandes.filter(c => !c.archived && c.statut !== StatutCommande.LIVRE).map(c => <option key={c.id} value={c.id}>{c.clientNom} (#{c.id.slice(-6)})</option>)}</select></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Étape de Production</label><select className="w-full p-3 border-2 border-brand-100 rounded-xl text-sm font-bold bg-brand-50 text-brand-700 outline-none" value={newTaskData.action} onChange={e => setNewTaskData({...newTaskData, action: e.target.value as any})}><option value="COUPE">Coupe</option><option value="COUTURE">Couture / Montage</option><option value="FINITION">Finition</option><option value="REPASSAGE">Repassage / Prêt</option></select></div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Quantité</label><input type="number" min="1" className="w-full p-3 border-2 border-gray-100 rounded-xl text-lg font-black bg-gray-50 outline-none" value={newTaskData.quantite} onChange={e => setNewTaskData({...newTaskData, quantite: parseInt(e.target.value)||1})}/></div>
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Date Prévue</label><input type="date" className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold bg-gray-50 outline-none" value={newTaskData.date} onChange={e => setNewTaskData({...newTaskData, date: e.target.value})}/></div>
+                            </div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Artisan</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl text-sm font-bold bg-gray-50 outline-none" value={newTaskData.tailleurId} onChange={e => setNewTaskData({...newTaskData, tailleurId: e.target.value})}><option value="">-- Choisir Artisan --</option>{tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}</select></div>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                            {overdueTasks.map(t => (
-                                <div key={t.id} className="p-3 bg-red-50 border border-red-100 rounded-lg flex justify-between items-center">
-                                    <div><p className="font-bold text-gray-800 text-sm">{t.order.clientNom}</p><p className="text-xs text-gray-500 font-bold uppercase">{t.action} x{t.quantite} • Prévu le {new Date(t.date).toLocaleDateString()}</p></div>
-                                    <button onClick={() => { handleTaskStatusChange(t.order, t, 'FAIT'); if(overdueTasks.length === 1) setOverdueModalOpen(false); }} className="px-3 py-1 bg-green-600 text-white rounded text-[10px] font-black uppercase">Fait</button>
-                                </div>
-                            ))}
-                        </div>
+                        <div className="flex justify-end gap-3 mt-10"><button onClick={() => setTaskModalOpen(false)} className="px-6 py-3 text-gray-500 font-bold uppercase text-[10px]">Annuler</button><button disabled={!newTaskData.tailleurId || !newTaskData.orderId} onClick={() => {
+                            const order = commandes.find(c => c.id === newTaskData.orderId);
+                            if (order && newTaskData.tailleurId) {
+                                const newTask: TacheProduction = { id: `T_${Date.now()}`, commandeId: order.id, action: newTaskData.action, quantite: newTaskData.quantite, tailleurId: newTaskData.tailleurId, date: newTaskData.date, statut: 'A_FAIRE' };
+                                onUpdateOrder({ ...order, taches: [...(order.taches || []), newTask] });
+                                setTaskModalOpen(false);
+                                alert("Tâche ajoutée au planning !");
+                            }
+                        }} className="px-8 py-3 bg-brand-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg disabled:opacity-50">Confirmer</button></div>
                     </div>
                 </div>
             )}
@@ -300,8 +321,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200 border-2 border-green-500 text-center">
                         <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4"><Truck size={32}/></div>
                         <h3 className="text-xl font-black text-gray-800 mb-2 uppercase tracking-tighter">Confirmer Livraison</h3>
-                        <p className="text-sm text-gray-500 mb-6">Sortir <strong>{deliveryModal.order.clientNom}</strong> ?</p>
-                        <div className="mb-6 text-left"><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Nombre de pièces</label><input type="number" min="1" max={deliveryModal.maxQty} className="w-full p-3 border-2 border-gray-100 rounded-xl text-lg font-black bg-gray-50 text-center" value={deliveryModal.qty} onChange={e => setDeliveryModal({...deliveryModal, qty: Math.min(deliveryModal.maxQty, parseInt(e.target.value)||1)})}/></div>
+                        <p className="text-sm text-gray-500 mb-6">Souhaitez-vous sortir <strong>{deliveryModal.order.clientNom}</strong> de production ?</p>
+                        
+                        <div className="mb-6 text-left"><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Nombre de pièces à sortir</label><input type="number" min="1" max={deliveryModal.maxQty} className="w-full p-3 border-2 border-gray-100 rounded-xl text-lg font-black bg-gray-50 text-center" value={deliveryModal.qty} onChange={e => setDeliveryModal({...deliveryModal, qty: Math.min(deliveryModal.maxQty, parseInt(e.target.value)||1)})}/></div>
+                        
                         <div className="flex gap-3"><button onClick={() => setDeliveryModal(null)} className="flex-1 px-6 py-3 text-gray-500 font-bold uppercase text-[10px]">Annuler</button><button onClick={handleFinalDelivery} className="flex-1 px-6 py-3 bg-green-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg">Confirmer</button></div>
                     </div>
                 </div>
@@ -336,6 +359,28 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     </div>
                 </div>
             )}
+            
+            {/* MODAL LISTE RETARDS */}
+            {overdueModalOpen && (
+                <div className="fixed inset-0 bg-black/70 z-[200] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh] overflow-hidden">
+                        <div className="p-4 border-b bg-red-600 text-white flex justify-between items-center shrink-0">
+                            <h3 className="font-bold flex items-center gap-2 uppercase tracking-tighter"><AlertTriangle size={20}/> Tâches en Retard</h3>
+                            <button onClick={() => setOverdueModalOpen(false)}><X size={24}/></button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                            {overdueTasks.map(t => (
+                                <div key={t.id} className="p-3 bg-red-50 border border-red-100 rounded-lg flex justify-between items-center">
+                                    <div><p className="font-bold text-gray-800 text-sm">{t.order.clientNom}</p><p className="text-xs text-gray-500 font-bold uppercase">{t.action} x{t.quantite} • Prévu le {new Date(t.date).toLocaleDateString()}</p></div>
+                                    <button onClick={() => { handleTaskStatusChange(t.order, t, 'FAIT'); if(overdueTasks.length === 1) setOverdueModalOpen(false); }} className="px-3 py-1 bg-green-600 text-white rounded text-[10px] font-black uppercase">Fait</button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isScannerOpen && <QRScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScan={(text) => { const emp = employes.find(e => e.id === text.trim()); if (emp) { setSearchTerm(emp.nom); setViewMode('PLANNING'); } setIsScannerOpen(false); }} />}
         </div>
     );
 };
