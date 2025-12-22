@@ -181,7 +181,7 @@ export interface Commande {
     remise?: number;
     quantite: number;
     elements?: ElementCommande[];
-    repartitionStatuts?: Record<string, number>; // Nouvelle répartition fractionnée
+    repartitionStatuts?: Record<string, number>; 
     consommations?: Consommation[];
     detailsVente?: LigneCommande[];
     notes?: string;
