@@ -94,10 +94,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         }).sort((a, b) => new Date(b.dateCommande).getTime() - new Date(a.dateCommande).getTime());
     }, [commandes, searchTerm, viewMode, listFilter]);
 
-    // --- LOGIQUE VISIBILITÉ TAILLEURS CIBLÉE PAR ÉTAPE ---
+    // --- LOGIQUE VISIBILITÉ TAILLEURS CIBLÉE AVEC CODE COULEUR ---
 
-    const getAssignedTailorsForStatus = (order: Commande, status: StatutCommande | string) => {
-        // Mapping Colonne -> Action Production attendue
+    const getAssignedTailorsWithStatus = (order: Commande, status: StatutCommande | string) => {
         const statusToAction: Record<string, ActionProduction> = {
             [StatutCommande.EN_COUPE]: 'COUPE',
             [StatutCommande.COUTURE]: 'COUTURE',
@@ -108,13 +107,19 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         const targetAction = statusToAction[status];
         if (!targetAction) return [];
 
-        const activeTailsIds = Array.from(new Set(
-            (order.taches || [])
-                .filter(t => t.action === targetAction && t.statut === 'A_FAIRE')
-                .map(t => t.tailleurId)
-        ));
+        const todayStr = new Date().toISOString().split('T')[0];
 
-        return activeTailsIds.map(id => employes.find(e => e.id === id)?.nom).filter(Boolean);
+        // On récupère toutes les tâches de cette étape
+        return (order.taches || [])
+            .filter(t => t.action === targetAction)
+            .map(t => {
+                const emp = employes.find(e => e.id === t.tailleurId);
+                return {
+                    name: emp?.nom || 'Inconnu',
+                    statut: t.statut,
+                    isLate: t.statut === 'A_FAIRE' && t.date < todayStr
+                };
+            });
     };
 
     const getAllTailorsForOrder = (order: Commande) => {
@@ -314,7 +319,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     </div>
                 )}
 
-                {/* 2. KANBAN (Flux avec tailleurs ciblés par colonne) */}
+                {/* 2. KANBAN (Flux avec tailleurs ciblés ET code couleur Orange/Vert) */}
                 {viewMode === 'KANBAN' && (
                     <div className="flex gap-4 h-full overflow-x-auto pb-4 custom-scrollbar">
                         {KANBAN_STATUS_ORDER.map((status) => (
@@ -332,8 +337,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                     {filteredCommandes.filter(c => (c.repartitionStatuts?.[status] || 0) > 0 || (!c.repartitionStatuts && c.statut === status)).map(order => {
                                         const repartition = order.repartitionStatuts || { [order.statut]: order.quantite };
                                         const qtyInColumn = repartition[status] || 0;
-                                        // On filtre seulement les tailleurs qui travaillent sur l'ETAPE ACTUELLE
-                                        const targetedTailors = getAssignedTailorsForStatus(order, status);
+                                        
+                                        // Synchronisation : Qui travaille sur CETTE étape et quel est son statut ?
+                                        const targetedTailors = getAssignedTailorsWithStatus(order, status);
 
                                         return (
                                             <div key={order.id} draggable onDragStart={(e) => e.dataTransfer.setData('orderMove', JSON.stringify({id: order.id, from: status}))} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 cursor-grab hover:border-brand-300 transition-all active:cursor-grabbing group">
@@ -341,15 +347,22 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                 <p className="font-bold text-gray-800 text-sm mb-1">{order.clientNom}</p>
                                                 <p className="text-[10px] text-gray-500 italic line-clamp-1 border-l-2 border-gray-100 pl-2">{order.description}</p>
                                                 
-                                                {/* Visibilité ciblée */}
+                                                {/* Équipe assignée avec code couleur Orange (à faire) / Vert (fait) / Rouge (retard) */}
                                                 {targetedTailors.length > 0 ? (
-                                                    <div className="mt-3 pt-2 border-t border-gray-50 flex flex-wrap gap-1">
-                                                        {targetedTailors.map(name => (
-                                                            <span key={name} className="text-[8px] bg-indigo-600 text-white px-2 py-0.5 rounded font-black uppercase tracking-tighter flex items-center gap-1 shadow-sm"><Users size={8}/> {name}</span>
+                                                    <div className="mt-3 pt-2 border-t border-gray-50 flex flex-wrap gap-1.5">
+                                                        {targetedTailors.map((t, idx) => (
+                                                            <span key={idx} className={`text-[8px] px-2 py-0.5 rounded font-black uppercase tracking-tighter flex items-center gap-1 shadow-sm border ${
+                                                                t.statut === 'FAIT' ? 'bg-green-500 text-white border-green-600' : 
+                                                                t.isLate ? 'bg-red-600 text-white border-red-700 animate-pulse' :
+                                                                'bg-orange-500 text-white border-orange-600'
+                                                            }`}>
+                                                                {t.statut === 'FAIT' ? <CheckCircle size={8}/> : <Clock size={8}/>}
+                                                                {t.name}
+                                                            </span>
                                                         ))}
                                                     </div>
-                                                ) : status !== StatutCommande.EN_ATTENTE && status !== StatutCommande.PRET && (
-                                                    <div className="mt-3 pt-2 border-t border-red-50 flex items-center gap-1 text-[8px] text-red-500 font-bold uppercase"><AlertTriangle size={8}/> Non assigné !</div>
+                                                ) : (status !== StatutCommande.EN_ATTENTE && status !== StatutCommande.PRET) && (
+                                                    <div className="mt-3 pt-2 border-t border-red-50 flex items-center gap-1 text-[8px] text-red-500 font-bold uppercase"><AlertTriangle size={8}/> Aucun artisan assigné !</div>
                                                 )}
                                             </div>
                                         );
@@ -410,52 +423,73 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     </div>
                 )}
 
-                {/* 4. CHARGE TAILLEURS (VERSION AMÉLIORÉE) */}
+                {/* 4. CHARGE TAILLEURS (VERSION TABLEAU DE BORD PERFORMANCE) */}
                 {viewMode === 'TAILORS' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 overflow-y-auto h-full p-4 custom-scrollbar animate-in fade-in duration-300">
                         {tailleurs.map(tailor => {
                             const allTasks = (commandes.flatMap(o => (o.taches || []).map(t => ({...t, order: o}))));
                             const activeTasks = allTasks.filter(t => t.tailleurId === tailor.id && t.statut === 'A_FAIRE');
-                            const pieces = activeTasks.reduce((acc, t) => acc + t.quantite, 0);
+                            const doneTasks = allTasks.filter(t => t.tailleurId === tailor.id && t.statut === 'FAIT');
+                            const piecesPending = activeTasks.reduce((acc, t) => acc + t.quantite, 0);
+                            const piecesDone = doneTasks.reduce((acc, t) => acc + t.quantite, 0);
                             const todayStr = new Date().toISOString().split('T')[0];
                             const lateTasks = activeTasks.filter(t => t.date < todayStr).length;
 
                             return (
-                                <div key={tailor.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 flex flex-col hover:border-brand-500 hover:shadow-xl transition-all group relative overflow-hidden">
-                                    {lateTasks > 0 && (
-                                        <div className="absolute top-4 right-4 bg-red-600 text-white px-2 py-1 rounded-lg text-[9px] font-black flex items-center gap-1 shadow-md animate-pulse">
-                                            <AlertTriangle size={10}/> {lateTasks} EN RETARD
-                                        </div>
-                                    )}
-                                    <div className="flex items-center gap-4 mb-8">
-                                        <div className="w-16 h-16 rounded-2xl bg-brand-900 text-white flex items-center justify-center font-black text-2xl group-hover:rotate-6 transition-transform shadow-lg">{tailor.nom.charAt(0)}</div>
-                                        <div>
-                                            <h3 className="font-black text-gray-800 text-lg leading-tight uppercase tracking-tighter">{tailor.nom}</h3>
-                                            <p className="text-[10px] text-brand-600 font-black uppercase tracking-widest mt-1 opacity-70">{tailor.role}</p>
-                                        </div>
+                                <div key={tailor.id} className="bg-white rounded-2xl shadow-lg border border-gray-100 flex flex-col hover:border-brand-500 transition-all group overflow-hidden relative">
+                                    {/* En-tête Statut */}
+                                    <div className={`p-1.5 text-center text-[10px] font-black uppercase tracking-widest ${lateTasks > 0 ? 'bg-red-600 text-white' : 'bg-brand-900 text-brand-100'}`}>
+                                        {lateTasks > 0 ? `${lateTasks} Retards Critiques` : piecesPending > 0 ? 'En Production' : 'Disponible'}
                                     </div>
-
-                                    <div className="grid grid-cols-2 gap-4 mb-6">
-                                        <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 text-center">
-                                            <p className="text-[9px] font-black text-gray-400 uppercase mb-1">Missions</p>
-                                            <p className="text-xl font-black text-gray-800">{activeTasks.length}</p>
+                                    
+                                    <div className="p-6 flex-1 flex flex-col">
+                                        <div className="flex items-center gap-4 mb-6">
+                                            <div className="w-16 h-16 rounded-2xl bg-brand-50 text-brand-900 border border-brand-200 flex items-center justify-center font-black text-2xl group-hover:bg-brand-900 group-hover:text-white transition-colors shadow-sm">{tailor.nom.charAt(0)}</div>
+                                            <div>
+                                                <h3 className="font-black text-gray-800 text-lg leading-tight uppercase tracking-tighter">{tailor.nom}</h3>
+                                                <p className="text-[10px] text-brand-600 font-black uppercase tracking-widest mt-1 opacity-70">{tailor.role}</p>
+                                            </div>
                                         </div>
-                                        <div className="p-3 bg-brand-50 rounded-xl border border-brand-100 text-center">
-                                            <p className="text-[9px] font-black text-brand-600 uppercase mb-1">Pièces</p>
-                                            <p className="text-xl font-black text-brand-700">{pieces}</p>
-                                        </div>
-                                    </div>
 
-                                    <div className="mt-auto pt-4 border-t border-gray-100">
-                                        <h4 className="text-[9px] font-black text-gray-400 uppercase mb-2">Prochaines priorités :</h4>
-                                        <div className="space-y-1.5">
-                                            {activeTasks.slice(0, 2).map(t => (
-                                                <div key={t.id} className="flex justify-between items-center text-[10px] bg-gray-50 p-2 rounded-md border border-gray-100">
-                                                    <span className="font-bold text-gray-700 truncate mr-2">{t.order.clientNom}</span>
-                                                    <span className="bg-white px-1.5 py-0.5 rounded shadow-sm text-brand-700 font-black shrink-0">{t.action}</span>
-                                                </div>
-                                            ))}
-                                            {activeTasks.length === 0 && <p className="text-[10px] text-gray-400 italic">Aucune charge actuelle.</p>}
+                                        <div className="grid grid-cols-2 gap-3 mb-6">
+                                            <div className="bg-orange-50 border border-orange-100 p-3 rounded-xl text-center">
+                                                <p className="text-[9px] font-black text-orange-400 uppercase mb-1">À Faire</p>
+                                                <p className="text-xl font-black text-orange-700">{piecesPending}</p>
+                                                <p className="text-[8px] text-orange-400 font-bold uppercase mt-1">Pièces</p>
+                                            </div>
+                                            <div className="bg-green-50 border border-green-100 p-3 rounded-xl text-center">
+                                                <p className="text-[9px] font-black text-green-400 uppercase mb-1">Terminé</p>
+                                                <p className="text-xl font-black text-green-700">{piecesDone}</p>
+                                                <p className="text-[8px] text-green-400 font-bold uppercase mt-1">Pièces</p>
+                                            </div>
+                                        </div>
+
+                                        {/* Prochaines Priorités */}
+                                        <div className="mt-auto">
+                                            <h4 className="text-[10px] font-black text-gray-400 uppercase mb-3 flex items-center gap-2">
+                                                <Zap size={12} className="text-yellow-500"/> Prochaines Priorités
+                                            </h4>
+                                            <div className="space-y-2">
+                                                {activeTasks.slice(0, 3).map(t => {
+                                                    const isLate = t.date < todayStr;
+                                                    return (
+                                                        <div key={t.id} className={`flex justify-between items-center text-[10px] p-2.5 rounded-lg border font-bold ${isLate ? 'bg-red-50 border-red-100 text-red-700' : 'bg-gray-50 border-gray-100 text-gray-700'}`}>
+                                                            <div className="truncate flex-1 pr-2">
+                                                                <span className="block opacity-60 text-[8px]">{t.order.clientNom}</span>
+                                                                <span className="truncate">{t.action} x{t.quantite}</span>
+                                                            </div>
+                                                            <span className={`px-2 py-0.5 rounded uppercase text-[8px] ${isLate ? 'bg-red-600 text-white animate-pulse' : 'bg-white border text-gray-400'}`}>
+                                                                {isLate ? 'Retard' : 'Prévu'}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })}
+                                                {activeTasks.length === 0 && (
+                                                    <div className="text-center py-4 text-gray-300 italic text-[10px] border-2 border-dashed border-gray-50 rounded-xl">
+                                                        Aucune tâche en attente.
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -561,7 +595,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 <select className="w-full p-2 border-2 border-indigo-200 rounded-lg text-xs font-bold" value={kanbanMoveModal.assignTailorId} onChange={e => setKanbanMoveModal({...kanbanMoveModal, assignTailorId: e.target.value})}><option value="">-- Ne pas assigner --</option>{tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}</select>
                             </div>
                         </div>
-                        <div className="flex justify-end gap-3 mt-8"><button onClick={() => setKanbanMoveModal(null)} className="px-6 py-2 text-gray-500 font-bold uppercase text-[10px]">Annuler</button><button onClick={executeKanbanMove} className="px-8 py-3 bg-brand-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest">Valider</button></div>
+                        <div className="flex justify-end gap-3 mt-8"><button onClick={() => setKanbanMoveModal(null)} className="px-6 py-2 text-gray-500 font-bold uppercase text-[10px]">Annuler</button><button onClick={executeKanbanMove} className="px-8 py-3 bg-brand-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg">Valider</button></div>
                     </div>
                 </div>
             )}
