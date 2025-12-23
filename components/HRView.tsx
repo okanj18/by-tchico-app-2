@@ -110,16 +110,6 @@ const HRView: React.FC<HRViewProps> = ({
         }));
     }, [selectedTransportEmpIds, transportData.montantUnitaire]);
 
-    // Stats
-    const hrStats = useMemo(() => {
-        if (isGardien) return null;
-        const activeEmployees = employes.filter(e => e.actif !== false);
-        const totalBaseSalary = activeEmployees.reduce((acc, e) => acc + (e.salaireBase || 0), 0);
-        const today = new Date().toISOString().split('T')[0];
-        const presentToday = pointages.filter(p => p.date === today && (p.statut === 'PRESENT' || p.statut === 'RETARD')).length;
-        return { totalBaseSalary, presentToday, totalActive: activeEmployees.length };
-    }, [employes, pointages, isGardien]);
-
     // --- ACTIONS ---
     const handleClockIn = (employeId: string) => {
         const now = new Date();
@@ -182,8 +172,10 @@ const HRView: React.FC<HRViewProps> = ({
             if (!window.confirm(`⚠️ Solde insuffisant sur ${selectedAccount.nom}. Continuer quand même ?`)) return;
         }
 
-        const empNames = activeEmployes.filter(e => selectedTransportEmpIds.includes(e.id)).map(e => e.nom).join(', ');
+        const selectedEmps = activeEmployes.filter(e => selectedTransportEmpIds.includes(e.id));
+        const empNames = selectedEmps.map(e => e.nom).join(', ');
 
+        // 1. Enregistrer la dépense globale dans les finances
         const depense: Depense = {
             id: `D_TR_${Date.now()}`,
             date: transportData.date,
@@ -193,12 +185,40 @@ const HRView: React.FC<HRViewProps> = ({
             boutiqueId: transportData.boutiqueId,
             compteId: transportData.compteId
         };
-
         onAddDepense(depense);
+
+        // 2. Mettre à jour l'historique de paie de CHAQUE employé sélectionné
+        selectedTransportEmpIds.forEach(empId => {
+            const emp = employes.find(e => e.id === empId);
+            if (emp) {
+                const transportEntry: TransactionPaie = {
+                    id: `TP_TR_${Date.now()}_${empId}`,
+                    date: transportData.date,
+                    type: 'ACOMPTE',
+                    description: `Transport Journée ${new Date(transportData.date).toLocaleDateString()}`,
+                    montant: transportData.montantUnitaire
+                };
+                onUpdateEmploye({
+                    ...emp,
+                    historiquePaie: [transportEntry, ...(emp.historiquePaie || [])]
+                });
+            }
+        });
+
         setTransportModalOpen(false);
         setTransportData({ montantUnitaire: 500, montantTotal: 0, date: new Date().toISOString().split('T')[0], compteId: '', boutiqueId: 'ATELIER' });
         setSelectedTransportEmpIds([]);
-        alert("Transport enregistré avec succès.");
+        alert("Transport enregistré et historiques employés mis à jour avec succès.");
+    };
+
+    const handleDeletePayrollTransaction = (emp: Employe, transId: string) => {
+        if (!window.confirm("Voulez-vous vraiment supprimer ce règlement de l'historique ?\n(Note: Cela n'annule pas la transaction en caisse)")) return;
+        const updatedHistory = (emp.historiquePaie || []).filter(h => h.id !== transId);
+        onUpdateEmploye({ ...emp, historiquePaie: updatedHistory });
+        // Mettre à jour l'affichage si le modal est ouvert
+        if (selectedEmployeeForHistory?.id === emp.id) {
+            setSelectedEmployeeForHistory({ ...emp, historiquePaie: updatedHistory });
+        }
     };
 
     const getPointageStatusColor = (status: string) => {
@@ -209,6 +229,15 @@ const HRView: React.FC<HRViewProps> = ({
             default: return 'bg-gray-100';
         }
     };
+
+    const hrStats = useMemo(() => {
+        if (isGardien) return null;
+        const activeEmployees = employes.filter(e => e.actif !== false);
+        const totalBaseSalary = activeEmployees.reduce((acc, e) => acc + (e.salaireBase || 0), 0);
+        const today = new Date().toISOString().split('T')[0];
+        const presentToday = pointages.filter(p => p.date === today && (p.statut === 'PRESENT' || p.statut === 'RETARD')).length;
+        return { totalBaseSalary, presentToday, totalActive: activeEmployees.length };
+    }, [employes, pointages, isGardien]);
 
     return (
         <div className="h-[calc(100vh-8rem)] flex flex-col space-y-6">
@@ -283,7 +312,7 @@ const HRView: React.FC<HRViewProps> = ({
                                             <div className="flex justify-center gap-1">
                                                 <button onClick={() => { setSelectedEmployeeForBadge(emp); setQrBadgeModalOpen(true); }} className="p-1.5 bg-gray-100 hover:bg-gray-200 rounded text-gray-600" title="Badge QR"><QrCode size={16}/></button>
                                                 <button onClick={() => { setSelectedEmployeeForHistory(emp); setHistoryModalOpen(true); }} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Historique Paie"><History size={16}/></button>
-                                                <button onClick={() => { setSelectedEmployeeForPay(emp); setPaymentAccountId(''); setTransactionData({ ...transactionData, montant: 0, note: '' }); setPayModalOpen(true); }} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Payer Salaire / Acompte"><DollarSign size={16}/></button>
+                                                <button onClick={() => { setSelectedEmployeeForPay(emp); setPaymentAccountId(''); setTransactionData({ date: new Date().toISOString().split('T')[0], type: 'ACOMPTE', montant: 0, note: '' }); setPayModalOpen(true); }} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Payer Salaire / Acompte"><DollarSign size={16}/></button>
                                                 <button onClick={() => { setEditingEmployee(emp); setFormData(emp); setIsModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-brand-600 rounded"><Edit2 size={16}/></button>
                                                 <button onClick={() => onArchiveEmploye?.(emp.id)} className="p-1.5 text-gray-400 hover:text-orange-600 rounded" title={emp.actif ? "Archiver" : "Restaurer"}>{emp.actif ? <UserMinus size={16}/> : <RotateCcw size={16}/>}</button>
                                                 <button onClick={() => onDeleteEmploye(emp.id)} className="p-1.5 text-red-300 hover:text-red-600 rounded" title="SUPPRIMER DÉFINITIVEMENT"><Trash2 size={16}/></button>
@@ -297,7 +326,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* --- MODAL TRANSPORT GROUPE (CALCUL AUTO) --- */}
+            {/* --- MODAL TRANSPORT GROUPE --- */}
             {transportModalOpen && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-8 animate-in zoom-in duration-200 border border-blue-100 max-h-[90vh] flex flex-col">
@@ -362,7 +391,47 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* --- MODAL PAIEMENT SALAIRE (TOUTES OPTIONS) --- */}
+            {/* Modal Historique Paie - OPTIONS MODIFIER/SUPPRIMER RESTAURÉES */}
+            {historyModalOpen && selectedEmployeeForHistory && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 flex flex-col max-h-[80vh] animate-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4">
+                            <h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg"><History className="text-blue-600"/> Historique : {selectedEmployeeForHistory.nom}</h3>
+                            <button onClick={() => setHistoryModalOpen(false)}><X size={24}/></button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                            {!selectedEmployeeForHistory.historiquePaie || selectedEmployeeForHistory.historiquePaie.length === 0 ? <p className="text-center text-gray-400 py-10 font-bold uppercase text-xs">Aucun historique.</p> : (
+                                selectedEmployeeForHistory.historiquePaie.map(h => (
+                                    <div key={h.id} className="p-4 border-2 border-gray-50 rounded-2xl bg-white flex justify-between items-center shadow-sm group hover:border-blue-100 transition-all">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${h.type === 'ACOMPTE' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>{h.type}</span>
+                                                <p className="text-[10px] text-gray-400 font-bold">{new Date(h.date).toLocaleDateString()}</p>
+                                            </div>
+                                            <p className="font-black text-gray-800 text-sm mt-1">{h.montant.toLocaleString()} F</p>
+                                            <p className="text-[10px] text-gray-500 italic mt-0.5 line-clamp-1">{h.description}</p>
+                                        </div>
+                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button 
+                                                onClick={() => handleDeletePayrollTransaction(selectedEmployeeForHistory, h.id)} 
+                                                className="p-2 text-red-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                                                title="Supprimer de l'historique"
+                                            >
+                                                <Trash2 size={16}/>
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        <div className="mt-6 pt-4 border-t flex justify-end">
+                            <button onClick={() => setHistoryModalOpen(false)} className="px-10 py-3 bg-gray-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg">Fermer</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Règlement Paie */}
             {payModalOpen && selectedEmployeeForPay && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200">
@@ -375,7 +444,6 @@ const HRView: React.FC<HRViewProps> = ({
                             <div className="text-center bg-gray-50 p-4 rounded-2xl border-2 border-dashed border-gray-200">
                                 <p className="text-[10px] font-black text-gray-400 uppercase">Employé</p>
                                 <p className="text-lg font-black text-gray-900 uppercase">{selectedEmployeeForPay.nom}</p>
-                                <p className="text-[10px] text-brand-600 font-bold tracking-widest">{selectedEmployeeForPay.role}</p>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
@@ -421,14 +489,14 @@ const HRView: React.FC<HRViewProps> = ({
                                         return;
                                     }
                                     const newTrans: TransactionPaie = { id: `TP_${Date.now()}`, date: transactionData.date, type: transactionData.type as any, montant: transactionData.montant, description: transactionData.note || transactionData.type };
-                                    onUpdateEmploye({ ...selectedEmployeeForPay, historiquePaie: [...(selectedEmployeeForPay.historiquePaie || []), newTrans] });
+                                    onUpdateEmploye({ ...selectedEmployeeForPay, historiquePaie: [newTrans, ...(selectedEmployeeForPay.historiquePaie || [])] });
                                     onAddTransaction({ id: `TR_PAY_${Date.now()}`, date: transactionData.date, type: 'DECAISSEMENT', montant: transactionData.montant, compteId: paymentAccountId, description: `Paie ${selectedEmployeeForPay.nom}: ${transactionData.type}`, categorie: 'SALAIRE' });
                                     onUpdateComptes(comptes.map(c => c.id === paymentAccountId ? { ...c, solde: c.solde - transactionData.montant } : c));
                                     setPayModalOpen(false);
-                                    alert(`Paiement de ${transactionData.montant} F validé pour ${selectedEmployeeForPay.nom}`);
+                                    alert(`Paiement de ${transactionData.montant} F validé.`);
                                 }} 
                                 disabled={!paymentAccountId || transactionData.montant <= 0} 
-                                className="px-10 py-4 bg-green-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-30 active:scale-95 transition-all"
+                                className="px-10 py-4 bg-green-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all"
                             >
                                 Valider Paie
                             </button>
@@ -437,197 +505,6 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* --- MODAL CRÉATION COMPTE CLOUD --- */}
-            {cloudModalOpen && selectedEmpForCloud && (
-                <div className="fixed inset-0 bg-brand-900/80 z-[250] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200">
-                        <div className="flex justify-between items-center mb-6 border-b pb-4">
-                            <h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg"><Cloud size={24} className="text-blue-600"/> Accès Cloud</h3>
-                            <button onClick={() => setCloudModalOpen(false)}><X size={24}/></button>
-                        </div>
-                        <div className="space-y-4">
-                            <p className="text-xs text-gray-500">Créez des identifiants Firebase pour <strong>{selectedEmpForCloud.nom}</strong>.</p>
-                            <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Email de connexion</label>
-                                <input type="email" required className="w-full p-3 border rounded-xl font-bold bg-gray-50" placeholder="exemple@by-tchico.com" value={cloudEmail} onChange={e => setCloudEmail(e.target.value)} />
-                            </div>
-                            <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Mot de passe (6 car. min)</label>
-                                <input type="password" required className="w-full p-3 border rounded-xl font-bold bg-gray-50" placeholder="••••••" value={cloudPass} onChange={e => setCloudPass(e.target.value)} />
-                            </div>
-                        </div>
-                        <div className="flex justify-end gap-3 mt-8">
-                            <button onClick={() => setCloudModalOpen(false)} className="px-4 py-2 text-xs font-black uppercase text-gray-400">Annuler</button>
-                            <button onClick={handleCreateCloudAccount} disabled={cloudLoading} className="px-8 py-3 bg-blue-600 text-white rounded-xl font-black uppercase text-xs shadow-lg flex items-center gap-2">
-                                {cloudLoading ? <Loader size={16} className="animate-spin"/> : "Créer le compte"}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* --- VUE POINTAGE --- */}
-            {activeTab === 'POINTAGE' && (
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
-                    <div className="p-4 border-b border-gray-100 flex flex-wrap justify-between items-center bg-gray-50 gap-4">
-                        <div className="flex items-center gap-4">
-                            <input type="date" value={pointageDate} onChange={(e) => setPointageDate(e.target.value)} className="p-1.5 border rounded text-sm font-bold" />
-                            <button onClick={() => setIsScannerOpen(true)} className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded font-bold text-sm flex items-center gap-2"><Camera size={16} /> Scanner QR</button>
-                        </div>
-                    </div>
-                    <div className="overflow-x-auto flex-1">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-white text-gray-600 font-medium border-b border-gray-100"><tr><th className="py-3 px-4">Employé</th><th className="py-3 px-4 text-center">Statut</th><th className="py-3 px-4 text-center">Arrivée</th><th className="py-3 px-4 text-center">Départ</th><th className="py-3 px-4 text-center">Action</th></tr></thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {activeEmployes.map(emp => {
-                                    const pt = dailyPointages.find(p => p.employeId === emp.id);
-                                    return (
-                                        <tr key={emp.id} className="hover:bg-gray-50">
-                                            <td className="py-3 px-4 font-bold uppercase">{emp.nom}</td>
-                                            <td className="py-3 px-4 text-center">{pt ? <span className={`px-2 py-1 rounded text-xs font-bold ${getPointageStatusColor(pt.statut)}`}>{pt.statut}</span> : <span className="text-gray-400 text-xs">NON POINTÉ</span>}</td>
-                                            <td className="py-3 px-4 text-center font-mono">{pt?.heureArrivee || '-'}</td>
-                                            <td className="py-3 px-4 text-center font-mono">{pt?.heureDepart || '-'}</td>
-                                            <td className="py-3 px-4 text-center">
-                                                {!pt ? (
-                                                    <div className="flex justify-center gap-2">
-                                                        <button onClick={() => handleClockIn(emp.id)} className="bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700 font-bold shadow-sm">Arrivée</button>
-                                                        <button onClick={() => handleMarkAbsent(emp.id)} className="bg-red-100 text-red-600 px-3 py-1 rounded text-xs hover:bg-red-200 border border-red-200">Absent</button>
-                                                    </div>
-                                                ) : (
-                                                    <div className="flex justify-center gap-2">
-                                                        {pt.statut !== 'ABSENT' && !pt.heureDepart && (
-                                                            <button onClick={() => handleClockOut(pt)} className="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 font-bold shadow-sm">Départ</button>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )}
-
-            {/* --- MODAL RAPPORT POINTAGE --- */}
-            {isReportModalOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[90vh]">
-                        <div className="p-4 border-b bg-gray-50 flex justify-between items-center rounded-t-xl shrink-0">
-                            <h3 className="font-bold text-lg flex items-center gap-2"><PieChart className="text-brand-600"/> Registres de Présence</h3>
-                            <button onClick={() => setIsReportModalOpen(false)}><X size={24}/></button>
-                        </div>
-                        
-                        <div className="p-4 bg-white border-b flex flex-wrap gap-4 items-end shrink-0">
-                            <div className="flex bg-gray-100 p-1 rounded-lg">
-                                <button onClick={() => setReportType('GLOBAL')} className={`px-3 py-1 text-xs font-bold rounded ${reportType === 'GLOBAL' ? 'bg-white shadow' : 'text-gray-500'}`}>Vue Globale</button>
-                                <button onClick={() => setReportType('INDIVIDUAL')} className={`px-3 py-1 text-xs font-bold rounded ${reportType === 'INDIVIDUAL' ? 'bg-white shadow' : 'text-gray-500'}`}>Vue Individuelle</button>
-                            </div>
-                            <div><label className="block text-[10px] font-bold text-gray-400 uppercase">Mois</label><input type="month" value={reportMonth} onChange={e => setReportMonth(e.target.value)} className="p-1.5 border rounded text-xs font-bold" /></div>
-                            {reportType === 'INDIVIDUAL' && (
-                                <div><label className="block text-[10px] font-bold text-gray-400 uppercase">Employé</label>
-                                    <select value={reportEmployeeId} onChange={e => setReportEmployeeId(e.target.value)} className="p-1.5 border rounded text-xs font-bold">
-                                        <option value="">-- Choisir --</option>
-                                        {employes.map(e => <option key={e.id} value={e.id}>{e.nom}</option>)}
-                                    </select>
-                                </div>
-                            )}
-                            <button onClick={() => window.print()} className="ml-auto p-2 bg-gray-100 hover:bg-gray-200 rounded text-gray-700 flex items-center gap-1 text-xs font-bold"><Printer size={14}/> Imprimer</button>
-                        </div>
-
-                        <div className="flex-1 overflow-auto p-6" id="printable-report">
-                            {reportType === 'GLOBAL' ? (
-                                <table className="w-full text-xs text-left border-collapse">
-                                    <thead className="bg-gray-100 sticky top-0">
-                                        <tr><th className="p-2 border">Employé</th><th className="p-2 border text-center">Rôle</th><th className="p-2 border text-center">Présences</th><th className="p-2 border text-center">Retards</th><th className="p-2 border text-center">Absences</th></tr>
-                                    </thead>
-                                    <tbody>
-                                        {activeEmployes.map(emp => {
-                                            const pts = pointages.filter(p => p.employeId === emp.id && p.date.startsWith(reportMonth));
-                                            return (
-                                                <tr key={emp.id} className="hover:bg-gray-50">
-                                                    <td className="p-2 border font-bold uppercase">{emp.nom}</td>
-                                                    <td className="p-2 border text-center text-gray-500 uppercase">{emp.role}</td>
-                                                    <td className="p-2 border text-center text-green-600 font-bold">{pts.filter(p => p.statut === 'PRESENT').length}</td>
-                                                    <td className="p-2 border text-center text-orange-600 font-bold">{pts.filter(p => p.statut === 'RETARD').length}</td>
-                                                    <td className="p-2 border text-center text-red-600 font-bold">{pts.filter(p => p.statut === 'ABSENT').length}</td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            ) : (
-                                <div>
-                                    {!reportEmployeeId ? <p className="text-center text-gray-400 py-20 font-bold">Veuillez sélectionner un employé pour voir le détail.</p> : (
-                                        <table className="w-full text-xs text-left border-collapse">
-                                            <thead className="bg-gray-100 sticky top-0">
-                                                <tr><th className="p-2 border">Date</th><th className="p-2 border">Statut</th><th className="p-2 border text-center">Arrivée</th><th className="p-2 border text-center">Départ</th></tr>
-                                            </thead>
-                                            <tbody>
-                                                {pointages.filter(p => p.employeId === reportEmployeeId && p.date.startsWith(reportMonth)).sort((a,b) => b.date.localeCompare(a.date)).map(pt => (
-                                                    <tr key={pt.id} className="hover:bg-gray-50">
-                                                        <td className="p-2 border font-mono">{pt.date}</td>
-                                                        <td className="p-2 border"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${getPointageStatusColor(pt.statut)}`}>{pt.statut}</span></td>
-                                                        <td className="p-2 border text-center font-mono">{pt.heureArrivee || '-'}</td>
-                                                        <td className="p-2 border text-center font-mono">{pt.heureDepart || '-'}</td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* --- MODAL BADGE QR --- */}
-            {qrBadgeModalOpen && selectedEmployeeForBadge && (
-                <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full flex flex-col items-center animate-in zoom-in duration-200">
-                        <div className="flex justify-between w-full mb-6">
-                            <h3 className="font-bold text-gray-800">Badge d'identification</h3>
-                            <button onClick={() => setQrBadgeModalOpen(false)}><X size={24} className="text-gray-400 hover:text-gray-600"/></button>
-                        </div>
-                        <div className="p-6 border-4 border-brand-100 rounded-2xl bg-white shadow-inner mb-6">
-                            <QRCodeCanvas value={selectedEmployeeForBadge.id} size={200} level="H" />
-                        </div>
-                        <h4 className="text-2xl font-black text-gray-900 uppercase tracking-tight">{selectedEmployeeForBadge.nom}</h4>
-                        <p className="text-brand-600 font-black text-sm uppercase tracking-widest mt-1">{selectedEmployeeForBadge.role}</p>
-                        <p className="text-[10px] text-gray-300 mt-4 font-mono select-all">ID: {selectedEmployeeForBadge.id}</p>
-                        <div className="w-full mt-8 flex flex-col gap-3">
-                            <button onClick={() => window.print()} className="w-full py-4 bg-gray-900 text-white rounded-xl flex items-center justify-center gap-2 font-black uppercase text-xs tracking-widest hover:bg-black transition-all shadow-lg">
-                                <Printer size={18}/> Imprimer le Badge
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {isScannerOpen && <QRScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScan={handleScanAttendance} />}
-            
-            {/* Modal Historique Paie */}
-            {historyModalOpen && selectedEmployeeForHistory && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 flex flex-col max-h-[80vh]">
-                        <div className="flex justify-between items-center mb-4 border-b pb-2"><h3 className="font-bold flex items-center gap-2"><History className="text-blue-600"/> Historique Paie : {selectedEmployeeForHistory.nom}</h3><button onClick={() => setHistoryModalOpen(false)}><X size={20}/></button></div>
-                        <div className="flex-1 overflow-y-auto space-y-2">
-                            {!selectedEmployeeForHistory.historiquePaie || selectedEmployeeForHistory.historiquePaie.length === 0 ? <p className="text-center text-gray-400 py-10">Aucun historique de paie.</p> : (
-                                selectedEmployeeForHistory.historiquePaie.map(h => (
-                                    <div key={h.id} className="p-3 border rounded bg-gray-50 flex justify-between items-center shadow-sm">
-                                        <div><p className="text-xs font-bold text-gray-500 uppercase">{h.type}</p><p className="text-xs text-gray-400">{new Date(h.date).toLocaleDateString()}</p></div>
-                                        <p className="font-bold text-gray-900">{h.montant.toLocaleString()} F</p>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                        <div className="mt-6 flex justify-end"><button onClick={() => setHistoryModalOpen(false)} className="px-6 py-2 bg-gray-800 text-white rounded font-bold">Fermer</button></div>
-                    </div>
-                </div>
-            )}
-            
             {/* Modal Formulaire Employé */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
@@ -664,28 +541,6 @@ const HRView: React.FC<HRViewProps> = ({
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="block text-xs font-black text-gray-400 uppercase mb-1 flex items-center gap-1"><Mail size={12}/> Email (pour connexion Cloud)</label>
-                                <div className="flex gap-2">
-                                    <input type="email" placeholder="email@by-tchico.com" className="flex-1 p-2.5 border rounded-lg font-bold bg-gray-50" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
-                                    {editingEmployee && !editingEmployee.email && formData.email && (
-                                        <button 
-                                            type="button"
-                                            onClick={() => { setSelectedEmpForCloud(editingEmployee); setCloudEmail(formData.email || ''); setCloudPass(''); setCloudModalOpen(true); }}
-                                            className="px-3 bg-blue-600 text-white rounded-lg flex items-center gap-1 text-[10px] font-black uppercase shadow-md hover:bg-blue-700"
-                                            title="Créer l'accès Cloud maintenant"
-                                        >
-                                            <Cloud size={14}/> Créer
-                                        </button>
-                                    )}
-                                    {editingEmployee && editingEmployee.email && (
-                                        <div className="flex items-center px-2 bg-green-50 text-green-600 border border-green-100 rounded-lg">
-                                            <ShieldCheck size={16}/>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-black text-gray-400 uppercase mb-1">Salaire de Base</label>
@@ -714,6 +569,30 @@ const HRView: React.FC<HRViewProps> = ({
                     </div>
                 </div>
             )}
+            
+            {/* Modal Badge QR */}
+            {qrBadgeModalOpen && selectedEmployeeForBadge && (
+                <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full flex flex-col items-center animate-in zoom-in duration-200">
+                        <div className="flex justify-between w-full mb-6">
+                            <h3 className="font-bold text-gray-800">Badge d'identification</h3>
+                            <button onClick={() => setQrBadgeModalOpen(false)}><X size={24} className="text-gray-400 hover:text-gray-600"/></button>
+                        </div>
+                        <div className="p-6 border-4 border-brand-100 rounded-2xl bg-white shadow-inner mb-6">
+                            <QRCodeCanvas value={selectedEmployeeForBadge.id} size={200} level="H" />
+                        </div>
+                        <h4 className="text-2xl font-black text-gray-900 uppercase tracking-tight">{selectedEmployeeForBadge.nom}</h4>
+                        <p className="text-brand-600 font-black text-sm uppercase tracking-widest mt-1">{selectedEmployeeForBadge.role}</p>
+                        <div className="w-full mt-8">
+                            <button onClick={() => window.print()} className="w-full py-4 bg-gray-900 text-white rounded-xl flex items-center justify-center gap-2 font-black uppercase text-xs tracking-widest shadow-lg">
+                                <Printer size={18}/> Imprimer le Badge
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isScannerOpen && <QRScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScan={handleScanAttendance} />}
         </div>
     );
 };
