@@ -1,9 +1,10 @@
 
 import React, { useState, useMemo } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie } from '../types';
-import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User } from 'lucide-react';
+import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader } from 'lucide-react';
 import { QRScannerModal } from './QRTools';
 import { QRCodeCanvas } from 'qrcode.react';
+import { createAuthUser } from '../services/firebase';
 
 interface HRViewProps {
     employes: Employe[];
@@ -46,6 +47,13 @@ const HRView: React.FC<HRViewProps> = ({
     const [formData, setFormData] = useState<Partial<Employe>>({
         nom: '', role: RoleEmploye.STAGIAIRE, telephone: '', salaireBase: 0, typeContrat: 'STAGE'
     });
+
+    // Cloud Account State
+    const [cloudModalOpen, setCloudModalOpen] = useState(false);
+    const [selectedEmpForCloud, setSelectedEmpForCloud] = useState<Employe | null>(null);
+    const [cloudEmail, setCloudEmail] = useState('');
+    const [cloudPass, setCloudPass] = useState('');
+    const [cloudLoading, setCloudLoading] = useState(false);
 
     // Paiement et historique
     const [payModalOpen, setPayModalOpen] = useState(false);
@@ -114,6 +122,24 @@ const HRView: React.FC<HRViewProps> = ({
         setIsScannerOpen(false);
     };
 
+    const handleCreateCloudAccount = async () => {
+        if (!selectedEmpForCloud || !cloudEmail || cloudPass.length < 6) {
+            alert("Email valide et mot de passe de 6 caractères min requis.");
+            return;
+        }
+        setCloudLoading(true);
+        try {
+            await createAuthUser(cloudEmail, cloudPass);
+            onUpdateEmploye({ ...selectedEmpForCloud, email: cloudEmail });
+            alert(`Compte Cloud créé pour ${selectedEmpForCloud.nom} !`);
+            setCloudModalOpen(false);
+        } catch (err: any) {
+            alert("Erreur Cloud: " + err.message);
+        } finally {
+            setCloudLoading(false);
+        }
+    };
+
     const getPointageStatusColor = (status: string) => {
         switch(status) {
             case 'PRESENT': return 'bg-green-100 text-green-800';
@@ -161,7 +187,7 @@ const HRView: React.FC<HRViewProps> = ({
                     </div>
                     <div className="overflow-x-auto flex-1">
                         <table className="w-full text-sm text-left">
-                            <thead className="bg-white text-gray-600 font-medium border-b border-gray-100"><tr><th className="py-3 px-4">Nom</th><th className="py-3 px-4">Rôle</th><th className="py-3 px-4 text-right">Salaire</th><th className="py-3 px-4 text-center">Badge</th><th className="py-3 px-4 text-center">Actions</th></tr></thead>
+                            <thead className="bg-white text-gray-600 font-medium border-b border-gray-100"><tr><th className="py-3 px-4">Nom</th><th className="py-3 px-4">Rôle</th><th className="py-3 px-4 text-right">Salaire</th><th className="py-3 px-4 text-center">Accès Cloud</th><th className="py-3 px-4 text-center">Actions</th></tr></thead>
                             <tbody className="divide-y divide-gray-100">
                                 {filteredEmployes.map(emp => (
                                     <tr key={emp.id} className="hover:bg-gray-50">
@@ -169,10 +195,18 @@ const HRView: React.FC<HRViewProps> = ({
                                         <td className="py-3 px-4 text-xs font-bold text-brand-700">{emp.role}</td>
                                         <td className="py-3 px-4 text-right font-bold">{emp.salaireBase.toLocaleString()} F</td>
                                         <td className="py-3 px-4 text-center">
-                                            <button onClick={() => { setSelectedEmployeeForBadge(emp); setQrBadgeModalOpen(true); }} className="p-1.5 bg-gray-100 hover:bg-gray-200 rounded text-gray-600" title="Générer Badge"><QrCode size={16}/></button>
+                                            {emp.email ? (
+                                                <div className="flex flex-col items-center gap-0.5">
+                                                    <span className="text-[9px] text-green-600 font-black uppercase flex items-center gap-1"><ShieldCheck size={10}/> Actif</span>
+                                                    <span className="text-[8px] text-gray-400 italic">{emp.email}</span>
+                                                </div>
+                                            ) : (
+                                                <button onClick={() => { setSelectedEmpForCloud(emp); setCloudEmail(''); setCloudPass(''); setCloudModalOpen(true); }} className="p-1.5 bg-blue-50 hover:bg-blue-100 rounded text-blue-600" title="Créer compte connexion cloud"><Cloud size={16}/></button>
+                                            )}
                                         </td>
                                         <td className="py-3 px-4 text-center">
                                             <div className="flex justify-center gap-1">
+                                                <button onClick={() => { setSelectedEmployeeForBadge(emp); setQrBadgeModalOpen(true); }} className="p-1.5 bg-gray-100 hover:bg-gray-200 rounded text-gray-600" title="Badge QR"><QrCode size={16}/></button>
                                                 <button onClick={() => { setSelectedEmployeeForHistory(emp); setHistoryModalOpen(true); }} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Historique Paie"><History size={16}/></button>
                                                 <button onClick={() => { setSelectedEmployeeForPay(emp); setPayModalOpen(true); }} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Payer"><DollarSign size={16}/></button>
                                                 <button onClick={() => { setEditingEmployee(emp); setFormData(emp); setIsModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-brand-600 rounded"><Edit2 size={16}/></button>
@@ -184,6 +218,38 @@ const HRView: React.FC<HRViewProps> = ({
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+
+            {/* --- MODAL CRÉATION COMPTE CLOUD --- */}
+            {cloudModalOpen && selectedEmpForCloud && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[150] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4">
+                            <h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg"><Cloud size={24} className="text-blue-600"/> Accès Cloud</h3>
+                            <button onClick={() => setCloudModalOpen(false)}><X size={24}/></button>
+                        </div>
+                        <div className="space-y-4">
+                            <p className="text-xs text-gray-500">Créez des identifiants Firebase pour <strong>{selectedEmpForCloud.nom}</strong>.</p>
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Email de connexion</label>
+                                <input type="email" required className="w-full p-3 border rounded-xl font-bold bg-gray-50" placeholder="exemple@by-tchico.com" value={cloudEmail} onChange={e => setCloudEmail(e.target.value)} />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Mot de passe (6 car. min)</label>
+                                <input type="password" required className="w-full p-3 border rounded-xl font-bold bg-gray-50" placeholder="••••••" value={cloudPass} onChange={e => setCloudPass(e.target.value)} />
+                            </div>
+                            <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
+                                <p className="text-[9px] text-blue-700 font-bold italic leading-tight">Note: L'utilisateur pourra ensuite se connecter depuis n'importe quel appareil synchronisé.</p>
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-3 mt-8">
+                            <button onClick={() => setCloudModalOpen(false)} className="px-4 py-2 text-xs font-black uppercase text-gray-400">Annuler</button>
+                            <button onClick={handleCreateCloudAccount} disabled={cloudLoading} className="px-8 py-3 bg-blue-600 text-white rounded-xl font-black uppercase text-xs shadow-lg flex items-center gap-2">
+                                {cloudLoading ? <Loader size={16} className="animate-spin"/> : "Créer le compte"}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -232,7 +298,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* --- MODAL RAPPORT POINTAGE (RESTAURÉ) --- */}
+            {/* --- MODAL RAPPORT POINTAGE --- */}
             {isReportModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[90vh]">
@@ -305,7 +371,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* --- MODAL BADGE QR (RESTAURÉ) --- */}
+            {/* --- MODAL BADGE QR --- */}
             {qrBadgeModalOpen && selectedEmployeeForBadge && (
                 <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full flex flex-col items-center animate-in zoom-in duration-200">
