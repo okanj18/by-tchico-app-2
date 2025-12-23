@@ -137,9 +137,25 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         const order = commandes.find(c => c.id === orderId);
         if (!order) return;
 
-        const currentDetails = order.repartitionDetails?.[fromStatus] || {};
+        // Auto-migration pour les anciennes commandes
+        let currentDetails = order.repartitionDetails?.[fromStatus] || {};
+        
+        // Si les détails sont vides mais qu'il y a du stock global dans cette colonne
+        const qtyInStatus = order.repartitionStatuts?.[fromStatus] || (order.statut === fromStatus ? order.quantite : 0);
+        
+        if (Object.keys(currentDetails).length === 0 && qtyInStatus > 0) {
+            // On essaie de peupler avec les éléments de la commande ou la description
+            if (order.elements && order.elements.length > 0) {
+                order.elements.forEach(el => {
+                    currentDetails[el.nom] = el.quantite;
+                });
+            } else {
+                currentDetails["Articles"] = qtyInStatus;
+            }
+        }
+
         const movements: Record<string, number> = {};
-        Object.keys(currentDetails).forEach(k => movements[k] = 0); // Init à 0
+        Object.keys(currentDetails).forEach(k => movements[k] = 0);
 
         setKanbanMoveModal({ order, fromStatus: fromStatus as StatutCommande, toStatus, movements, assignTailorId: '' });
     };
@@ -157,17 +173,13 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         let totalToMove = 0;
         let updatedTaches = [...(order.taches || [])];
 
-        // Fix: Explicitly cast Object.entries to handle potentially unknown types in strict mode
         (Object.entries(movements) as [string, number][]).forEach(([itemName, qty]) => {
-            // Ensure qty is treated as number for comparisons and arithmetic
             if (qty <= 0) return;
             totalToMove += qty;
             
-            // Soustraire du départ
             newDetails[fromStatus][itemName] = (newDetails[fromStatus][itemName] || 0) - qty;
             if (newDetails[fromStatus][itemName] <= 0) delete newDetails[fromStatus][itemName];
             
-            // Ajouter à l'arrivée
             newDetails[toStatus][itemName] = (newDetails[toStatus][itemName] || 0) + qty;
 
             if (assignTailorId) {
@@ -212,15 +224,19 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         
         if (rule) {
             const itemName = task.elementNom || 'Standard';
-            const availableInSource = newStatut === 'FAIT' ? (newDetails[rule.from]?.[itemName] || 0) : (newDetails[rule.to]?.[itemName] || 0);
-            const qtyToMove = Math.min(task.quantite, availableInSource);
+            
+            // Auto-init si vide
+            if (!newDetails[rule.from]) newDetails[rule.from] = {};
+            if (!newDetails[rule.to]) newDetails[rule.to] = {};
+            
+            const availableInSource = newStatut === 'FAIT' ? (newDetails[rule.from][itemName] || 0) : (newDetails[rule.to][itemName] || 0);
+            
+            // Si pas trouvé dans les détails (vieille commande), on prend dans la quantité globale
+            const qtyToMove = (availableInSource > 0) ? Math.min(task.quantite, availableInSource) : task.quantite;
             
             if (qtyToMove > 0) {
-                if (!newDetails[rule.from]) newDetails[rule.from] = {};
-                if (!newDetails[rule.to]) newDetails[rule.to] = {};
-
                 if (newStatut === 'FAIT') { 
-                    newDetails[rule.from][itemName] -= qtyToMove;
+                    if (newDetails[rule.from][itemName]) newDetails[rule.from][itemName] -= qtyToMove;
                     if (newDetails[rule.from][itemName] <= 0) delete newDetails[rule.from][itemName];
                     newDetails[rule.to][itemName] = (newDetails[rule.to][itemName] || 0) + qtyToMove;
 
@@ -228,7 +244,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     if (newRepartition[rule.from] <= 0) delete newRepartition[rule.from];
                     newRepartition[rule.to] = (newRepartition[rule.to] || 0) + qtyToMove;
                 } else { 
-                    newDetails[rule.to][itemName] -= qtyToMove;
+                    if (newDetails[rule.to][itemName]) newDetails[rule.to][itemName] -= qtyToMove;
                     if (newDetails[rule.to][itemName] <= 0) delete newDetails[rule.to][itemName];
                     newDetails[rule.from][itemName] = (newDetails[rule.from][itemName] || 0) + qtyToMove;
 
@@ -262,16 +278,21 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         if (newRepartition[StatutCommande.PRET] <= 0) delete newRepartition[StatutCommande.PRET];
         newRepartition[StatutCommande.LIVRE] = (newRepartition[StatutCommande.LIVRE] || 0) + qty;
         
-        // On livre les articles du PRET proportionnellement (simplification car PRET n'est pas détaillé au clic de livraison globale)
-        // Pour un suivi strict, on décrémente simplement le total.
-        
         let allDone = !KANBAN_STATUS_ORDER.some(s => (newRepartition[s] || 0) > 0);
         onUpdateOrder({ ...order, repartitionStatuts: newRepartition, repartitionDetails: newDetails, statut: allDone ? StatutCommande.LIVRE : order.statut });
         setDeliveryModal(null); alert("Livraison validée.");
     };
 
     const getAssignableQtyForElement = (order: Commande, elementNom: string, action: ActionProduction) => {
-        const totalOrdered = order.elements?.find(e => e.nom === elementNom)?.quantite || 0;
+        // Fallback pour les commandes sans liste d'éléments explicite
+        if (!order.elements || order.elements.length === 0) {
+            const alreadyAssignedTotal = (order.taches || [])
+                .filter(t => t.action === action)
+                .reduce((acc, t) => acc + t.quantite, 0);
+            return Math.max(0, order.quantite - alreadyAssignedTotal);
+        }
+
+        const totalOrdered = order.elements.find(e => e.nom === elementNom)?.quantite || 0;
         const alreadyAssigned = (order.taches || [])
             .filter(t => t.elementNom === elementNom && t.action === action)
             .reduce((acc, t) => acc + t.quantite, 0);
@@ -344,7 +365,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                     {filteredCommandes.filter(c => (c.repartitionStatuts?.[status] || 0) > 0 || (!c.repartitionStatuts && c.statut === status)).map(order => {
                                         const qtyInColumn = (order.repartitionStatuts?.[status]) || (order.statut === status ? order.quantite : 0);
                                         const detailsInColumn = order.repartitionDetails?.[status] || {};
-                                        // Fix: explicitly cast Object.entries to handle potentially unknown types in strict mode
                                         const detailsText = (Object.entries(detailsInColumn) as [string, number][]).map(([name, qty]) => `${name} (x${qty})`).join(', ');
 
                                         return (
@@ -409,7 +429,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 )}
             </div>
 
-            {/* MODAL NOUVELLE COMMANDE (RE-VISITÉ POUR VISIBILITÉ CAISSE) */}
+            {/* MODAL NOUVELLE COMMANDE */}
             {orderModalOpen && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[250] flex items-center justify-center p-4 backdrop-blur-md">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-10 flex flex-col max-h-[90vh] animate-in zoom-in duration-300 border border-brand-100">
@@ -438,7 +458,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 </div>
                                 <div className="space-y-2"><label className="text-[10px] font-black text-brand-800 uppercase tracking-widest ml-1">Date Livraison</label><input type="date" className="w-full p-4 border-2 border-white rounded-2xl text-xs font-bold bg-white" value={newOrderData.dateLivraisonPrevue} onChange={e => setNewOrderData({...newOrderData, dateLivraisonPrevue: e.target.value})}/></div>
                             </div>
-                            <div className="space-y-2 pb-6"><label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Compte d'encaissement</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl text-sm font-bold bg-gray-50 focus:border-brand-600 transition-all outline-none" value={initialAccountId} onChange={e => setInitialAccountId(e.target.value)}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                            <div className="space-y-2 pb-6"><label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Compte d'encaissement</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl text-sm font-bold bg-gray-50 focus:border-brand-600 outline-none" value={initialAccountId} onChange={e => setInitialAccountId(e.target.value)}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
                         </div>
                         <div className="flex justify-end gap-4 mt-8 shrink-0 pt-4 border-t">
                             <button onClick={() => setOrderModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button>
@@ -457,11 +477,11 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Commande Client</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl text-sm font-bold bg-gray-50 focus:border-brand-600 transition-all outline-none" value={newTaskData.orderId} onChange={e => {
                                 const cmdId = e.target.value;
                                 const cmd = commandes.find(c => c.id === cmdId);
-                                setNewTaskData({...newTaskData, orderId: cmdId, elementNom: cmd?.elements?.[0]?.nom || ''});
+                                setNewTaskData({...newTaskData, orderId: cmdId, elementNom: cmd?.elements?.[0]?.nom || 'Articles'});
                             }}><option value="">-- Sélectionner Commande --</option>{commandes.filter(c => !c.archived && c.statut !== StatutCommande.LIVRE).map(c => <option key={c.id} value={c.id}>{c.clientNom} (#{c.id.slice(-6)})</option>)}</select></div>
                             
                             {newTaskData.orderId && (
-                                <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Article spécifique</label><select className="w-full p-4 border-2 border-brand-50 rounded-2xl text-sm font-black bg-brand-50/20 text-brand-900 focus:border-brand-600 transition-all outline-none" value={newTaskData.elementNom} onChange={e => setNewTaskData({...newTaskData, elementNom: e.target.value})}><option value="">-- Choisir Article --</option>{commandes.find(c => c.id === newTaskData.orderId)?.elements?.map(el => <option key={el.nom} value={el.nom}>{el.nom} (Total: {el.quantite})</option>)}</select></div>
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Article spécifique</label><select className="w-full p-4 border-2 border-brand-50 rounded-2xl text-sm font-black bg-brand-50/20 text-brand-900 focus:border-brand-600 transition-all outline-none" value={newTaskData.elementNom} onChange={e => setNewTaskData({...newTaskData, elementNom: e.target.value})}><option value="">-- Choisir Article --</option>{(commandes.find(c => c.id === newTaskData.orderId)?.elements || [{nom: "Articles", quantite: 0}]).map(el => <option key={el.nom} value={el.nom}>{el.nom} (Total: {el.quantite || "Général"})</option>)}</select></div>
                             )}
 
                             <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Étape de Production</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl text-sm font-bold bg-gray-50" value={newTaskData.action} onChange={e => setNewTaskData({...newTaskData, action: e.target.value as any})}><option value="COUPE">Coupe (Départ)</option><option value="COUTURE">Couture / Montage</option><option value="FINITION">Finition / Broderie</option><option value="REPASSAGE">Repassage / Prêt</option></select></div>
@@ -473,7 +493,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
                             <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Artisan</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl text-sm font-bold bg-gray-50" value={newTaskData.tailleurId} onChange={e => setNewTaskData({...newTaskData, tailleurId: e.target.value})}><option value="">-- Choisir Artisan --</option>{tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}</select></div>
                         </div>
-                        <div className="flex justify-end gap-3 mt-10"><button onClick={() => setTaskModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest hover:text-gray-600">Annuler</button><button disabled={!newTaskData.tailleurId || !newTaskData.orderId || !newTaskData.elementNom} onClick={() => {
+                        <div className="flex justify-end gap-3 mt-10"><button onClick={() => setTaskModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest hover:text-gray-600">Annuler</button><button disabled={!newTaskData.tailleurId || !newTaskData.orderId} onClick={() => {
                                 const order = commandes.find(c => c.id === newTaskData.orderId);
                                 if (order && newTaskData.tailleurId) {
                                     const maxAssign = getAssignableQtyForElement(order, newTaskData.elementNom, newTaskData.action);
@@ -489,7 +509,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL KANBAN MOVE (DÉTAILLÉ PAR ARTICLE) */}
+            {/* MODAL KANBAN MOVE */}
             {kanbanMoveModal && (
                 <div className="fixed inset-0 bg-brand-900/70 z-[320] flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200 border border-brand-100">
@@ -498,8 +518,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">De <span className="text-gray-900">{kanbanMoveModal.fromStatus}</span> → <span className="text-brand-600">{kanbanMoveModal.toStatus}</span></p>
                             
                             <div className="space-y-3">
-                                {/* Fix: Explicitly cast Object.entries to handle potentially unknown types in strict mode */}
-                                {(Object.entries(kanbanMoveModal.order.repartitionDetails?.[kanbanMoveModal.fromStatus] || {}) as [string, number][]).map(([itemName, maxQty]) => (
+                                {(Object.entries(kanbanMoveModal.order.repartitionDetails?.[kanbanMoveModal.fromStatus] || { "Articles": kanbanMoveModal.order.repartitionStatuts?.[kanbanMoveModal.fromStatus] || kanbanMoveModal.order.quantite }) as [string, number][]).map(([itemName, maxQty]) => (
                                     <div key={itemName} className="bg-gray-50 p-4 rounded-xl border border-gray-100">
                                         <label className="block text-xs font-black text-gray-700 uppercase mb-2">{itemName} (Max: {maxQty})</label>
                                         <div className="flex items-center gap-3">
@@ -542,7 +561,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         </div>
                         <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
                             <div className="grid grid-cols-2 gap-8 border-b pb-8">
-                                <div><h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Composition</h4><div className="space-y-2">{orderDetailView.elements?.map((e, i) => (<div key={i} className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-100"><span className="text-sm font-bold text-gray-800 uppercase">{e.nom}</span><span className="font-black text-brand-600">x{e.quantite}</span></div>))}</div></div>
+                                <div><h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Composition</h4><div className="space-y-2">{(orderDetailView.elements || [{nom: "Pièces", quantite: orderDetailView.quantite}]).map((e, i) => (<div key={i} className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-100"><span className="text-sm font-bold text-gray-800 uppercase">{e.nom}</span><span className="font-black text-brand-600">x{e.quantite}</span></div>))}</div></div>
                                 <div><h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Dates Clés</h4><div className="space-y-3"><div className="flex justify-between text-sm"><span className="text-gray-500 font-bold uppercase">Commande :</span><span className="font-bold">{new Date(orderDetailView.dateCommande).toLocaleDateString()}</span></div><div className="flex justify-between text-sm"><span className="text-gray-500 font-bold uppercase">Livraison :</span><span className="font-black text-brand-700 underline decoration-2">{new Date(orderDetailView.dateLivraisonPrevue).toLocaleDateString()}</span></div></div></div>
                             </div>
                             <div>
