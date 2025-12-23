@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie } from '../types';
-import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock, Truck } from 'lucide-react';
+import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock, Truck, CheckSquare, Square } from 'lucide-react';
 import { QRScannerModal } from './QRTools';
 import { QRCodeCanvas } from 'qrcode.react';
 import { createAuthUser } from '../services/firebase';
@@ -51,6 +51,7 @@ const HRView: React.FC<HRViewProps> = ({
     // Transport Modal
     const [transportModalOpen, setTransportModalOpen] = useState(false);
     const [transportData, setTransportData] = useState({ montant: 0, date: new Date().toISOString().split('T')[0], compteId: '', boutiqueId: 'ATELIER' });
+    const [selectedTransportEmpIds, setSelectedTransportEmpIds] = useState<string[]>([]);
 
     // Cloud Account State
     const [cloudModalOpen, setCloudModalOpen] = useState(false);
@@ -63,7 +64,12 @@ const HRView: React.FC<HRViewProps> = ({
     const [payModalOpen, setPayModalOpen] = useState(false);
     const [selectedEmployeeForPay, setSelectedEmployeeForPay] = useState<Employe | null>(null);
     const [paymentAccountId, setPaymentAccountId] = useState<string>('');
-    const [transactionData, setTransactionData] = useState({ date: new Date().toISOString().split('T')[0], type: 'ACOMPTE', montant: 0, note: '' });
+    const [transactionData, setTransactionData] = useState({ 
+        date: new Date().toISOString().split('T')[0], 
+        type: 'ACOMPTE', 
+        montant: 0, 
+        note: '' 
+    });
     
     const [historyModalOpen, setHistoryModalOpen] = useState(false);
     const [selectedEmployeeForHistory, setSelectedEmployeeForHistory] = useState<Employe | null>(null);
@@ -87,6 +93,7 @@ const HRView: React.FC<HRViewProps> = ({
         return showArchived ? matchesSearch && e.actif === false : matchesSearch && e.actif !== false;
     });
 
+    const activeEmployes = useMemo(() => employes.filter(e => e.actif !== false), [employes]);
     const dailyPointages = pointages.filter(p => p.date === pointageDate);
 
     // Stats
@@ -146,6 +153,10 @@ const HRView: React.FC<HRViewProps> = ({
         }
     };
 
+    const toggleTransportEmp = (id: string) => {
+        setSelectedTransportEmpIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    };
+
     const handleSaveTransport = () => {
         if (transportData.montant <= 0 || !transportData.compteId) {
             alert("Veuillez saisir un montant et choisir une caisse.");
@@ -157,12 +168,14 @@ const HRView: React.FC<HRViewProps> = ({
             if (!window.confirm(`⚠️ Solde insuffisant sur ${selectedAccount.nom}. Continuer quand même ?`)) return;
         }
 
+        const empNames = activeEmployes.filter(e => selectedTransportEmpIds.includes(e.id)).map(e => e.nom).join(', ');
+
         const depense: Depense = {
             id: `D_TR_${Date.now()}`,
             date: transportData.date,
             montant: transportData.montant,
             categorie: 'LOGISTIQUE',
-            description: "Transport Groupe (Equipe)",
+            description: `Transport Groupe: ${selectedTransportEmpIds.length} pers. (${empNames})`,
             boutiqueId: transportData.boutiqueId,
             compteId: transportData.compteId
         };
@@ -170,6 +183,7 @@ const HRView: React.FC<HRViewProps> = ({
         onAddDepense(depense);
         setTransportModalOpen(false);
         setTransportData({ montant: 0, date: new Date().toISOString().split('T')[0], compteId: '', boutiqueId: 'ATELIER' });
+        setSelectedTransportEmpIds([]);
         alert("Transport enregistré avec succès.");
     };
 
@@ -198,7 +212,7 @@ const HRView: React.FC<HRViewProps> = ({
                     {!isGardien && (
                         <>
                             <button 
-                                onClick={() => setTransportModalOpen(true)} 
+                                onClick={() => { setSelectedTransportEmpIds(activeEmployes.map(e => e.id)); setTransportModalOpen(true); }} 
                                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-black uppercase text-[10px] tracking-widest shadow-md transition-all active:scale-95"
                             >
                                 <Truck size={16} /> Transport Groupe
@@ -255,7 +269,7 @@ const HRView: React.FC<HRViewProps> = ({
                                             <div className="flex justify-center gap-1">
                                                 <button onClick={() => { setSelectedEmployeeForBadge(emp); setQrBadgeModalOpen(true); }} className="p-1.5 bg-gray-100 hover:bg-gray-200 rounded text-gray-600" title="Badge QR"><QrCode size={16}/></button>
                                                 <button onClick={() => { setSelectedEmployeeForHistory(emp); setHistoryModalOpen(true); }} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Historique Paie"><History size={16}/></button>
-                                                <button onClick={() => { setSelectedEmployeeForPay(emp); setPayModalOpen(true); }} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Payer"><DollarSign size={16}/></button>
+                                                <button onClick={() => { setSelectedEmployeeForPay(emp); setPaymentAccountId(''); setTransactionData({ ...transactionData, montant: 0, note: '' }); setPayModalOpen(true); }} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Payer Salaire / Acompte"><DollarSign size={16}/></button>
                                                 <button onClick={() => { setEditingEmployee(emp); setFormData(emp); setIsModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-brand-600 rounded"><Edit2 size={16}/></button>
                                                 <button onClick={() => onArchiveEmploye?.(emp.id)} className="p-1.5 text-gray-400 hover:text-orange-600 rounded" title={emp.actif ? "Archiver" : "Restaurer"}>{emp.actif ? <UserMinus size={16}/> : <RotateCcw size={16}/>}</button>
                                                 <button onClick={() => onDeleteEmploye(emp.id)} className="p-1.5 text-red-300 hover:text-red-600 rounded" title="SUPPRIMER DÉFINITIVEMENT"><Trash2 size={16}/></button>
@@ -272,16 +286,34 @@ const HRView: React.FC<HRViewProps> = ({
             {/* --- MODAL TRANSPORT GROUPE --- */}
             {transportModalOpen && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200 border border-blue-100">
-                        <div className="flex justify-between items-center mb-6 border-b pb-4">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-8 animate-in zoom-in duration-200 border border-blue-100 max-h-[90vh] flex flex-col">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4 shrink-0">
                             <h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg"><Truck size={24} className="text-blue-600"/> Transport Groupe</h3>
                             <button onClick={() => setTransportModalOpen(false)}><X size={24}/></button>
                         </div>
-                        <div className="space-y-6">
+                        
+                        <div className="flex-1 overflow-y-auto space-y-6 pr-2 custom-scrollbar">
                             <div>
                                 <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Montant Total (F)</label>
                                 <input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl text-2xl font-black bg-blue-50 text-blue-900 focus:border-blue-500 outline-none" value={transportData.montant || ''} onChange={e => setTransportData({...transportData, montant: parseInt(e.target.value)||0})} placeholder="0" />
                             </div>
+
+                            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-3 ml-1 tracking-widest">Sélectionner les employés inclus</label>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {activeEmployes.map(emp => (
+                                        <button 
+                                            key={emp.id} 
+                                            onClick={() => toggleTransportEmp(emp.id)}
+                                            className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all ${selectedTransportEmpIds.includes(emp.id) ? 'bg-blue-600 border-blue-600 text-white shadow-md' : 'bg-white border-gray-100 text-gray-600 hover:border-blue-200'}`}
+                                        >
+                                            {selectedTransportEmpIds.includes(emp.id) ? <CheckSquare size={18}/> : <Square size={18}/>}
+                                            <span className="text-xs font-black uppercase truncate">{emp.nom}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Date</label>
@@ -302,9 +334,85 @@ const HRView: React.FC<HRViewProps> = ({
                                 </select>
                             </div>
                         </div>
-                        <div className="flex justify-end gap-3 mt-10">
+
+                        <div className="flex justify-end gap-3 mt-10 shrink-0 pt-4 border-t">
                             <button onClick={() => setTransportModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button>
-                            <button onClick={handleSaveTransport} disabled={!transportData.compteId || transportData.montant <= 0} className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-30 active:scale-95 transition-all">Valider</button>
+                            <button onClick={handleSaveTransport} disabled={!transportData.compteId || transportData.montant <= 0 || selectedTransportEmpIds.length === 0} className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-30 active:scale-95 transition-all">Valider</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Paiement Paie - RÉTABLI COMME AVANT AVEC TOUTES OPTIONS */}
+            {payModalOpen && selectedEmployeeForPay && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4">
+                            <h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg"><DollarSign className="text-green-600" size={24}/> Règlement Salaire</h3>
+                            <button onClick={() => setPayModalOpen(false)}><X size={24}/></button>
+                        </div>
+                        
+                        <div className="space-y-5">
+                            <div className="text-center bg-gray-50 p-4 rounded-2xl border-2 border-dashed border-gray-200">
+                                <p className="text-[10px] font-black text-gray-400 uppercase">Employé</p>
+                                <p className="text-lg font-black text-gray-900 uppercase">{selectedEmployeeForPay.nom}</p>
+                                <p className="text-[10px] text-brand-600 font-bold tracking-widest">{selectedEmployeeForPay.role}</p>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Date</label>
+                                    <input type="date" className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={transactionData.date} onChange={e => setTransactionData({...transactionData, date: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Type Règlement</label>
+                                    <select className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={transactionData.type} onChange={e => setTransactionData({...transactionData, type: e.target.value})}>
+                                        <option value="ACOMPTE">Acompte</option>
+                                        <option value="SALAIRE_NET">Salaire Net</option>
+                                        <option value="PRIME">Prime / Bonus</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Montant du règlement (F)</label>
+                                <input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl text-2xl font-black bg-green-50 text-green-900 focus:border-green-500 outline-none" value={transactionData.montant || ''} onChange={e => setTransactionData({...transactionData, montant: parseInt(e.target.value)||0})} placeholder="0" />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Caisse Source</label>
+                                <select className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)}>
+                                    <option value="">-- Choisir Caisse --</option>
+                                    {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Note / Détails (Opt.)</label>
+                                <input type="text" className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={transactionData.note} onChange={e => setTransactionData({...transactionData, note: e.target.value})} placeholder="Ex: Paie Décembre..." />
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-3 mt-8 pt-4 border-t">
+                            <button onClick={() => setPayModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button>
+                            <button 
+                                onClick={() => {
+                                    if (!paymentAccountId || transactionData.montant <= 0) {
+                                        alert("Montant et Caisse requis.");
+                                        return;
+                                    }
+                                    const newTrans: TransactionPaie = { id: `TP_${Date.now()}`, date: transactionData.date, type: transactionData.type as any, montant: transactionData.montant, description: transactionData.note || transactionData.type };
+                                    onUpdateEmploye({ ...selectedEmployeeForPay, historiquePaie: [...(selectedEmployeeForPay.historiquePaie || []), newTrans] });
+                                    onAddTransaction({ id: `TR_PAY_${Date.now()}`, date: transactionData.date, type: 'DECAISSEMENT', montant: transactionData.montant, compteId: paymentAccountId, description: `Paie ${selectedEmployeeForPay.nom}: ${transactionData.type}`, categorie: 'SALAIRE' });
+                                    onUpdateComptes(comptes.map(c => c.id === paymentAccountId ? { ...c, solde: c.solde - transactionData.montant } : c));
+                                    setPayModalOpen(false);
+                                    alert(`Paiement de ${transactionData.montant} F validé pour ${selectedEmployeeForPay.nom}`);
+                                }} 
+                                disabled={!paymentAccountId || transactionData.montant <= 0} 
+                                className="px-10 py-4 bg-green-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-30 active:scale-95 transition-all"
+                            >
+                                Valider Paie
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -352,7 +460,7 @@ const HRView: React.FC<HRViewProps> = ({
                         <table className="w-full text-sm text-left">
                             <thead className="bg-white text-gray-600 font-medium border-b border-gray-100"><tr><th className="py-3 px-4">Employé</th><th className="py-3 px-4 text-center">Statut</th><th className="py-3 px-4 text-center">Arrivée</th><th className="py-3 px-4 text-center">Départ</th><th className="py-3 px-4 text-center">Action</th></tr></thead>
                             <tbody className="divide-y divide-gray-100">
-                                {employes.filter(e => e.actif !== false).map(emp => {
+                                {activeEmployes.map(emp => {
                                     const pt = dailyPointages.find(p => p.employeId === emp.id);
                                     return (
                                         <tr key={emp.id} className="hover:bg-gray-50">
@@ -416,7 +524,7 @@ const HRView: React.FC<HRViewProps> = ({
                                         <tr><th className="p-2 border">Employé</th><th className="p-2 border text-center">Rôle</th><th className="p-2 border text-center">Présences</th><th className="p-2 border text-center">Retards</th><th className="p-2 border text-center">Absences</th></tr>
                                     </thead>
                                     <tbody>
-                                        {employes.filter(e => e.actif !== false).map(emp => {
+                                        {activeEmployes.map(emp => {
                                             const pts = pointages.filter(p => p.employeId === emp.id && p.date.startsWith(reportMonth));
                                             return (
                                                 <tr key={emp.id} className="hover:bg-gray-50">
@@ -497,29 +605,6 @@ const HRView: React.FC<HRViewProps> = ({
                             )}
                         </div>
                         <div className="mt-6 flex justify-end"><button onClick={() => setHistoryModalOpen(false)} className="px-6 py-2 bg-gray-800 text-white rounded font-bold">Fermer</button></div>
-                    </div>
-                </div>
-            )}
-
-            {/* Modal Paiement Paie */}
-            {payModalOpen && selectedEmployeeForPay && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
-                        <div className="flex justify-between items-center mb-4"><h3 className="font-bold flex items-center gap-2"><DollarSign className="text-green-600"/> Règlement {selectedEmployeeForPay.nom}</h3><button onClick={() => setPayModalOpen(false)}><X size={20}/></button></div>
-                        <div className="space-y-4">
-                            <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Date</label><input type="date" className="w-full p-2 border rounded" value={transactionData.date} onChange={e => setTransactionData({...transactionData, date: e.target.value})} /></div>
-                            <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Type</label><select className="w-full p-2 border rounded" value={transactionData.type} onChange={e => setTransactionData({...transactionData, type: e.target.value})}><option value="ACOMPTE">Acompte</option><option value="SALAIRE_NET">Salaire Net</option><option value="PRIME">Prime</option></select></div>
-                            <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Montant (F)</label><input type="number" className="w-full p-3 border rounded text-xl font-bold bg-green-50" value={transactionData.montant} onChange={e => setTransactionData({...transactionData, montant: parseInt(e.target.value)||0})} /></div>
-                            <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Compte Source</label><select className="w-full p-2 border rounded" value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
-                        </div>
-                        <div className="flex justify-end gap-3 mt-6"><button onClick={() => setPayModalOpen(false)} className="px-4 py-2 text-gray-400">Annuler</button><button onClick={() => {
-                            if (!paymentAccountId || transactionData.montant <= 0) return;
-                            const newTrans: TransactionPaie = { id: `TP_${Date.now()}`, date: transactionData.date, type: transactionData.type as any, montant: transactionData.montant, description: transactionData.type };
-                            onUpdateEmploye({ ...selectedEmployeeForPay, historiquePaie: [...(selectedEmployeeForPay.historiquePaie || []), newTrans] });
-                            onAddTransaction({ id: `TR_PAY_${Date.now()}`, date: transactionData.date, type: 'DECAISSEMENT', montant: transactionData.montant, compteId: paymentAccountId, description: `Paie ${selectedEmployeeForPay.nom}`, categorie: 'SALAIRE' });
-                            onUpdateComptes(comptes.map(c => c.id === paymentAccountId ? { ...c, solde: c.solde - transactionData.montant } : c));
-                            setPayModalOpen(false);
-                        }} disabled={!paymentAccountId} className="px-6 py-2 bg-green-600 text-white rounded font-bold shadow-lg disabled:opacity-50">Valider Paie</button></div>
                     </div>
                 </div>
             )}
