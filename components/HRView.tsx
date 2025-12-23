@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie } from '../types';
-import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock } from 'lucide-react';
+import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock, Truck } from 'lucide-react';
 import { QRScannerModal } from './QRTools';
 import { QRCodeCanvas } from 'qrcode.react';
 import { createAuthUser } from '../services/firebase';
@@ -47,6 +47,10 @@ const HRView: React.FC<HRViewProps> = ({
     const [formData, setFormData] = useState<Partial<Employe>>({
         nom: '', role: RoleEmploye.STAGIAIRE, telephone: '', salaireBase: 0, typeContrat: 'STAGE', email: ''
     });
+
+    // Transport Modal
+    const [transportModalOpen, setTransportModalOpen] = useState(false);
+    const [transportData, setTransportData] = useState({ montant: 0, date: new Date().toISOString().split('T')[0], compteId: '', boutiqueId: 'ATELIER' });
 
     // Cloud Account State
     const [cloudModalOpen, setCloudModalOpen] = useState(false);
@@ -95,7 +99,7 @@ const HRView: React.FC<HRViewProps> = ({
         return { totalBaseSalary, presentToday, totalActive: activeEmployees.length };
     }, [employes, pointages, isGardien]);
 
-    // --- ACTIONS POINTAGE ---
+    // --- ACTIONS ---
     const handleClockIn = (employeId: string) => {
         const now = new Date();
         const timeString = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -134,13 +138,39 @@ const HRView: React.FC<HRViewProps> = ({
             onUpdateEmploye(updated);
             alert(`Compte Cloud créé pour ${selectedEmpForCloud.nom} !`);
             setCloudModalOpen(false);
-            // On met aussi à jour le formulaire si ouvert
             setFormData(prev => ({ ...prev, email: cloudEmail }));
         } catch (err: any) {
             alert("Erreur Cloud: " + err.message);
         } finally {
             setCloudLoading(false);
         }
+    };
+
+    const handleSaveTransport = () => {
+        if (transportData.montant <= 0 || !transportData.compteId) {
+            alert("Veuillez saisir un montant et choisir une caisse.");
+            return;
+        }
+
+        const selectedAccount = comptes.find(c => c.id === transportData.compteId);
+        if (selectedAccount && selectedAccount.solde < transportData.montant) {
+            if (!window.confirm(`⚠️ Solde insuffisant sur ${selectedAccount.nom}. Continuer quand même ?`)) return;
+        }
+
+        const depense: Depense = {
+            id: `D_TR_${Date.now()}`,
+            date: transportData.date,
+            montant: transportData.montant,
+            categorie: 'LOGISTIQUE',
+            description: "Transport Groupe (Equipe)",
+            boutiqueId: transportData.boutiqueId,
+            compteId: transportData.compteId
+        };
+
+        onAddDepense(depense);
+        setTransportModalOpen(false);
+        setTransportData({ montant: 0, date: new Date().toISOString().split('T')[0], compteId: '', boutiqueId: 'ATELIER' });
+        alert("Transport enregistré avec succès.");
     };
 
     const getPointageStatusColor = (status: string) => {
@@ -154,18 +184,32 @@ const HRView: React.FC<HRViewProps> = ({
 
     return (
         <div className="h-[calc(100vh-8rem)] flex flex-col space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Briefcase className="text-brand-600" /> Ressources Humaines</h2>
                 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2 w-full md:w-auto">
                     {!isGardien && (
                         <div className="flex bg-gray-100 p-1 rounded-lg">
                             <button onClick={() => setActiveTab('EMPLOYEES')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${activeTab === 'EMPLOYEES' ? 'bg-white shadow text-brand-700' : 'text-gray-500'}`}><Users size={14} /> Employés</button>
                             <button onClick={() => setActiveTab('POINTAGE')} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-1 ${activeTab === 'POINTAGE' ? 'bg-white shadow text-brand-700' : 'text-gray-500'}`}><Clock size={14} /> Pointage</button>
                         </div>
                     )}
-                    {activeTab === 'EMPLOYEES' && !isGardien && (
-                        <button onClick={() => { setFormData({ role: RoleEmploye.STAGIAIRE, salaireBase: 0, email: '' }); setEditingEmployee(null); setIsModalOpen(true); }} className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium text-sm"><Plus size={16} /> Nouveau</button>
+                    
+                    {!isGardien && (
+                        <>
+                            <button 
+                                onClick={() => setTransportModalOpen(true)} 
+                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-black uppercase text-[10px] tracking-widest shadow-md transition-all active:scale-95"
+                            >
+                                <Truck size={16} /> Transport Groupe
+                            </button>
+                            <button 
+                                onClick={() => { setFormData({ role: RoleEmploye.STAGIAIRE, salaireBase: 0, email: '' }); setEditingEmployee(null); setIsModalOpen(true); }} 
+                                className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-black uppercase text-[10px] tracking-widest shadow-md transition-all active:scale-95"
+                            >
+                                <Plus size={16} /> Nouveau
+                            </button>
+                        </>
                     )}
                 </div>
             </div>
@@ -221,6 +265,47 @@ const HRView: React.FC<HRViewProps> = ({
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+
+            {/* --- MODAL TRANSPORT GROUPE --- */}
+            {transportModalOpen && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200 border border-blue-100">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4">
+                            <h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg"><Truck size={24} className="text-blue-600"/> Transport Groupe</h3>
+                            <button onClick={() => setTransportModalOpen(false)}><X size={24}/></button>
+                        </div>
+                        <div className="space-y-6">
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Montant Total (F)</label>
+                                <input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl text-2xl font-black bg-blue-50 text-blue-900 focus:border-blue-500 outline-none" value={transportData.montant || ''} onChange={e => setTransportData({...transportData, montant: parseInt(e.target.value)||0})} placeholder="0" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Date</label>
+                                    <input type="date" className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={transportData.date} onChange={e => setTransportData({...transportData, date: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Boutique</label>
+                                    <select className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={transportData.boutiqueId} onChange={e => setTransportData({...transportData, boutiqueId: e.target.value})}>
+                                        {boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Caisse de Retrait</label>
+                                <select className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={transportData.compteId} onChange={e => setTransportData({...transportData, compteId: e.target.value})}>
+                                    <option value="">-- Choisir Caisse --</option>
+                                    {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
+                                </select>
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-3 mt-10">
+                            <button onClick={() => setTransportModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button>
+                            <button onClick={handleSaveTransport} disabled={!transportData.compteId || transportData.montant <= 0} className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-30 active:scale-95 transition-all">Valider</button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -439,7 +524,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
             
-            {/* Modal Formulaire Employé - MIS A JOUR POUR EMAIL ET CLOUD */}
+            {/* Modal Formulaire Employé */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in zoom-in duration-200">
