@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie } from '../types';
-import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock, Truck, CheckSquare, Square } from 'lucide-react';
+import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock, Truck, CheckSquare, Square, Save } from 'lucide-react';
 import { QRScannerModal } from './QRTools';
 import { QRCodeCanvas } from 'qrcode.react';
 import { createAuthUser } from '../services/firebase';
@@ -59,13 +59,6 @@ const HRView: React.FC<HRViewProps> = ({
     });
     const [selectedTransportEmpIds, setSelectedTransportEmpIds] = useState<string[]>([]);
 
-    // Cloud Account State
-    const [cloudModalOpen, setCloudModalOpen] = useState(false);
-    const [selectedEmpForCloud, setSelectedEmpForCloud] = useState<Employe | null>(null);
-    const [cloudEmail, setCloudEmail] = useState('');
-    const [cloudPass, setCloudPass] = useState('');
-    const [cloudLoading, setCloudLoading] = useState(false);
-
     // Paiement et historique
     const [payModalOpen, setPayModalOpen] = useState(false);
     const [selectedEmployeeForPay, setSelectedEmployeeForPay] = useState<Employe | null>(null);
@@ -77,9 +70,11 @@ const HRView: React.FC<HRViewProps> = ({
         note: '' 
     });
     
+    // États pour l'édition d'une ligne d'historique
     const [historyModalOpen, setHistoryModalOpen] = useState(false);
     const [selectedEmployeeForHistory, setSelectedEmployeeForHistory] = useState<Employe | null>(null);
-    
+    const [editingHistoryItem, setEditingHistoryItem] = useState<{empId: string, item: TransactionPaie} | null>(null);
+
     // Rapports
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
     const [reportType, setReportType] = useState<'GLOBAL' | 'INDIVIDUAL'>('GLOBAL');
@@ -91,6 +86,13 @@ const HRView: React.FC<HRViewProps> = ({
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [qrBadgeModalOpen, setQrBadgeModalOpen] = useState(false);
     const [selectedEmployeeForBadge, setSelectedEmployeeForBadge] = useState<Employe | null>(null);
+
+    // Cloud Account State
+    const [cloudModalOpen, setCloudModalOpen] = useState(false);
+    const [selectedEmpForCloud, setSelectedEmpForCloud] = useState<Employe | null>(null);
+    const [cloudEmail, setCloudEmail] = useState('');
+    const [cloudPass, setCloudPass] = useState('');
+    const [cloudLoading, setCloudLoading] = useState(false);
 
     // Filtres
     const filteredEmployes = employes.filter(e => {
@@ -187,15 +189,15 @@ const HRView: React.FC<HRViewProps> = ({
         };
         onAddDepense(depense);
 
-        // 2. Mettre à jour l'historique de paie de CHAQUE employé sélectionné
-        selectedTransportEmpIds.forEach(empId => {
+        // 2. Mettre à jour l'historique de paie de CHAQUE employé sélectionné (Update en série)
+        selectedTransportEmpIds.forEach((empId, index) => {
             const emp = employes.find(e => e.id === empId);
             if (emp) {
                 const transportEntry: TransactionPaie = {
-                    id: `TP_TR_${Date.now()}_${empId}`,
+                    id: `TP_TR_${Date.now()}_${index}`, // Utilisation de l'index pour garantir l'unicité
                     date: transportData.date,
                     type: 'ACOMPTE',
-                    description: `Transport Journée ${new Date(transportData.date).toLocaleDateString()}`,
+                    description: `Transport Quotidien`,
                     montant: transportData.montantUnitaire
                 };
                 onUpdateEmploye({
@@ -208,17 +210,29 @@ const HRView: React.FC<HRViewProps> = ({
         setTransportModalOpen(false);
         setTransportData({ montantUnitaire: 500, montantTotal: 0, date: new Date().toISOString().split('T')[0], compteId: '', boutiqueId: 'ATELIER' });
         setSelectedTransportEmpIds([]);
-        alert("Transport enregistré et historiques employés mis à jour avec succès.");
+        alert("Transport enregistré et historiques employés mis à jour.");
     };
 
     const handleDeletePayrollTransaction = (emp: Employe, transId: string) => {
-        if (!window.confirm("Voulez-vous vraiment supprimer ce règlement de l'historique ?\n(Note: Cela n'annule pas la transaction en caisse)")) return;
+        if (!window.confirm("Voulez-vous vraiment supprimer ce règlement ?")) return;
         const updatedHistory = (emp.historiquePaie || []).filter(h => h.id !== transId);
         onUpdateEmploye({ ...emp, historiquePaie: updatedHistory });
-        // Mettre à jour l'affichage si le modal est ouvert
         if (selectedEmployeeForHistory?.id === emp.id) {
             setSelectedEmployeeForHistory({ ...emp, historiquePaie: updatedHistory });
         }
+    };
+
+    const handleSaveEditHistory = () => {
+        if (!editingHistoryItem || !selectedEmployeeForHistory) return;
+        
+        const updatedHistory = (selectedEmployeeForHistory.historiquePaie || []).map(h => 
+            h.id === editingHistoryItem.item.id ? editingHistoryItem.item : h
+        );
+
+        onUpdateEmploye({ ...selectedEmployeeForHistory, historiquePaie: updatedHistory });
+        setSelectedEmployeeForHistory({ ...selectedEmployeeForHistory, historiquePaie: updatedHistory });
+        setEditingHistoryItem(null);
+        alert("Modification enregistrée.");
     };
 
     const getPointageStatusColor = (status: string) => {
@@ -326,6 +340,69 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
+            {/* Modal Historique Paie - OPTIONS MODIFIER/SUPPRIMER RESTAURÉES */}
+            {historyModalOpen && selectedEmployeeForHistory && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 flex flex-col max-h-[80vh] animate-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4">
+                            <h3 className="font-black text-gray-800 flex items-center gap-3 uppercase lg text-lg"><History className="text-blue-600"/> Historique : {selectedEmployeeForHistory.nom}</h3>
+                            <button onClick={() => { setHistoryModalOpen(false); setEditingHistoryItem(null); }}><X size={24}/></button>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                            {editingHistoryItem ? (
+                                <div className="bg-blue-50 p-6 rounded-2xl border-2 border-blue-100 space-y-4 animate-in slide-in-from-top duration-300">
+                                    <div className="flex justify-between items-center"><h4 className="text-xs font-black text-blue-700 uppercase tracking-widest">Modification Règlement</h4><button onClick={() => setEditingHistoryItem(null)}><X size={18}/></button></div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Date</label><input type="date" className="w-full p-2 border-2 border-white rounded-xl text-xs font-bold" value={editingHistoryItem.item.date} onChange={e => setEditingHistoryItem({...editingHistoryItem, item: {...editingHistoryItem.item, date: e.target.value}})} /></div>
+                                        <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Type</label><select className="w-full p-2 border-2 border-white rounded-xl text-xs font-bold" value={editingHistoryItem.item.type} onChange={e => setEditingHistoryItem({...editingHistoryItem, item: {...editingHistoryItem.item, type: e.target.value as any}})}><option value="ACOMPTE">Acompte</option><option value="SALAIRE_NET">Salaire Net</option><option value="PRIME">Prime</option></select></div>
+                                    </div>
+                                    <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Montant (F)</label><input type="number" className="w-full p-3 border-2 border-white rounded-xl text-lg font-black text-blue-900" value={editingHistoryItem.item.montant} onChange={e => setEditingHistoryItem({...editingHistoryItem, item: {...editingHistoryItem.item, montant: parseInt(e.target.value)||0}})} /></div>
+                                    <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Libellé</label><input type="text" className="w-full p-2 border-2 border-white rounded-xl text-xs font-bold" value={editingHistoryItem.item.description} onChange={e => setEditingHistoryItem({...editingHistoryItem, item: {...editingHistoryItem.item, description: e.target.value}})} /></div>
+                                    <button onClick={handleSaveEditHistory} className="w-full py-3 bg-blue-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg flex items-center justify-center gap-2"><Save size={16}/> Enregistrer les changements</button>
+                                </div>
+                            ) : (
+                                <>
+                                    {!selectedEmployeeForHistory.historiquePaie || selectedEmployeeForHistory.historiquePaie.length === 0 ? <p className="text-center text-gray-400 py-10 font-bold uppercase text-xs">Aucun historique.</p> : (
+                                        selectedEmployeeForHistory.historiquePaie.map(h => (
+                                            <div key={h.id} className="p-4 border-2 border-gray-50 rounded-2xl bg-white flex justify-between items-center shadow-sm group hover:border-blue-100 transition-all">
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${h.type === 'ACOMPTE' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>{h.type}</span>
+                                                        <p className="text-[10px] text-gray-400 font-bold">{new Date(h.date).toLocaleDateString()}</p>
+                                                    </div>
+                                                    <p className="font-black text-gray-800 text-sm mt-1">{h.montant.toLocaleString()} F</p>
+                                                    <p className="text-[10px] text-gray-500 italic mt-0.5 line-clamp-1">{h.description}</p>
+                                                </div>
+                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button 
+                                                        onClick={() => setEditingHistoryItem({empId: selectedEmployeeForHistory.id, item: {...h}})} 
+                                                        className="p-2 text-blue-300 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                                                        title="Modifier ce règlement"
+                                                    >
+                                                        <Edit2 size={16}/>
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleDeletePayrollTransaction(selectedEmployeeForHistory, h.id)} 
+                                                        className="p-2 text-red-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                                                        title="Supprimer de l'historique"
+                                                    >
+                                                        <Trash2 size={16}/>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </>
+                            )}
+                        </div>
+                        <div className="mt-6 pt-4 border-t flex justify-end">
+                            <button onClick={() => {setHistoryModalOpen(false); setEditingHistoryItem(null);}} className="px-10 py-3 bg-gray-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg">Fermer</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* --- MODAL TRANSPORT GROUPE --- */}
             {transportModalOpen && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
@@ -386,46 +463,6 @@ const HRView: React.FC<HRViewProps> = ({
                         <div className="flex justify-end gap-3 mt-10 shrink-0 pt-4 border-t">
                             <button onClick={() => setTransportModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button>
                             <button onClick={handleSaveTransport} disabled={!transportData.compteId || transportData.montantTotal <= 0} className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-30 active:scale-95 transition-all">Valider le transport</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Modal Historique Paie - OPTIONS MODIFIER/SUPPRIMER RESTAURÉES */}
-            {historyModalOpen && selectedEmployeeForHistory && (
-                <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 flex flex-col max-h-[80vh] animate-in zoom-in duration-200">
-                        <div className="flex justify-between items-center mb-6 border-b pb-4">
-                            <h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg"><History className="text-blue-600"/> Historique : {selectedEmployeeForHistory.nom}</h3>
-                            <button onClick={() => setHistoryModalOpen(false)}><X size={24}/></button>
-                        </div>
-                        <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-                            {!selectedEmployeeForHistory.historiquePaie || selectedEmployeeForHistory.historiquePaie.length === 0 ? <p className="text-center text-gray-400 py-10 font-bold uppercase text-xs">Aucun historique.</p> : (
-                                selectedEmployeeForHistory.historiquePaie.map(h => (
-                                    <div key={h.id} className="p-4 border-2 border-gray-50 rounded-2xl bg-white flex justify-between items-center shadow-sm group hover:border-blue-100 transition-all">
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-2">
-                                                <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${h.type === 'ACOMPTE' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>{h.type}</span>
-                                                <p className="text-[10px] text-gray-400 font-bold">{new Date(h.date).toLocaleDateString()}</p>
-                                            </div>
-                                            <p className="font-black text-gray-800 text-sm mt-1">{h.montant.toLocaleString()} F</p>
-                                            <p className="text-[10px] text-gray-500 italic mt-0.5 line-clamp-1">{h.description}</p>
-                                        </div>
-                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button 
-                                                onClick={() => handleDeletePayrollTransaction(selectedEmployeeForHistory, h.id)} 
-                                                className="p-2 text-red-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
-                                                title="Supprimer de l'historique"
-                                            >
-                                                <Trash2 size={16}/>
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                        <div className="mt-6 pt-4 border-t flex justify-end">
-                            <button onClick={() => setHistoryModalOpen(false)} className="px-10 py-3 bg-gray-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg">Fermer</button>
                         </div>
                     </div>
                 </div>
