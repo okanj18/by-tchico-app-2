@@ -12,11 +12,11 @@ export const COMPANY_CONFIG = {
     tvaRate: 0.18, // 18%
     
     // SÉCURITÉ / ACCÈS CRITIQUE
-    // Les emails ci-dessous seront TOUJOURS ADMIN, même si la base de données est vide.
+    // Les emails ci-dessous seront TOUJOURS ADMIN
     adminEmails: [
         "admin@by-tchico.com",
         "okanji18@by-tchico.com",
-        "votre-email@gmail.com" // Remplacez par l'email que vous avez créé sur Firebase
+        "votre-email@gmail.com"
     ],
 
     // Ressources
@@ -28,5 +28,5 @@ export const COMPANY_CONFIG = {
     aiContext: "une entreprise de mode et de couture au Sénégal, spécialisée dans le Bazin, la soie et le prêt-à-porter local.",
     
     // Version
-    version: "1.6.1"
+    version: "1.6.2"
 };

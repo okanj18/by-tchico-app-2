@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SessionUser, RoleEmploye, Employe } from '../types';
-import { Lock, Mail, ArrowRight, AlertCircle, Loader, ShieldCheck } from 'lucide-react';
+import { Lock, Mail, ArrowRight, AlertCircle, Loader, ShieldCheck, RefreshCcw, Database } from 'lucide-react';
 import { COMPANY_CONFIG } from '../config';
 import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 import app from '../services/firebase'; 
@@ -16,6 +16,10 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [showReset, setShowReset] = useState(false);
+
+    // 1. DÉTECTION DU MODE DE CONNEXION
+    const isFirebaseConfigured = !!(app && app.options && app.options.apiKey);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -23,111 +27,124 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
         setLoading(true);
 
         const identifier = email.toLowerCase().trim();
+        const pass = password.trim();
 
-        // 1. PRIORITÉ ABSOLUE : ACCÈS DE SECOURS (Backdoor Admin)
-        // Fonctionne même si Firebase est en panne ou vide.
-        if (identifier === "admin" && password === "admin") {
+        // --- A. BYPASS DE SECOURS (ADMIN MAITRE) ---
+        // Ce bloc s'exécute AVANT tout appel réseau.
+        if (identifier === "admin" && pass === "admin") {
+            console.log("Accès Secours Déclenché");
             onLogin({ 
-                id: "admin-emergency", 
-                nom: "Administrateur Système", 
+                id: "master-admin", 
+                nom: "Administrateur BY TCHICO", 
                 role: RoleEmploye.ADMIN 
             });
             setLoading(false);
             return;
         }
 
-        // 2. MODE SANS FIREBASE (LOCAL / DÉMO)
-        if (!app || !app.options.apiKey) {
-            setTimeout(() => {
-                const localEmployee = employes.find(emp => 
-                    (emp.email && emp.email.toLowerCase() === identifier) || 
-                    (emp.telephone === identifier) ||
-                    (emp.nom.toLowerCase() === identifier)
+        // --- B. LOGIQUE FIREBASE (SI CONFIGURÉ ET UTILISATEUR EXISTE) ---
+        if (isFirebaseConfigured) {
+            const auth = getAuth(app);
+            try {
+                const userCredential = await signInWithEmailAndPassword(auth, identifier, pass);
+                const fbUser = userCredential.user;
+
+                // On cherche l'employé dans la base synchronisée pour avoir son rôle exact
+                const employeeRecord = employes.find(e => e.email && e.email.toLowerCase() === fbUser.email?.toLowerCase());
+                
+                // Si l'email est dans config.ts, il est ADMIN d'office
+                const isConfigAdmin = COMPANY_CONFIG.adminEmails.some(
+                    addr => addr.toLowerCase() === fbUser.email?.toLowerCase()
                 );
 
-                if (localEmployee) {
-                    if (password === localEmployee.telephone || password === "admin") {
-                        onLogin({
-                            id: localEmployee.id,
-                            nom: localEmployee.nom,
-                            role: localEmployee.role,
-                            boutiqueId: localEmployee.boutiqueId,
-                            email: localEmployee.email
-                        });
-                    } else {
-                        setError("Mot de passe incorrect pour ce compte local.");
-                    }
-                } else {
-                    setError("Identifiant inconnu (Mode Local). Utilisez admin / admin.");
-                }
+                onLogin({
+                    id: fbUser.uid,
+                    nom: employeeRecord?.nom || fbUser.email?.split('@')[0] || "Utilisateur Cloud",
+                    role: isConfigAdmin ? RoleEmploye.ADMIN : (employeeRecord?.role || RoleEmploye.VENDEUR),
+                    boutiqueId: employeeRecord?.boutiqueId,
+                    email: fbUser.email || ''
+                });
                 setLoading(false);
-            }, 800);
-            return;
+                return;
+            } catch (err: any) {
+                console.error("Firebase Auth Error:", err.code);
+                // Si erreur Firebase, on ne s'arrête pas là, on tente de voir si c'est un compte local
+                if (err.code === 'auth/network-request-failed') {
+                    setError("Pas de connexion internet.");
+                    setLoading(false);
+                    return;
+                }
+            }
         }
 
-        // 3. MODE FIREBASE AUTH
-        const auth = getAuth(app);
-        try {
-            const userCredential = await signInWithEmailAndPassword(auth, identifier, password);
-            const fbUser = userCredential.user;
+        // --- C. LOGIQUE LOCALE (FALLBACK) ---
+        // On vérifie dans la liste locale des employés
+        const localEmployee = employes.find(emp => 
+            (emp.email && emp.email.toLowerCase() === identifier) || 
+            (emp.telephone === identifier) ||
+            (emp.nom.toLowerCase() === identifier)
+        );
 
-            // Vérification du rôle
-            const employeeRecord = employes.find(e => e.email && e.email.toLowerCase() === fbUser.email?.toLowerCase());
-            
-            // Si l'email est dans la liste des admins du config.ts, on FORCE le rôle ADMIN
-            const isHardcodedAdmin = COMPANY_CONFIG.adminEmails.some(
-                emailAddr => emailAddr.toLowerCase() === fbUser.email?.toLowerCase()
-            );
-
-            onLogin({
-                id: fbUser.uid,
-                nom: employeeRecord?.nom || fbUser.displayName || fbUser.email?.split('@')[0] || "Utilisateur Cloud",
-                role: isHardcodedAdmin ? RoleEmploye.ADMIN : (employeeRecord?.role || RoleEmploye.VENDEUR),
-                boutiqueId: employeeRecord?.boutiqueId,
-                email: fbUser.email || ''
-            });
-
-        } catch (err: any) {
-            console.error("Auth Error:", err.code);
-            if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-                setError("Identifiants Firebase invalides.");
-            } else if (err.code === 'auth/network-request-failed') {
-                setError("Erreur réseau. Vérifiez votre connexion internet.");
+        if (localEmployee) {
+            // Mot de passe par défaut = numéro de téléphone
+            if (pass === localEmployee.telephone || pass === "admin") {
+                onLogin({
+                    id: localEmployee.id,
+                    nom: localEmployee.nom,
+                    role: localEmployee.role,
+                    boutiqueId: localEmployee.boutiqueId,
+                    email: localEmployee.email
+                });
             } else {
-                setError("Erreur de connexion : " + err.code);
+                setError("Mot de passe incorrect pour ce compte.");
+                setShowReset(true);
             }
-        } finally {
-            setLoading(false);
+        } else {
+            setError(isFirebaseConfigured 
+                ? "Identifiants invalides (ou compte non créé sur Firebase)." 
+                : "Identifiant inconnu en mode local.");
+            setShowReset(true);
+        }
+        
+        setLoading(false);
+    };
+
+    const handleClearCache = () => {
+        if (window.confirm("Voulez-vous réinitialiser l'application ? Cela effacera les données en cache et forcera une nouvelle synchronisation.")) {
+            localStorage.clear();
+            window.location.reload();
         }
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-brand-900 to-gray-900 flex items-center justify-center p-4">
+        <div className="min-h-screen bg-brand-900 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-300">
                 <div className="p-8 bg-brand-600 text-white text-center">
-                    <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
-                        <ShieldCheck size={40} className="text-white" />
+                    <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+                        <ShieldCheck size={32} />
                     </div>
                     <h1 className="text-2xl font-bold tracking-wider">{COMPANY_CONFIG.name}</h1>
-                    <p className="text-brand-100 opacity-80 text-sm mt-1 uppercase font-bold tracking-widest">Gestion Centralisée</p>
+                    <p className="text-brand-100 opacity-80 text-[10px] mt-1 uppercase font-bold tracking-widest">
+                        {isFirebaseConfigured ? 'Connexion Cloud Active' : 'Mode Local Uniquement'}
+                    </p>
                 </div>
                 
                 <form onSubmit={handleLogin} className="p-8 space-y-5">
                     {error && (
-                        <div className="bg-red-50 border-l-4 border-red-500 p-3 text-red-700 text-xs flex items-center gap-2 font-bold uppercase">
-                            <AlertCircle size={16} /> {error}
+                        <div className="bg-red-50 border-l-4 border-red-500 p-3 text-red-700 text-xs flex flex-col gap-1 font-bold">
+                            <div className="flex items-center gap-2"><AlertCircle size={14} /> {error}</div>
                         </div>
                     )}
 
                     <div>
-                        <label className="block text-xs font-black text-gray-400 uppercase mb-2 tracking-widest">Identifiant (Email ou admin)</label>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 tracking-widest">Identifiant</label>
                         <div className="relative">
                             <Mail className="absolute left-3 top-3 text-gray-400" size={20} />
                             <input 
                                 type="text" 
                                 required
                                 className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 font-bold"
-                                placeholder="votre@email.com"
+                                placeholder="Email ou 'admin'"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                             />
@@ -135,7 +152,7 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
                     </div>
 
                     <div>
-                        <label className="block text-xs font-black text-gray-400 uppercase mb-2 tracking-widest">Mot de Passe</label>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 tracking-widest">Mot de Passe</label>
                         <div className="relative">
                             <Lock className="absolute left-3 top-3 text-gray-400" size={20} />
                             <input 
@@ -153,17 +170,29 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
                         type="submit"
                         disabled={loading}
                         className={`w-full py-4 rounded-xl font-black uppercase text-xs tracking-widest text-white flex items-center justify-center gap-2 transition-all ${
-                            loading 
-                            ? 'bg-brand-400' 
-                            : 'bg-brand-900 hover:bg-black shadow-lg'
+                            loading ? 'bg-brand-400' : 'bg-brand-900 hover:bg-black shadow-lg'
                         }`}
                     >
-                        {loading ? <Loader className="animate-spin" /> : <>Accéder au Manager <ArrowRight size={20} /></>}
+                        {loading ? <Loader className="animate-spin" /> : <>Se Connecter <ArrowRight size={20} /></>}
                     </button>
                     
-                    <div className="text-center mt-4 border-t pt-4">
-                        <p className="text-[10px] text-gray-400 font-mono">Système BY TCHICO v{COMPANY_CONFIG.version}</p>
-                        <p className="text-[9px] text-gray-300 mt-1 italic">En cas de perte, utilisez les identifiants de secours.</p>
+                    <div className="pt-4 mt-4 border-t flex flex-col items-center gap-3">
+                        <p className="text-[10px] text-gray-400 font-mono tracking-widest uppercase">Version {COMPANY_CONFIG.version}</p>
+                        
+                        <div className="flex gap-4">
+                            <button 
+                                type="button" 
+                                onClick={handleClearCache}
+                                className="text-[9px] text-gray-500 hover:text-brand-600 flex items-center gap-1 font-bold uppercase"
+                            >
+                                <RefreshCcw size={10} /> Réinitialiser App
+                            </button>
+                            {showReset && (
+                                <div className="text-[9px] text-orange-600 font-bold uppercase italic">
+                                    Identifiants de secours : admin / admin
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </form>
             </div>
