@@ -182,6 +182,7 @@ export interface Commande {
     quantite: number;
     elements?: ElementCommande[];
     repartitionStatuts?: Record<string, number>; 
+    repartitionDetails?: Record<string, Record<string, number>>; // Nouveau: Statut -> { NomArticle: Qte }
     consommations?: Consommation[];
     detailsVente?: LigneCommande[];
     notes?: string;
