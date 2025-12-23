@@ -42,7 +42,6 @@ const App: React.FC = () => {
 
     const handleLogin = (u: SessionUser) => {
         setUser(u);
-        // Si le gardien se connecte, on le dirige d'office sur le RH (Pointage)
         if (u.role === RoleEmploye.GARDIEN) {
             setView('rh');
         } else {
@@ -52,10 +51,27 @@ const App: React.FC = () => {
     
     const handleLogout = () => setUser(null);
 
+    // --- GESTION EMPLOYES ---
+    const handleAddEmploye = (e: Employe) => setEmployes(prev => [...prev, e]);
+    const handleUpdateEmploye = (e: Employe) => setEmployes(prev => prev.map(emp => emp.id === e.id ? e : emp));
+    
+    // Désactivation (Archivage)
+    const handleArchiveEmploye = (id: string) => {
+        setEmployes(prev => prev.map(e => e.id === id ? { ...e, actif: !e.actif } : e));
+    };
+
+    // Suppression réelle
+    const handleHardDeleteEmploye = (id: string) => {
+        if (window.confirm("ÊTES-VOUS CERTAIN ?\n\nCette action supprimera définitivement l'employé et son historique de paie.")) {
+            setEmployes(prev => prev.filter(e => e.id !== id));
+            setPointages(prev => prev.filter(p => p.employeId !== id));
+        }
+    };
+
     const handleAddClient = (c: Client) => setClients(prev => [...prev, c]);
     const handleUpdateClient = (c: Client) => setClients(prev => prev.map(cli => cli.id === c.id ? c : cli));
     const handleDeleteClient = (id: string) => {
-        if (window.confirm("CETTE ACTION EST DÉFINITIVE.\n\nVoulez-vous supprimer ce client et toutes ses mesures ?")) {
+        if (window.confirm("Supprimer définitivement ce client ?")) {
             setClients(prev => prev.filter(c => c.id !== id));
         }
     };
@@ -64,16 +80,15 @@ const App: React.FC = () => {
         setDepenses(prev => [...prev, d]);
         if (d.compteId) {
             setComptes(prev => prev.map(c => c.id === d.compteId ? { ...c, solde: c.solde - d.montant } : c));
-            const t: TransactionTresorerie = {
+            setTransactions(prev => [{
                 id: `TR_DEP_${Date.now()}`,
                 date: d.date,
                 type: 'DECAISSEMENT',
                 montant: d.montant,
-                compteId: d.compteId,
+                compteId: d.compteId!,
                 description: `Dépense: ${d.description}`,
                 categorie: d.categorie
-            };
-            setTransactions(prev => [t, ...prev]);
+            }, ...prev]);
         }
     };
 
@@ -88,10 +103,6 @@ const App: React.FC = () => {
     const handleUpdateDepense = (updated: Depense) => {
         setDepenses(prev => prev.map(d => d.id === updated.id ? updated : d));
     };
-
-    const handleAddEmploye = (e: Employe) => setEmployes(prev => [...prev, e]);
-    const handleUpdateEmploye = (e: Employe) => setEmployes(prev => prev.map(emp => emp.id === e.id ? e : emp));
-    const handleDeleteEmploye = (id: string) => setEmployes(prev => prev.map(e => e.id === id ? { ...e, actif: false } : e));
 
     const handleAddArticle = (a: Article) => setArticles(prev => [...prev, a]);
     const handleUpdateArticle = (a: Article) => setArticles(prev => prev.map(art => art.id === a.id ? a : art));
@@ -112,52 +123,60 @@ const App: React.FC = () => {
     const handleUpdateOrder = (o: Commande) => setCommandes(prev => prev.map(cmd => cmd.id === o.id ? o : cmd));
     const handleAddTransaction = (t: TransactionTresorerie) => setTransactions(prev => [t, ...prev]);
 
-    // --- LOGIQUE APPROVISIONNEMENT ---
+    // Added missing handlers for procurement and supplier payments
     const handleAddOrderFournisseur = (order: CommandeFournisseur, accountId?: string) => {
         setCommandesFournisseurs(prev => [order, ...prev]);
-        if (order.montantPaye > 0 && accountId) {
-            const t: TransactionTresorerie = {
+        if (accountId && order.montantPaye > 0) {
+            setComptes(prev => prev.map(c => c.id === accountId ? { ...c, solde: c.solde - order.montantPaye } : c));
+            setTransactions(prev => [{
                 id: `TR_CF_${Date.now()}`,
                 date: order.dateCommande,
                 type: 'DECAISSEMENT',
                 montant: order.montantPaye,
                 compteId: accountId,
                 description: `Acompte Commande Fournisseur #${order.id.slice(-6)}`,
-                categorie: 'ACHAT_MATIERE'
-            };
-            setTransactions(prev => [t, ...prev]);
-            setComptes(prev => prev.map(c => c.id === accountId ? { ...c, solde: c.solde - order.montantPaye } : c));
+                categorie: 'MATIERE_PREMIERE'
+            }, ...prev]);
         }
     };
 
     const handleReceiveOrderFournisseur = (id: string, lieuId: string, quantities: Record<string, number>, date: string) => {
         setCommandesFournisseurs(prev => prev.map(order => {
             if (order.id === id) {
-                const updatedLignes = order.lignes.map(l => {
-                    const qteRecue = quantities[l.id] || 0;
-                    if (qteRecue > 0) {
+                const updatedLignes = order.lignes.map(line => {
+                    const received = quantities[line.id] || 0;
+                    if (received > 0) {
                         const m: MouvementStock = {
-                            id: `M_REC_${Date.now()}_${l.id}`,
+                            id: `M_REC_${Date.now()}_${line.id}`,
                             date: date,
-                            articleId: l.articleId,
-                            articleNom: l.nomArticle,
-                            variante: l.variante,
+                            articleId: line.articleId,
+                            articleNom: line.nomArticle,
+                            variante: line.variante,
                             type: TypeMouvement.ACHAT,
-                            quantite: qteRecue,
+                            quantite: received,
                             lieuId: lieuId,
-                            commentaire: `Réception CF #${order.id.slice(-6)}`
+                            commentaire: `Réception CF #${id.slice(-6)}`
                         };
                         handleAddMouvement(m);
+                        return { ...line, quantiteRecue: (line.quantiteRecue || 0) + received };
                     }
-                    return { ...l, quantiteRecue: (l.quantiteRecue || 0) + qteRecue };
+                    return line;
                 });
-
                 const allReceived = updatedLignes.every(l => (l.quantiteRecue || 0) >= l.quantite);
                 return { 
                     ...order, 
                     lignes: updatedLignes, 
                     statut: allReceived ? StatutCommandeFournisseur.LIVRE : StatutCommandeFournisseur.EN_COURS,
-                    receptions: [...(order.receptions || []), { id: `R_${Date.now()}`, date, lieuId, details: Object.entries(quantities).map(([lId, q]) => ({ nomArticle: order.lignes.find(lx => lx.id === lId)?.nomArticle || '', variante: order.lignes.find(lx => lx.id === lId)?.variante || '', quantiteRecue: q })) }]
+                    receptions: [...(order.receptions || []), {
+                        id: `R_${Date.now()}`,
+                        date: date,
+                        lieuId: lieuId,
+                        details: updatedLignes.filter(l => (quantities[l.id] || 0) > 0).map(l => ({
+                            nomArticle: l.nomArticle,
+                            variante: l.variante,
+                            quantiteRecue: quantities[l.id]
+                        }))
+                    }]
                 };
             }
             return order;
@@ -167,51 +186,56 @@ const App: React.FC = () => {
     const handleAddPaymentFournisseur = (orderId: string, amount: number, date: string, accountId?: string) => {
         setCommandesFournisseurs(prev => prev.map(order => {
             if (order.id === orderId) {
-                const newPaid = order.montantPaye + amount;
-                const isFull = newPaid >= order.montantTotal;
-                const p = { id: `P_${Date.now()}`, date, montant: amount, note: "Paiement fournisseur" };
-                
-                if (accountId) {
-                    const t: TransactionTresorerie = {
-                        id: `TR_PAY_F_${Date.now()}`,
-                        date: date,
-                        type: 'DECAISSEMENT',
-                        montant: amount,
-                        compteId: accountId,
-                        description: `Règlement Fournisseur #${order.id.slice(-6)}`,
-                        categorie: 'ACHAT_MATIERE'
-                    };
-                    setTransactions(prevTrans => [t, ...prevTrans]);
-                    setComptes(prevComptes => prevComptes.map(c => c.id === accountId ? { ...c, solde: c.solde - amount } : c));
-                }
-                
-                return { 
-                    ...order, 
-                    montantPaye: newPaid, 
-                    statutPaiement: isFull ? StatutPaiement.PAYE : StatutPaiement.PARTIEL,
-                    paiements: [...(order.paiements || []), p]
+                const updatedPaye = order.montantPaye + amount;
+                const isPaid = updatedPaye >= order.montantTotal;
+                return {
+                    ...order,
+                    montantPaye: updatedPaye,
+                    statutPaiement: isPaid ? StatutPaiement.PAYE : StatutPaiement.PARTIEL,
+                    paiements: [...(order.paiements || []), { id: `P_F_${Date.now()}`, date, montant: amount }]
                 };
             }
             return order;
         }));
+        if (accountId) {
+            setComptes(prev => prev.map(c => c.id === accountId ? { ...c, solde: c.solde - amount } : c));
+            setTransactions(prev => [{
+                id: `TR_PAY_F_${Date.now()}`,
+                date: date,
+                type: 'DECAISSEMENT',
+                montant: amount,
+                compteId: accountId,
+                description: `Paiement Fournisseur #${orderId.slice(-6)}`,
+                categorie: 'MATIERE_PREMIERE'
+            }, ...prev]);
+        }
     };
 
+    // Added missing handler to clear all local data
     const handleClearData = () => {
-        if(window.confirm("CETTE ACTION EST IRREVERSIBLE. Voulez-vous vraiment effacer TOUTES les données ?")) {
-            setClients([]); setCommandes([]); setDepenses([]); setMouvements([]); setTransactions([]); setPointages([]);
-            alert("Données effacées.");
+        if (window.confirm("⚠️ ACTION IRRÉVERSIBLE\n\nSouhaitez-vous vraiment effacer TOUTES les données ?")) {
+            setBoutiques([]);
+            setEmployes([]);
+            setPointages([]);
+            setClients([]);
+            setCommandes([]);
+            setDepenses([]);
+            setArticles([]);
+            setCommandesFournisseurs([]);
+            setFournisseurs([]);
+            setMouvements([]);
+            setComptes([]);
+            setTransactions([]);
+            setGalleryItems([]);
         }
     };
 
     const availableViews = useMemo(() => {
         if (!user) return [];
-        const role = user.role;
-        // ROLE GARDIEN : Accès strict au RH uniquement
-        if (role === RoleEmploye.GARDIEN) return ['rh'];
-        
-        if (role === RoleEmploye.ADMIN || role === RoleEmploye.GERANT) return ['dashboard', 'ventes', 'production', 'stock', 'approvisionnement', 'fournisseurs', 'rh', 'clients', 'finance', 'catalogue', 'galerie', 'catalogue-public'];
-        if (role === RoleEmploye.VENDEUR) return ['dashboard', 'ventes', 'clients', 'catalogue-public', 'galerie', 'finance'];
-        if (role === RoleEmploye.CHEF_ATELIER) return ['dashboard', 'production', 'stock', 'approvisionnement', 'fournisseurs', 'clients', 'galerie'];
+        if (user.role === RoleEmploye.GARDIEN) return ['rh'];
+        if (user.role === RoleEmploye.ADMIN || user.role === RoleEmploye.GERANT) return ['dashboard', 'ventes', 'production', 'stock', 'approvisionnement', 'fournisseurs', 'rh', 'clients', 'finance', 'catalogue', 'galerie', 'catalogue-public'];
+        if (user.role === RoleEmploye.VENDEUR) return ['dashboard', 'ventes', 'clients', 'catalogue-public', 'galerie', 'finance'];
+        if (user.role === RoleEmploye.CHEF_ATELIER) return ['dashboard', 'production', 'stock', 'approvisionnement', 'fournisseurs', 'clients', 'galerie'];
         return ['dashboard', 'galerie'];
     }, [user]);
 
@@ -243,7 +267,7 @@ const App: React.FC = () => {
                     {currentView === 'stock' && <StockView articles={articles} boutiques={boutiques} mouvements={mouvements} userRole={user.role} onAddMouvement={handleAddMouvement} onAddBoutique={(b) => setBoutiques(prev => [...prev, b])} />}
                     {currentView === 'fournisseurs' && <SuppliersView fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} onAddFournisseur={(f) => setFournisseurs(prev => [...prev, f])} onUpdateFournisseur={(f) => setFournisseurs(prev => prev.map(old => old.id === f.id ? f : old))} onAddPayment={handleAddPaymentFournisseur} comptes={comptes} />}
                     {currentView === 'approvisionnement' && <ProcurementView commandesFournisseurs={commandesFournisseurs} fournisseurs={fournisseurs} articles={articles} boutiques={boutiques} onAddOrder={handleAddOrderFournisseur} onUpdateOrder={(o) => setCommandesFournisseurs(prev => prev.map(old => old.id === o.id ? o : old))} onReceiveOrder={handleReceiveOrderFournisseur} onAddPayment={handleAddPaymentFournisseur} onUpdateArticle={handleUpdateArticle} onArchiveOrder={(id) => setCommandesFournisseurs(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} comptes={comptes} />}
-                    {currentView === 'rh' && <HRView employes={employes} boutiques={boutiques} onAddEmploye={handleAddEmploye} onUpdateEmploye={handleUpdateEmploye} onDeleteEmploye={handleDeleteEmploye} onAddDepense={handleAddDepense} depenses={depenses} onDeleteDepense={handleDeleteDepense} onUpdateDepense={handleUpdateDepense} pointages={pointages} onAddPointage={(p) => setPointages(prev => [...prev, p])} onUpdatePointage={(p) => setPointages(prev => prev.map(old => old.id === p.id ? p : old))} currentUser={user} comptes={comptes} onUpdateComptes={setComptes} onAddTransaction={handleAddTransaction} />}
+                    {currentView === 'rh' && <HRView employes={employes} boutiques={boutiques} onAddEmploye={handleAddEmploye} onUpdateEmploye={handleUpdateEmploye} onDeleteEmploye={handleHardDeleteEmploye} onArchiveEmploye={handleArchiveEmploye} onAddDepense={handleAddDepense} depenses={depenses} onDeleteDepense={handleDeleteDepense} onUpdateDepense={handleUpdateDepense} pointages={pointages} onAddPointage={(p) => setPointages(prev => [...prev, p])} onUpdatePointage={(p) => setPointages(prev => prev.map(old => old.id === p.id ? p : old))} currentUser={user} comptes={comptes} onUpdateComptes={setComptes} onAddTransaction={handleAddTransaction} />}
                     {currentView === 'clients' && <ClientsView clients={clients} commandes={commandes} onAddClient={handleAddClient} onUpdateClient={handleUpdateClient} onDeleteClient={handleDeleteClient} />}
                     {currentView === 'finance' && <FinanceView depenses={depenses} commandes={commandes} boutiques={boutiques} onAddDepense={handleAddDepense} onDeleteDepense={handleDeleteDepense} onUpdateDepense={handleUpdateDepense} userRole={user.role} fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} clients={clients} comptes={comptes} transactions={transactions} onUpdateComptes={setComptes} onAddTransaction={handleAddTransaction} />}
                     {currentView === 'galerie' && <GalleryView items={galleryItems} onAddItem={(i) => setGalleryItems(prev => [i, ...prev])} onDeleteItem={(id) => setGalleryItems(prev => prev.filter(i => i.id !== id))} />}
