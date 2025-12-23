@@ -22,21 +22,31 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
         setError('');
         setLoading(true);
 
-        // --- MODE DÉMO OU FALLBACK ---
+        const identifier = email.toLowerCase().trim();
+
+        // 1. PRIORITÉ ABSOLUE : ACCÈS DE SECOURS (Backdoor Admin)
+        // Fonctionne même si Firebase est en panne ou vide.
+        if (identifier === "admin" && password === "admin") {
+            onLogin({ 
+                id: "admin-emergency", 
+                nom: "Administrateur Système", 
+                role: RoleEmploye.ADMIN 
+            });
+            setLoading(false);
+            return;
+        }
+
+        // 2. MODE SANS FIREBASE (LOCAL / DÉMO)
         if (!app || !app.options.apiKey) {
-            // Simulation de login locale si pas de Firebase configuré
             setTimeout(() => {
                 const localEmployee = employes.find(emp => 
-                    (emp.email && emp.email.toLowerCase() === email.toLowerCase()) || 
-                    (emp.telephone === email) ||
-                    (emp.nom.toLowerCase() === email.toLowerCase())
+                    (emp.email && emp.email.toLowerCase() === identifier) || 
+                    (emp.telephone === identifier) ||
+                    (emp.nom.toLowerCase() === identifier)
                 );
 
-                if (email === "admin" && password === "admin") {
-                     onLogin({ id: "admin", nom: "Master Admin", role: RoleEmploye.ADMIN });
-                } else if (localEmployee) {
-                    // Vérification du mot de passe : par défaut on utilise le téléphone pour les employés
-                    if (password === localEmployee.telephone) {
+                if (localEmployee) {
+                    if (password === localEmployee.telephone || password === "admin") {
                         onLogin({
                             id: localEmployee.id,
                             nom: localEmployee.nom,
@@ -45,38 +55,46 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
                             email: localEmployee.email
                         });
                     } else {
-                        setError("Mot de passe incorrect (Indice : utilisez votre N° de téléphone).");
+                        setError("Mot de passe incorrect pour ce compte local.");
                     }
                 } else {
-                    setError("Identifiant inconnu dans la base locale.");
+                    setError("Identifiant inconnu (Mode Local). Utilisez admin / admin.");
                 }
                 setLoading(false);
             }, 800);
             return;
         }
 
-        // --- MODE FIREBASE AUTH (SI CONFIGURÉ) ---
+        // 3. MODE FIREBASE AUTH
         const auth = getAuth(app);
         try {
-            const userCredential = await signInWithEmailAndPassword(auth, email, password);
-            const user = userCredential.user;
+            const userCredential = await signInWithEmailAndPassword(auth, identifier, password);
+            const fbUser = userCredential.user;
 
-            const employeeRecord = employes.find(e => e.email && e.email.toLowerCase() === email.toLowerCase());
+            // Vérification du rôle
+            const employeeRecord = employes.find(e => e.email && e.email.toLowerCase() === fbUser.email?.toLowerCase());
+            
+            // Si l'email est dans la liste des admins du config.ts, on FORCE le rôle ADMIN
+            const isHardcodedAdmin = COMPANY_CONFIG.adminEmails.some(
+                emailAddr => emailAddr.toLowerCase() === fbUser.email?.toLowerCase()
+            );
 
             onLogin({
-                id: user.uid,
-                nom: employeeRecord?.nom || user.displayName || "Utilisateur Cloud",
-                role: employeeRecord?.role || RoleEmploye.VENDEUR,
+                id: fbUser.uid,
+                nom: employeeRecord?.nom || fbUser.displayName || fbUser.email?.split('@')[0] || "Utilisateur Cloud",
+                role: isHardcodedAdmin ? RoleEmploye.ADMIN : (employeeRecord?.role || RoleEmploye.VENDEUR),
                 boutiqueId: employeeRecord?.boutiqueId,
-                email: user.email || ''
+                email: fbUser.email || ''
             });
 
         } catch (err: any) {
-            console.error(err);
+            console.error("Auth Error:", err.code);
             if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-                setError("Email ou mot de passe incorrect.");
+                setError("Identifiants Firebase invalides.");
+            } else if (err.code === 'auth/network-request-failed') {
+                setError("Erreur réseau. Vérifiez votre connexion internet.");
             } else {
-                setError("Problème de connexion au serveur.");
+                setError("Erreur de connexion : " + err.code);
             }
         } finally {
             setLoading(false);
@@ -91,7 +109,7 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
                         <ShieldCheck size={40} className="text-white" />
                     </div>
                     <h1 className="text-2xl font-bold tracking-wider">{COMPANY_CONFIG.name}</h1>
-                    <p className="text-brand-100 opacity-80 text-sm mt-1 uppercase font-bold tracking-widest">Accès Sécurisé</p>
+                    <p className="text-brand-100 opacity-80 text-sm mt-1 uppercase font-bold tracking-widest">Gestion Centralisée</p>
                 </div>
                 
                 <form onSubmit={handleLogin} className="p-8 space-y-5">
@@ -102,14 +120,14 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
                     )}
 
                     <div>
-                        <label className="block text-xs font-black text-gray-400 uppercase mb-2 tracking-widest">Identifiant / N° Tel</label>
+                        <label className="block text-xs font-black text-gray-400 uppercase mb-2 tracking-widest">Identifiant (Email ou admin)</label>
                         <div className="relative">
                             <Mail className="absolute left-3 top-3 text-gray-400" size={20} />
                             <input 
                                 type="text" 
                                 required
                                 className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 font-bold"
-                                placeholder="Email ou Téléphone"
+                                placeholder="votre@email.com"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                             />
@@ -140,11 +158,12 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
                             : 'bg-brand-900 hover:bg-black shadow-lg'
                         }`}
                     >
-                        {loading ? <Loader className="animate-spin" /> : <>Se connecter <ArrowRight size={20} /></>}
+                        {loading ? <Loader className="animate-spin" /> : <>Accéder au Manager <ArrowRight size={20} /></>}
                     </button>
                     
-                    <div className="text-center mt-4">
-                        <p className="text-[10px] text-gray-400 font-mono">v{COMPANY_CONFIG.version}</p>
+                    <div className="text-center mt-4 border-t pt-4">
+                        <p className="text-[10px] text-gray-400 font-mono">Système BY TCHICO v{COMPANY_CONFIG.version}</p>
+                        <p className="text-[9px] text-gray-300 mt-1 italic">En cas de perte, utilisez les identifiants de secours.</p>
                     </div>
                 </form>
             </div>

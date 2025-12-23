@@ -11,22 +11,22 @@ export const COMPANY_CONFIG = {
     currency: "FCFA",
     tvaRate: 0.18, // 18%
     
-    // Sécurité / Accès
-    // Ajoutez ici les emails qui doivent être ADMIN par défaut (ex: votre email personnel)
+    // SÉCURITÉ / ACCÈS CRITIQUE
+    // Les emails ci-dessous seront TOUJOURS ADMIN, même si la base de données est vide.
     adminEmails: [
         "admin@by-tchico.com",
-        "moussa@by-tchico.com", 
-        "okanji18@by-tchico.com" // Votre email personnel
+        "okanji18@by-tchico.com",
+        "votre-email@gmail.com" // Remplacez par l'email que vous avez créé sur Firebase
     ],
 
     // Ressources
     logoUrl: "/logo.png",
-    stampUrl: "/cachet.png", // Image du Cachet (PNG transparent conseillé)
-    signatureUrl: "/signature.png", // Image de la Signature (PNG transparent conseillé)
+    stampUrl: "/cachet.png", 
+    signatureUrl: "/signature.png", 
     
     // Contexte IA
     aiContext: "une entreprise de mode et de couture au Sénégal, spécialisée dans le Bazin, la soie et le prêt-à-porter local.",
     
     // Version
-    version: "1.6.0"
+    version: "1.6.1"
 };
