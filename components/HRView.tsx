@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie } from '../types';
 import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock, Truck, CheckSquare, Square } from 'lucide-react';
 import { QRScannerModal } from './QRTools';
@@ -50,7 +50,13 @@ const HRView: React.FC<HRViewProps> = ({
 
     // Transport Modal
     const [transportModalOpen, setTransportModalOpen] = useState(false);
-    const [transportData, setTransportData] = useState({ montant: 0, date: new Date().toISOString().split('T')[0], compteId: '', boutiqueId: 'ATELIER' });
+    const [transportData, setTransportData] = useState({ 
+        montantUnitaire: 500, 
+        montantTotal: 0, 
+        date: new Date().toISOString().split('T')[0], 
+        compteId: '', 
+        boutiqueId: 'ATELIER' 
+    });
     const [selectedTransportEmpIds, setSelectedTransportEmpIds] = useState<string[]>([]);
 
     // Cloud Account State
@@ -95,6 +101,14 @@ const HRView: React.FC<HRViewProps> = ({
 
     const activeEmployes = useMemo(() => employes.filter(e => e.actif !== false), [employes]);
     const dailyPointages = pointages.filter(p => p.date === pointageDate);
+
+    // Effet pour calculer le montant total du transport
+    useEffect(() => {
+        setTransportData(prev => ({
+            ...prev,
+            montantTotal: selectedTransportEmpIds.length * prev.montantUnitaire
+        }));
+    }, [selectedTransportEmpIds, transportData.montantUnitaire]);
 
     // Stats
     const hrStats = useMemo(() => {
@@ -158,13 +172,13 @@ const HRView: React.FC<HRViewProps> = ({
     };
 
     const handleSaveTransport = () => {
-        if (transportData.montant <= 0 || !transportData.compteId) {
-            alert("Veuillez saisir un montant et choisir une caisse.");
+        if (transportData.montantTotal <= 0 || !transportData.compteId) {
+            alert("Veuillez sélectionner au moins un employé et choisir une caisse.");
             return;
         }
 
         const selectedAccount = comptes.find(c => c.id === transportData.compteId);
-        if (selectedAccount && selectedAccount.solde < transportData.montant) {
+        if (selectedAccount && selectedAccount.solde < transportData.montantTotal) {
             if (!window.confirm(`⚠️ Solde insuffisant sur ${selectedAccount.nom}. Continuer quand même ?`)) return;
         }
 
@@ -173,7 +187,7 @@ const HRView: React.FC<HRViewProps> = ({
         const depense: Depense = {
             id: `D_TR_${Date.now()}`,
             date: transportData.date,
-            montant: transportData.montant,
+            montant: transportData.montantTotal,
             categorie: 'LOGISTIQUE',
             description: `Transport Groupe: ${selectedTransportEmpIds.length} pers. (${empNames})`,
             boutiqueId: transportData.boutiqueId,
@@ -182,7 +196,7 @@ const HRView: React.FC<HRViewProps> = ({
 
         onAddDepense(depense);
         setTransportModalOpen(false);
-        setTransportData({ montant: 0, date: new Date().toISOString().split('T')[0], compteId: '', boutiqueId: 'ATELIER' });
+        setTransportData({ montantUnitaire: 500, montantTotal: 0, date: new Date().toISOString().split('T')[0], compteId: '', boutiqueId: 'ATELIER' });
         setSelectedTransportEmpIds([]);
         alert("Transport enregistré avec succès.");
     };
@@ -212,7 +226,7 @@ const HRView: React.FC<HRViewProps> = ({
                     {!isGardien && (
                         <>
                             <button 
-                                onClick={() => { setSelectedTransportEmpIds(activeEmployes.map(e => e.id)); setTransportModalOpen(true); }} 
+                                onClick={() => { setSelectedTransportEmpIds([]); setTransportModalOpen(true); }} 
                                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-black uppercase text-[10px] tracking-widest shadow-md transition-all active:scale-95"
                             >
                                 <Truck size={16} /> Transport Groupe
@@ -283,7 +297,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* --- MODAL TRANSPORT GROUPE --- */}
+            {/* --- MODAL TRANSPORT GROUPE (CALCUL AUTO) --- */}
             {transportModalOpen && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-8 animate-in zoom-in duration-200 border border-blue-100 max-h-[90vh] flex flex-col">
@@ -293,13 +307,24 @@ const HRView: React.FC<HRViewProps> = ({
                         </div>
                         
                         <div className="flex-1 overflow-y-auto space-y-6 pr-2 custom-scrollbar">
-                            <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Montant Total (F)</label>
-                                <input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl text-2xl font-black bg-blue-50 text-blue-900 focus:border-blue-500 outline-none" value={transportData.montant || ''} onChange={e => setTransportData({...transportData, montant: parseInt(e.target.value)||0})} placeholder="0" />
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                                    <label className="block text-[10px] font-black text-blue-400 uppercase mb-2 ml-1">Montant Unitaire (F)</label>
+                                    <input type="number" className="w-full p-2 bg-transparent text-xl font-black text-blue-900 outline-none" value={transportData.montantUnitaire} onChange={e => setTransportData({...transportData, montantUnitaire: parseInt(e.target.value)||0})} placeholder="500" />
+                                </div>
+                                <div className="bg-brand-900 p-4 rounded-2xl shadow-inner">
+                                    <label className="block text-[10px] font-black text-brand-300 uppercase mb-2 ml-1">Montant Total (F)</label>
+                                    <p className="text-2xl font-black text-white">{transportData.montantTotal.toLocaleString()}</p>
+                                </div>
                             </div>
 
                             <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-3 ml-1 tracking-widest">Sélectionner les employés inclus</label>
+                                <div className="flex justify-between items-center mb-4">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Sélectionner l'équipe ({selectedTransportEmpIds.length})</label>
+                                    {selectedTransportEmpIds.length > 0 && (
+                                        <button onClick={() => setSelectedTransportEmpIds([])} className="text-[9px] font-bold text-red-500 uppercase hover:underline">Tout décocher</button>
+                                    )}
+                                </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     {activeEmployes.map(emp => (
                                         <button 
@@ -307,7 +332,7 @@ const HRView: React.FC<HRViewProps> = ({
                                             onClick={() => toggleTransportEmp(emp.id)}
                                             className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all ${selectedTransportEmpIds.includes(emp.id) ? 'bg-blue-600 border-blue-600 text-white shadow-md' : 'bg-white border-gray-100 text-gray-600 hover:border-blue-200'}`}
                                         >
-                                            {selectedTransportEmpIds.includes(emp.id) ? <CheckSquare size={18}/> : <Square size={18}/>}
+                                            {selectedTransportEmpIds.includes(emp.id) ? <CheckSquare size={18}/> : <Square size={18} className="text-gray-300"/>}
                                             <span className="text-xs font-black uppercase truncate">{emp.nom}</span>
                                         </button>
                                     ))}
@@ -320,30 +345,24 @@ const HRView: React.FC<HRViewProps> = ({
                                     <input type="date" className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={transportData.date} onChange={e => setTransportData({...transportData, date: e.target.value})} />
                                 </div>
                                 <div>
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Boutique</label>
-                                    <select className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={transportData.boutiqueId} onChange={e => setTransportData({...transportData, boutiqueId: e.target.value})}>
-                                        {boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Caisse de Retrait</label>
+                                    <select className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={transportData.compteId} onChange={e => setTransportData({...transportData, compteId: e.target.value})}>
+                                        <option value="">-- Choisir Caisse --</option>
+                                        {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
                                     </select>
                                 </div>
-                            </div>
-                            <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Caisse de Retrait</label>
-                                <select className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={transportData.compteId} onChange={e => setTransportData({...transportData, compteId: e.target.value})}>
-                                    <option value="">-- Choisir Caisse --</option>
-                                    {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
-                                </select>
                             </div>
                         </div>
 
                         <div className="flex justify-end gap-3 mt-10 shrink-0 pt-4 border-t">
                             <button onClick={() => setTransportModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button>
-                            <button onClick={handleSaveTransport} disabled={!transportData.compteId || transportData.montant <= 0 || selectedTransportEmpIds.length === 0} className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-30 active:scale-95 transition-all">Valider</button>
+                            <button onClick={handleSaveTransport} disabled={!transportData.compteId || transportData.montantTotal <= 0} className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-30 active:scale-95 transition-all">Valider le transport</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Modal Paiement Paie - RÉTABLI COMME AVANT AVEC TOUTES OPTIONS */}
+            {/* --- MODAL PAIEMENT SALAIRE (TOUTES OPTIONS) --- */}
             {payModalOpen && selectedEmployeeForPay && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200">
