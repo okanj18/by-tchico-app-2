@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie } from '../types';
-import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader } from 'lucide-react';
+import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock } from 'lucide-react';
 import { QRScannerModal } from './QRTools';
 import { QRCodeCanvas } from 'qrcode.react';
 import { createAuthUser } from '../services/firebase';
@@ -45,7 +45,7 @@ const HRView: React.FC<HRViewProps> = ({
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingEmployee, setEditingEmployee] = useState<Employe | null>(null);
     const [formData, setFormData] = useState<Partial<Employe>>({
-        nom: '', role: RoleEmploye.STAGIAIRE, telephone: '', salaireBase: 0, typeContrat: 'STAGE'
+        nom: '', role: RoleEmploye.STAGIAIRE, telephone: '', salaireBase: 0, typeContrat: 'STAGE', email: ''
     });
 
     // Cloud Account State
@@ -130,9 +130,12 @@ const HRView: React.FC<HRViewProps> = ({
         setCloudLoading(true);
         try {
             await createAuthUser(cloudEmail, cloudPass);
-            onUpdateEmploye({ ...selectedEmpForCloud, email: cloudEmail });
+            const updated = { ...selectedEmpForCloud, email: cloudEmail };
+            onUpdateEmploye(updated);
             alert(`Compte Cloud créé pour ${selectedEmpForCloud.nom} !`);
             setCloudModalOpen(false);
+            // On met aussi à jour le formulaire si ouvert
+            setFormData(prev => ({ ...prev, email: cloudEmail }));
         } catch (err: any) {
             alert("Erreur Cloud: " + err.message);
         } finally {
@@ -162,7 +165,7 @@ const HRView: React.FC<HRViewProps> = ({
                         </div>
                     )}
                     {activeTab === 'EMPLOYEES' && !isGardien && (
-                        <button onClick={() => { setFormData({ role: RoleEmploye.STAGIAIRE, salaireBase: 0 }); setIsModalOpen(true); }} className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium text-sm"><Plus size={16} /> Nouveau</button>
+                        <button onClick={() => { setFormData({ role: RoleEmploye.STAGIAIRE, salaireBase: 0, email: '' }); setEditingEmployee(null); setIsModalOpen(true); }} className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium text-sm"><Plus size={16} /> Nouveau</button>
                     )}
                 </div>
             </div>
@@ -186,7 +189,7 @@ const HRView: React.FC<HRViewProps> = ({
                         <button onClick={() => setShowArchived(!showArchived)} className={`px-3 py-2 border rounded-lg text-xs font-bold ${showArchived ? 'bg-gray-800 text-white' : 'bg-white'}`}>{showArchived ? 'Voir Actifs' : 'Voir Archivés'}</button>
                     </div>
                     <div className="overflow-x-auto flex-1">
-                        <table className="w-full text-sm text-left">
+                        <table className="w-full text-sm text-left min-w-[800px]">
                             <thead className="bg-white text-gray-600 font-medium border-b border-gray-100"><tr><th className="py-3 px-4">Nom</th><th className="py-3 px-4">Rôle</th><th className="py-3 px-4 text-right">Salaire</th><th className="py-3 px-4 text-center">Accès Cloud</th><th className="py-3 px-4 text-center">Actions</th></tr></thead>
                             <tbody className="divide-y divide-gray-100">
                                 {filteredEmployes.map(emp => (
@@ -224,7 +227,7 @@ const HRView: React.FC<HRViewProps> = ({
 
             {/* --- MODAL CRÉATION COMPTE CLOUD --- */}
             {cloudModalOpen && selectedEmpForCloud && (
-                <div className="fixed inset-0 bg-brand-900/80 z-[150] flex items-center justify-center p-4 backdrop-blur-sm">
+                <div className="fixed inset-0 bg-brand-900/80 z-[250] flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200">
                         <div className="flex justify-between items-center mb-6 border-b pb-4">
                             <h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg"><Cloud size={24} className="text-blue-600"/> Accès Cloud</h3>
@@ -239,9 +242,6 @@ const HRView: React.FC<HRViewProps> = ({
                             <div>
                                 <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Mot de passe (6 car. min)</label>
                                 <input type="password" required className="w-full p-3 border rounded-xl font-bold bg-gray-50" placeholder="••••••" value={cloudPass} onChange={e => setCloudPass(e.target.value)} />
-                            </div>
-                            <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
-                                <p className="text-[9px] text-blue-700 font-bold italic leading-tight">Note: L'utilisateur pourra ensuite se connecter depuis n'importe quel appareil synchronisé.</p>
                             </div>
                         </div>
                         <div className="flex justify-end gap-3 mt-8">
@@ -389,7 +389,6 @@ const HRView: React.FC<HRViewProps> = ({
                             <button onClick={() => window.print()} className="w-full py-4 bg-gray-900 text-white rounded-xl flex items-center justify-center gap-2 font-black uppercase text-xs tracking-widest hover:bg-black transition-all shadow-lg">
                                 <Printer size={18}/> Imprimer le Badge
                             </button>
-                            <p className="text-[9px] text-center text-gray-400 italic">Ce code permet de pointer l'arrivée et le départ via le scanneur.</p>
                         </div>
                     </div>
                 </div>
@@ -440,28 +439,89 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
             
-            {/* Modal Formulaire Employé */}
+            {/* Modal Formulaire Employé - MIS A JOUR POUR EMAIL ET CLOUD */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in zoom-in duration-200">
-                        <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold">{editingEmployee ? 'Modifier Employé' : 'Nouvel Employé'}</h3><button onClick={() => setIsModalOpen(false)}><X size={24}/></button></div>
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-bold flex items-center gap-2">
+                                {editingEmployee ? <Edit2 className="text-blue-600"/> : <Plus className="text-brand-600"/>}
+                                {editingEmployee ? 'Modifier Employé' : 'Nouvel Employé'}
+                            </h3>
+                            <button onClick={() => setIsModalOpen(false)}><X size={24}/></button>
+                        </div>
                         <div className="space-y-4">
-                            <div><label className="block text-sm font-medium mb-1">Nom Complet</label><input type="text" className="w-full p-2 border rounded" value={formData.nom} onChange={e => setFormData({...formData, nom: e.target.value.toUpperCase()})} /></div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium mb-1">Rôle</label><select className="w-full p-2 border rounded" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as any})}><option value="TAILLEUR">Tailleur</option><option value="VENDEUR">Vendeur</option><option value="CHEF_ATELIER">Chef Atelier</option><option value="STAGIAIRE">Stagiaire</option><option value="LIVREUR">Livreur</option><option value="GARDIEN">Gardien</option><option value="GERANT">Gérant</option></select></div>
-                                <div><label className="block text-sm font-medium mb-1">Téléphone</label><input type="text" className="w-full p-2 border rounded" value={formData.telephone} onChange={e => setFormData({...formData, telephone: e.target.value})} /></div>
+                            <div>
+                                <label className="block text-xs font-black text-gray-400 uppercase mb-1">Nom Complet</label>
+                                <input type="text" className="w-full p-2.5 border rounded-lg font-bold bg-gray-50 focus:ring-2 focus:ring-brand-500 uppercase" value={formData.nom} onChange={e => setFormData({...formData, nom: e.target.value})} />
                             </div>
+
                             <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium mb-1">Salaire de Base</label><input type="number" className="w-full p-2 border rounded font-bold" value={formData.salaireBase} onChange={e => setFormData({...formData, salaireBase: parseInt(e.target.value)||0})} /></div>
-                                <div><label className="block text-sm font-medium mb-1">Type Contrat</label><select className="w-full p-2 border rounded" value={formData.typeContrat} onChange={e => setFormData({...formData, typeContrat: e.target.value})}><option value="CDI">CDI</option><option value="CDD">CDD</option><option value="STAGE">Stage</option><option value="PRESTATAIRE">Prestataire</option></select></div>
+                                <div>
+                                    <label className="block text-xs font-black text-gray-400 uppercase mb-1">Rôle</label>
+                                    <select className="w-full p-2.5 border rounded-lg font-bold bg-gray-50" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as any})}>
+                                        <option value="TAILLEUR">Tailleur</option>
+                                        <option value="VENDEUR">Vendeur</option>
+                                        <option value="CHEF_ATELIER">Chef Atelier</option>
+                                        <option value="STAGIAIRE">Stagiaire</option>
+                                        <option value="LIVREUR">Livreur</option>
+                                        <option value="GARDIEN">Gardien</option>
+                                        <option value="GERANT">Gérant</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-black text-gray-400 uppercase mb-1">Téléphone</label>
+                                    <input type="text" className="w-full p-2.5 border rounded-lg font-bold bg-gray-50" value={formData.telephone} onChange={e => setFormData({...formData, telephone: e.target.value})} />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-black text-gray-400 uppercase mb-1 flex items-center gap-1"><Mail size={12}/> Email (pour connexion Cloud)</label>
+                                <div className="flex gap-2">
+                                    <input type="email" placeholder="email@by-tchico.com" className="flex-1 p-2.5 border rounded-lg font-bold bg-gray-50" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+                                    {editingEmployee && !editingEmployee.email && formData.email && (
+                                        <button 
+                                            type="button"
+                                            onClick={() => { setSelectedEmpForCloud(editingEmployee); setCloudEmail(formData.email || ''); setCloudPass(''); setCloudModalOpen(true); }}
+                                            className="px-3 bg-blue-600 text-white rounded-lg flex items-center gap-1 text-[10px] font-black uppercase shadow-md hover:bg-blue-700"
+                                            title="Créer l'accès Cloud maintenant"
+                                        >
+                                            <Cloud size={14}/> Créer
+                                        </button>
+                                    )}
+                                    {editingEmployee && editingEmployee.email && (
+                                        <div className="flex items-center px-2 bg-green-50 text-green-600 border border-green-100 rounded-lg">
+                                            <ShieldCheck size={16}/>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-black text-gray-400 uppercase mb-1">Salaire de Base</label>
+                                    <input type="number" className="w-full p-2.5 border rounded-lg font-bold bg-gray-50" value={formData.salaireBase} onChange={e => setFormData({...formData, salaireBase: parseInt(e.target.value)||0})} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-black text-gray-400 uppercase mb-1">Type Contrat</label>
+                                    <select className="w-full p-2.5 border rounded-lg font-bold bg-gray-50" value={formData.typeContrat} onChange={e => setFormData({...formData, typeContrat: e.target.value})}>
+                                        <option value="CDI">CDI</option>
+                                        <option value="CDD">CDD</option>
+                                        <option value="STAGE">Stage</option>
+                                        <option value="PRESTATAIRE">Prestataire</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
-                        <div className="flex justify-end gap-3 mt-6"><button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-500">Annuler</button><button onClick={() => {
-                            if (!formData.nom) return;
-                            if (editingEmployee) onUpdateEmploye({ ...editingEmployee, ...formData as Employe });
-                            else onAddEmploye({ id: `E${Date.now()}`, ...formData as Employe, historiquePaie: [], absences: [], actif: true });
-                            setIsModalOpen(false);
-                        }} className="px-6 py-2 bg-brand-600 text-white rounded font-bold">Enregistrer</button></div>
+                        <div className="flex justify-end gap-3 mt-8 pt-4 border-t">
+                            <button onClick={() => setIsModalOpen(false)} className="px-6 py-2 text-gray-400 font-bold uppercase text-xs">Annuler</button>
+                            <button onClick={() => {
+                                if (!formData.nom) return;
+                                if (editingEmployee) onUpdateEmploye({ ...editingEmployee, ...formData as Employe });
+                                else onAddEmploye({ id: `E${Date.now()}`, ...formData as Employe, historiquePaie: [], absences: [], actif: true });
+                                setIsModalOpen(false);
+                            }} className="px-8 py-3 bg-brand-600 text-white rounded-xl font-black uppercase text-xs shadow-lg hover:bg-brand-700 active:scale-95 transition-all">Enregistrer</button>
+                        </div>
                     </div>
                 </div>
             )}
