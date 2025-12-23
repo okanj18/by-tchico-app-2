@@ -40,7 +40,16 @@ const App: React.FC = () => {
     const [galleryItems, setGalleryItems] = useSyncState<GalleryItem[]>(mockGalleryItems, 'gallery');
     const [companyAssets, setCompanyAssets] = useSyncState<CompanyAssets>(mockCompanyAssets, 'assets');
 
-    const handleLogin = (u: SessionUser) => setUser(u);
+    const handleLogin = (u: SessionUser) => {
+        setUser(u);
+        // Si le gardien se connecte, on le dirige d'office sur le RH (Pointage)
+        if (u.role === RoleEmploye.GARDIEN) {
+            setView('rh');
+        } else {
+            setView('dashboard');
+        }
+    };
+    
     const handleLogout = () => setUser(null);
 
     const handleAddClient = (c: Client) => setClients(prev => [...prev, c]);
@@ -127,7 +136,6 @@ const App: React.FC = () => {
                 const updatedLignes = order.lignes.map(l => {
                     const qteRecue = quantities[l.id] || 0;
                     if (qteRecue > 0) {
-                        // Créer mouvement de stock pour chaque ligne reçue
                         const m: MouvementStock = {
                             id: `M_REC_${Date.now()}_${l.id}`,
                             date: date,
@@ -198,10 +206,12 @@ const App: React.FC = () => {
     const availableViews = useMemo(() => {
         if (!user) return [];
         const role = user.role;
+        // ROLE GARDIEN : Accès strict au RH uniquement
+        if (role === RoleEmploye.GARDIEN) return ['rh'];
+        
         if (role === RoleEmploye.ADMIN || role === RoleEmploye.GERANT) return ['dashboard', 'ventes', 'production', 'stock', 'approvisionnement', 'fournisseurs', 'rh', 'clients', 'finance', 'catalogue', 'galerie', 'catalogue-public'];
         if (role === RoleEmploye.VENDEUR) return ['dashboard', 'ventes', 'clients', 'catalogue-public', 'galerie', 'finance'];
         if (role === RoleEmploye.CHEF_ATELIER) return ['dashboard', 'production', 'stock', 'approvisionnement', 'fournisseurs', 'clients', 'galerie'];
-        if (role === RoleEmploye.GARDIEN) return ['rh'];
         return ['dashboard', 'galerie'];
     }, [user]);
 
