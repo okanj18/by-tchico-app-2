@@ -1,7 +1,6 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie, NiveauAcces, PermissionsUtilisateur } from '../types';
-import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock, Truck, CheckSquare, Square, Save, Image as ImageIcon, Upload, Shield, Eye, AlertTriangle, Calendar, CreditCard } from 'lucide-react';
+import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock, Truck, CheckSquare, Square, Save, Image as ImageIcon, Upload, Shield, Eye, AlertTriangle, Calendar, CreditCard, BarChart3, ChevronLeft, ChevronRight } from 'lucide-react';
 import { QRScannerModal, QRGeneratorModal } from './QRTools';
 import { uploadImageToCloud } from '../services/storageService';
 
@@ -60,8 +59,11 @@ const HRView: React.FC<HRViewProps> = ({
         nom: '', role: RoleEmploye.TAILLEUR, telephone: '', password: '', salaireBase: 0, email: '', cniRecto: '', cniVerso: '', permissions: {...DEFAULT_PERMISSIONS}
     });
 
-    // History States
+    // History & Recap States
     const [ptGlobalHistoryOpen, setPtGlobalHistoryOpen] = useState(false);
+    const [ptGlobalMode, setPtGlobalMode] = useState<'LIST' | 'RECAP'>('LIST');
+    const [recapMonth, setRecapMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+    
     const [selectedEmployeeForPtHistory, setSelectedEmployeeForPtHistory] = useState<Employe | null>(null);
     const [historyModalOpen, setHistoryModalOpen] = useState(false);
     const [selectedEmployeeForHistory, setSelectedEmployeeForHistory] = useState<Employe | null>(null);
@@ -83,7 +85,7 @@ const HRView: React.FC<HRViewProps> = ({
     const [selectedEmployeeForPay, setSelectedEmployeeForPay] = useState<Employe | null>(null);
     const [paymentAccountId, setPaymentAccountId] = useState<string>('');
     const [transactionData, setTransactionData] = useState({ 
-        date: new Date().toISOString().split('T')[0], type: 'ACOMPTE', montant: 0, note: '' 
+        date: new Date().toISOString().split('T')[0], type: 'ACOMPTE' as 'ACOMPTE' | 'PRIME' | 'SALAIRE_NET', montant: 0, note: '' 
     });
 
     // Pointage logic
@@ -100,6 +102,15 @@ const HRView: React.FC<HRViewProps> = ({
 
     const activeEmployes = useMemo(() => employes.filter(e => e.actif !== false), [employes]);
     const dailyPointages = pointages.filter(p => p.date === pointageDate);
+
+    // --- RECAPITULATIF CALCULATIONS ---
+    const getEmployeeRecap = (empId: string, monthStr: string) => {
+        const empPointages = pointages.filter(p => p.employeId === empId && p.date.startsWith(monthStr));
+        const present = empPointages.filter(p => p.statut === 'PRESENT').length;
+        const retard = empPointages.filter(p => p.statut === 'RETARD').length;
+        const absent = empPointages.filter(p => p.statut === 'ABSENT').length;
+        return { total: empPointages.length, present, retard, absent };
+    };
 
     const getMonthlyPayStats = (emp: Employe, forDate?: string) => {
         const monthToQuery = forDate ? forDate.slice(0, 7) : new Date().toISOString().slice(0, 7);
@@ -196,6 +207,45 @@ const HRView: React.FC<HRViewProps> = ({
         setEditingPayEntry(null);
     };
 
+    const handleConfirmPayment = () => {
+        if (!selectedEmployeeForPay || transactionData.montant <= 0) return;
+        
+        // Si c'est une prime, pas besoin de caisse
+        if (transactionData.type !== 'PRIME' && !paymentAccountId) {
+            alert("Veuillez choisir une caisse pour ce règlement.");
+            return;
+        }
+
+        const entry: TransactionPaie = { 
+            id:`TP_${Date.now()}`, 
+            date: transactionData.date, 
+            type: transactionData.type, 
+            montant: transactionData.montant, 
+            description: transactionData.type === 'PRIME' ? 'Prime Exceptionnelle' : transactionData.type, 
+            createdBy: currentUser?.nom 
+        };
+
+        // Mise à jour employé (Dette / Historique)
+        onUpdateEmploye({ ...selectedEmployeeForPay, historiquePaie: [entry, ...(selectedEmployeeForPay.historiquePaie || [])] });
+
+        // Si ce n'est pas une prime, on déduis de la caisse
+        if (transactionData.type !== 'PRIME' && paymentAccountId) {
+            onAddTransaction({ 
+                id:`TR_P_${Date.now()}`, 
+                date: transactionData.date, 
+                type: 'DECAISSEMENT', 
+                montant: transactionData.montant, 
+                compteId: paymentAccountId, 
+                description: `Paie ${selectedEmployeeForPay.nom} (${transactionData.type})`, 
+                categorie: 'SALAIRE' 
+            });
+            onUpdateComptes(comptes.map(c => c.id === paymentAccountId ? {...c, solde: c.solde - transactionData.montant} : c));
+        }
+
+        setPayModalOpen(false);
+        alert(transactionData.type === 'PRIME' ? "Prime ajoutée au compte employé !" : "Paiement validé !");
+    };
+
     const getPointageStatusColor = (status: string) => {
         switch(status) {
             case 'PRESENT': return 'bg-green-100 text-green-800';
@@ -283,7 +333,7 @@ const HRView: React.FC<HRViewProps> = ({
                             <input type="date" value={pointageDate} onChange={(e) => setPointageDate(e.target.value)} className="p-2 border rounded-lg text-sm font-bold shadow-sm" />
                             {canManageFullHR && <button onClick={() => setIsScannerOpen(true)} className="bg-brand-900 hover:bg-black text-white px-5 py-2 rounded-lg font-black uppercase text-[10px] tracking-widest flex items-center gap-2 shadow-lg active:scale-95"><Camera size={16} /> Scanner Badge</button>}
                         </div>
-                        <button onClick={() => setPtGlobalHistoryOpen(true)} className="px-4 py-2 text-xs font-bold text-gray-600 border rounded-lg bg-white hover:bg-gray-50 flex items-center gap-2 shadow-sm"><History size={14}/> Historique Global</button>
+                        <button onClick={() => setPtGlobalHistoryOpen(true)} className="px-4 py-2 text-xs font-bold text-gray-600 border rounded-lg bg-white hover:bg-gray-50 flex items-center gap-2 shadow-sm"><History size={14}/> Historique & Récapitulatif Global</button>
                     </div>
                     <div className="overflow-x-auto flex-1 custom-scrollbar">
                         <table className="w-full text-sm text-left">
@@ -295,7 +345,7 @@ const HRView: React.FC<HRViewProps> = ({
                                         <tr key={emp.id} className="hover:bg-gray-50 group">
                                             <td className="py-4 px-6 font-bold uppercase flex items-center justify-between">
                                                 {emp.nom}
-                                                <button onClick={() => setSelectedEmployeeForPtHistory(emp)} className="opacity-0 group-hover:opacity-100 p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Historique Individuel"><Clock size={16}/></button>
+                                                <button onClick={() => setSelectedEmployeeForPtHistory(emp)} className="opacity-0 group-hover:opacity-100 p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Récapitulatif Individuel"><Clock size={16}/></button>
                                             </td>
                                             <td className="py-4 px-4 text-center">{pt ? <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${getPointageStatusColor(pt.statut)}`}>{pt.statut}</span> : <span className="text-gray-300 text-xs">NON POINTÉ</span>}</td>
                                             <td className="py-4 px-4 text-center font-mono font-bold text-gray-600">{pt?.heureArrivee || '--:--'}</td>
@@ -410,7 +460,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* --- MODAL HISTORIQUE PAIE (AVEC EDIT/DELETE) --- */}
+            {/* --- MODAL HISTORIQUE PAIE --- */}
             {historyModalOpen && selectedEmployeeForHistory && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-8 animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
@@ -460,51 +510,173 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* --- MODAL HISTORIQUE GLOBAL POINTAGE --- */}
+            {/* --- MODAL HISTORIQUE GLOBAL & RECAPITULATIF POINTAGE --- */}
             {ptGlobalHistoryOpen && (
-                <div className="fixed inset-0 bg-brand-900/90 z-[500] flex items-center justify-center p-4 backdrop-blur-md">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col h-[85vh] animate-in slide-in-from-bottom-8 duration-300 border border-brand-100">
+                <div className="fixed inset-0 bg-brand-900/95 z-[500] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl flex flex-col h-[85vh] animate-in slide-in-from-bottom-8 duration-300 border border-brand-100">
                         <div className="p-6 border-b bg-gray-50 flex justify-between items-center rounded-t-3xl shrink-0">
-                            <h3 className="text-xl font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><History className="text-brand-600" /> Historique Global des Pointages</h3>
-                            <button onClick={() => setPtGlobalHistoryOpen(false)}><X size={28}/></button>
+                            <div className="flex items-center gap-6">
+                                <h3 className="text-xl font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><History className="text-brand-600" /> Historique & Récapitulatif Global</h3>
+                                <div className="flex bg-white border rounded-xl p-1 shadow-inner">
+                                    <button onClick={() => setPtGlobalMode('LIST')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${ptGlobalMode === 'LIST' ? 'bg-brand-900 text-white shadow-md' : 'text-gray-400'}`}>Journal</button>
+                                    <button onClick={() => setPtGlobalMode('RECAP')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${ptGlobalMode === 'RECAP' ? 'bg-brand-900 text-white shadow-md' : 'text-gray-400'}`}>Récapitulatif</button>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border shadow-sm">
+                                    <button onClick={() => {
+                                        const d = new Date(recapMonth + "-01");
+                                        d.setMonth(d.getMonth() - 1);
+                                        setRecapMonth(d.toISOString().slice(0, 7));
+                                    }} className="p-1 hover:bg-gray-100 rounded-lg text-brand-600"><ChevronLeft size={18}/></button>
+                                    <span className="font-black text-xs uppercase tracking-widest px-2">{new Date(recapMonth + "-01").toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</span>
+                                    <button onClick={() => {
+                                        const d = new Date(recapMonth + "-01");
+                                        d.setMonth(d.getMonth() + 1);
+                                        setRecapMonth(d.toISOString().slice(0, 7));
+                                    }} className="p-1 hover:bg-gray-100 rounded-lg text-brand-600"><ChevronRight size={18}/></button>
+                                </div>
+                                <button onClick={() => setPtGlobalHistoryOpen(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors"><X size={28}/></button>
+                            </div>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-gray-100 text-gray-500 font-black uppercase text-[9px] tracking-widest sticky top-0"><tr><th className="p-3">Date</th><th className="p-3">Employé</th><th className="p-3">Statut</th><th className="p-3">Heures</th></tr></thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {pointages.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(p => {
-                                        const emp = employes.find(e => e.id === p.employeId);
-                                        return (
-                                            <tr key={p.id} className="hover:bg-gray-50">
-                                                <td className="p-3 font-bold text-gray-400">{new Date(p.date).toLocaleDateString()}</td>
-                                                <td className="p-3 font-black text-gray-800 uppercase">{emp?.nom || 'Inconnu'}</td>
-                                                <td className="p-3"><span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${getPointageStatusColor(p.statut)}`}>{p.statut}</span></td>
-                                                <td className="p-3 font-mono text-xs text-gray-600">{p.heureArrivee || '--:--'} - {p.heureDepart || '--:--'}</td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
+
+                        <div className="flex-1 overflow-y-auto custom-scrollbar">
+                            {ptGlobalMode === 'LIST' ? (
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-gray-100 text-gray-500 font-black uppercase text-[9px] tracking-widest sticky top-0 z-10 shadow-sm"><tr><th className="p-4">Date</th><th className="p-4">Employé</th><th className="p-4">Statut</th><th className="p-4">Arrivée</th><th className="p-4">Départ</th></tr></thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {pointages.filter(p => p.date.startsWith(recapMonth)).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(p => {
+                                            const emp = employes.find(e => e.id === p.employeId);
+                                            return (
+                                                <tr key={p.id} className="hover:bg-gray-50">
+                                                    <td className="p-4 font-bold text-gray-400">{new Date(p.date).toLocaleDateString()}</td>
+                                                    <td className="p-4 font-black text-gray-800 uppercase">{emp?.nom || 'Inconnu'}</td>
+                                                    <td className="p-4"><span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${getPointageStatusColor(p.statut)}`}>{p.statut}</span></td>
+                                                    <td className="p-4 font-mono text-xs text-gray-600">{p.heureArrivee || '--:--'}</td>
+                                                    <td className="p-4 font-mono text-xs text-gray-600">{p.heureDepart || '--:--'}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                        {pointages.filter(p => p.date.startsWith(recapMonth)).length === 0 && (
+                                            <tr><td colSpan={5} className="py-20 text-center text-gray-400 italic font-bold">Aucune donnée pour ce mois.</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <div className="p-6">
+                                    <div className="grid grid-cols-4 gap-4 mb-8">
+                                        <div className="bg-gray-50 p-4 rounded-2xl border flex flex-col items-center">
+                                            <span className="text-[10px] font-black text-gray-400 uppercase mb-1">Total Passages</span>
+                                            <span className="text-2xl font-black text-gray-800">{pointages.filter(p => p.date.startsWith(recapMonth)).length}</span>
+                                        </div>
+                                        <div className="bg-green-50 p-4 rounded-2xl border border-green-100 flex flex-col items-center text-green-700">
+                                            <span className="text-[10px] font-black opacity-60 uppercase mb-1">Ponctuels</span>
+                                            <span className="text-2xl font-black">{pointages.filter(p => p.date.startsWith(recapMonth) && p.statut === 'PRESENT').length}</span>
+                                        </div>
+                                        <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 flex flex-col items-center text-orange-700">
+                                            <span className="text-[10px] font-black opacity-60 uppercase mb-1">Retards</span>
+                                            <span className="text-2xl font-black">{pointages.filter(p => p.date.startsWith(recapMonth) && p.statut === 'RETARD').length}</span>
+                                        </div>
+                                        <div className="bg-red-50 p-4 rounded-2xl border border-red-100 flex flex-col items-center text-red-700">
+                                            <span className="text-[10px] font-black opacity-60 uppercase mb-1">Absences</span>
+                                            <span className="text-2xl font-black">{pointages.filter(p => p.date.startsWith(recapMonth) && p.statut === 'ABSENT').length}</span>
+                                        </div>
+                                    </div>
+                                    <table className="w-full text-sm text-left border rounded-2xl overflow-hidden shadow-sm">
+                                        <thead className="bg-gray-100 text-gray-500 font-black uppercase text-[10px] tracking-widest">
+                                            <tr><th className="p-4">Artisan / Employé</th><th className="p-4 text-center">Taux Présence</th><th className="p-4 text-center">Présent</th><th className="p-4 text-center">Retards</th><th className="p-4 text-center">Absents</th></tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100 bg-white">
+                                            {activeEmployes.sort((a,b) => a.nom.localeCompare(b.nom)).map(emp => {
+                                                const stats = getEmployeeRecap(emp.id, recapMonth);
+                                                const totalDays = stats.present + stats.retard + stats.absent;
+                                                const rate = totalDays > 0 ? Math.round(((stats.present + stats.retard) / totalDays) * 100) : 0;
+                                                return (
+                                                    <tr key={emp.id} className="hover:bg-gray-50">
+                                                        <td className="p-4 font-black text-gray-800 uppercase text-xs">{emp.nom}</td>
+                                                        <td className="p-4 text-center">
+                                                            <div className="flex items-center gap-2 justify-center">
+                                                                <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden shadow-inner">
+                                                                    <div className={`h-full ${rate > 80 ? 'bg-green-500' : rate > 50 ? 'bg-orange-500' : 'bg-red-500'}`} style={{ width: `${rate}%` }}></div>
+                                                                </div>
+                                                                <span className="font-bold text-xs">{rate}%</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-4 text-center font-bold text-green-600">{stats.present}</td>
+                                                        <td className="p-4 text-center font-bold text-orange-600">{stats.retard}</td>
+                                                        <td className="p-4 text-center font-bold text-red-600">{stats.absent}</td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-4 border-t bg-gray-50 flex justify-end shrink-0 rounded-b-3xl">
+                            <button onClick={() => {
+                                // Logique simple d'export CSV
+                                const data = activeEmployes.map(emp => {
+                                    const stats = getEmployeeRecap(emp.id, recapMonth);
+                                    return `${emp.nom},${stats.present},${stats.retard},${stats.absent}`;
+                                }).join('\n');
+                                const blob = new Blob([`Employe,Present,Retard,Absent\n${data}`], { type: 'text/csv' });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `Recap_Pointage_${recapMonth}.csv`;
+                                a.click();
+                            }} className="flex items-center gap-2 text-xs font-black uppercase text-brand-700 hover:text-brand-900 bg-white px-4 py-2 rounded-xl border shadow-sm transition-all"><Printer size={16}/> Exporter PDF/Excel</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* --- MODAL HISTORIQUE INDIVIDUEL POINTAGE (NOUVEAU) --- */}
+            {/* --- MODAL HISTORIQUE INDIVIDUEL POINTAGE AVEC RECAP --- */}
             {selectedEmployeeForPtHistory && (
                 <div className="fixed inset-0 bg-brand-900/90 z-[500] flex items-center justify-center p-4 backdrop-blur-md">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg flex flex-col h-[75vh] animate-in zoom-in duration-300 border border-blue-100">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg flex flex-col h-[80vh] animate-in zoom-in duration-300 border border-blue-100">
                         <div className="p-6 border-b bg-gray-50 flex justify-between items-center rounded-t-3xl shrink-0">
-                            <h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><Calendar className="text-blue-600" /> Présences : {selectedEmployeeForPtHistory.nom}</h3>
+                            <div>
+                                <h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><Calendar className="text-blue-600" /> Présences : {selectedEmployeeForPtHistory.nom}</h3>
+                                <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-1">Historique des 12 derniers mois</p>
+                            </div>
                             <button onClick={() => setSelectedEmployeeForPtHistory(null)}><X size={28}/></button>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-6 space-y-2 custom-scrollbar">
+                        <div className="p-4 bg-blue-50 border-b flex justify-around shrink-0">
+                            {(() => {
+                                const m = new Date().toISOString().slice(0, 7);
+                                const stats = getEmployeeRecap(selectedEmployeeForPtHistory.id, m);
+                                return (
+                                    <>
+                                        <div className="text-center">
+                                            <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest">Ce mois</p>
+                                            <p className="text-lg font-black text-blue-900">{stats.present + stats.retard}</p>
+                                        </div>
+                                        <div className="text-center">
+                                            <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest">Ponctualité</p>
+                                            <p className="text-lg font-black text-green-600">{stats.present}</p>
+                                        </div>
+                                        <div className="text-center">
+                                            <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest">Retards</p>
+                                            <p className="text-lg font-black text-orange-600">{stats.retard}</p>
+                                        </div>
+                                        <div className="text-center">
+                                            <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest">Absences</p>
+                                            <p className="text-lg font-black text-red-600">{stats.absent}</p>
+                                        </div>
+                                    </>
+                                );
+                            })()}
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-6 space-y-2 custom-scrollbar bg-gray-50/30">
                             {pointages.filter(p => p.employeId === selectedEmployeeForPtHistory.id).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(p => (
-                                <div key={p.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100 group hover:border-blue-200 transition-all">
+                                <div key={p.id} className="flex justify-between items-center p-4 bg-white rounded-xl border border-gray-100 group hover:border-blue-200 transition-all shadow-sm">
                                     <div>
                                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{new Date(p.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
                                         <p className="font-mono font-bold text-sm text-gray-700">{p.heureArrivee || '--:--'} à {p.heureDepart || 'En poste'}</p>
                                     </div>
+                                    {/* Fixed: Use 'p.statut' instead of undefined 'pt.statut' */}
                                     <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${getPointageStatusColor(p.statut)}`}>{p.statut}</span>
                                 </div>
                             ))}
@@ -512,7 +684,7 @@ const HRView: React.FC<HRViewProps> = ({
                                 <div className="text-center py-20 text-gray-400 italic font-bold">Aucun pointage enregistré pour cet employé.</div>
                             )}
                         </div>
-                        <div className="p-4 border-t bg-gray-50 rounded-b-3xl shrink-0 flex justify-end"><button onClick={() => setSelectedEmployeeForPtHistory(null)} className="px-8 py-3 bg-gray-800 text-white rounded-xl font-black uppercase text-xs tracking-widest">Fermer</button></div>
+                        <div className="p-4 border-t bg-white rounded-b-3xl shrink-0 flex justify-end"><button onClick={() => setSelectedEmployeeForPtHistory(null)} className="px-8 py-3 bg-gray-800 text-white rounded-xl font-black uppercase text-xs tracking-widest">Fermer</button></div>
                     </div>
                 </div>
             )}
@@ -581,22 +753,24 @@ const HRView: React.FC<HRViewProps> = ({
                                 <label className="block text-[10px] font-black text-gray-400 mb-1 ml-1 uppercase">Montant (F)</label>
                                 <input type="number" className="w-full p-4 border-2 border-brand-900/10 rounded-2xl text-2xl font-black bg-brand-50 text-brand-900" value={transactionData.montant || ''} onChange={e => setTransactionData({...transactionData, montant: parseInt(e.target.value)||0})} placeholder="0" />
                             </div>
-                            <div>
-                                <label className="block text-[10px] font-black text-gray-400 mb-1 ml-1 uppercase">Caisse Source</label>
-                                <select className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select>
-                            </div>
+
+                            {/* CAISSE SOURCE : Masquée si c'est une PRIME */}
+                            {transactionData.type !== 'PRIME' && (
+                                <div className="animate-in fade-in duration-300">
+                                    <label className="block text-[10px] font-black text-gray-400 mb-1 ml-1 uppercase">Caisse Source</label>
+                                    <select className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select>
+                                </div>
+                            )}
+
+                            {transactionData.type === 'PRIME' && (
+                                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-blue-700 text-[10px] font-bold uppercase leading-tight animate-in slide-in-from-bottom-2">
+                                    💡 Les primes sont ajoutées directement à la fiche de paie de l'employé sans décaissement immédiat.
+                                </div>
+                            )}
                         </div>
                         <div className="flex justify-end gap-3 mt-10 pt-4 border-t">
                             <button onClick={() => setPayModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button>
-                            <button onClick={() => {
-                                if(!paymentAccountId || transactionData.montant <= 0) return;
-                                const entry: TransactionPaie = { id:`TP_${Date.now()}`, date: transactionData.date, type: transactionData.type as any, montant: transactionData.montant, description: transactionData.type, createdBy: currentUser?.nom };
-                                onUpdateEmploye({ ...selectedEmployeeForPay, historiquePaie: [entry, ...(selectedEmployeeForPay.historiquePaie || [])] });
-                                onAddTransaction({ id:`TR_P_${Date.now()}`, date: transactionData.date, type: 'DECAISSEMENT', montant: transactionData.montant, compteId: paymentAccountId, description: `Paie ${selectedEmployeeForPay.nom} (${transactionData.type})`, categorie: 'SALAIRE' });
-                                onUpdateComptes(comptes.map(c => c.id === paymentAccountId ? {...c, solde: c.solde - transactionData.montant} : c));
-                                setPayModalOpen(false);
-                                alert("Paiement validé !");
-                            }} className="px-10 py-4 bg-green-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Valider</button>
+                            <button onClick={handleConfirmPayment} className="px-10 py-4 bg-green-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Valider</button>
                         </div>
                     </div>
                 </div>
