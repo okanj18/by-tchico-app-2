@@ -30,7 +30,9 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
         const pass = password.trim();
 
         // --- A. BYPASS DE SECOURS (ADMIN MAITRE) ---
+        // Ce bloc s'exécute AVANT tout appel réseau.
         if (identifier === "admin" && pass === "admin") {
+            console.log("Accès Secours Déclenché");
             onLogin({ 
                 id: "master-admin", 
                 nom: "Administrateur BY TCHICO", 
@@ -40,27 +42,33 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
             return;
         }
 
-        // --- B. LOGIQUE FIREBASE (SI CONFIGURÉ) ---
-        if (isFirebaseConfigured && identifier.includes('@')) {
+        // --- B. LOGIQUE FIREBASE (SI CONFIGURÉ ET UTILISATEUR EXISTE) ---
+        if (isFirebaseConfigured) {
             const auth = getAuth(app);
             try {
                 const userCredential = await signInWithEmailAndPassword(auth, identifier, pass);
                 const fbUser = userCredential.user;
 
+                // On cherche l'employé dans la base synchronisée pour avoir son rôle exact
                 const employeeRecord = employes.find(e => e.email && e.email.toLowerCase() === fbUser.email?.toLowerCase());
-                const isConfigAdmin = COMPANY_CONFIG.adminEmails.some(addr => addr.toLowerCase() === fbUser.email?.toLowerCase());
+                
+                // Si l'email est dans config.ts, il est ADMIN d'office
+                const isConfigAdmin = COMPANY_CONFIG.adminEmails.some(
+                    addr => addr.toLowerCase() === fbUser.email?.toLowerCase()
+                );
 
                 onLogin({
                     id: fbUser.uid,
                     nom: employeeRecord?.nom || fbUser.email?.split('@')[0] || "Utilisateur Cloud",
                     role: isConfigAdmin ? RoleEmploye.ADMIN : (employeeRecord?.role || RoleEmploye.VENDEUR),
                     boutiqueId: employeeRecord?.boutiqueId,
-                    email: fbUser.email || '',
-                    permissions: employeeRecord?.permissions
+                    email: fbUser.email || ''
                 });
                 setLoading(false);
                 return;
             } catch (err: any) {
+                console.error("Firebase Auth Error:", err.code);
+                // Si erreur Firebase, on ne s'arrête pas là, on tente de voir si c'est un compte local
                 if (err.code === 'auth/network-request-failed') {
                     setError("Pas de connexion internet.");
                     setLoading(false);
@@ -69,7 +77,8 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
             }
         }
 
-        // --- C. LOGIQUE LOCALE / MOTS DE PASSE PERSONNALISÉS ---
+        // --- C. LOGIQUE LOCALE (FALLBACK) ---
+        // On vérifie dans la liste locale des employés
         const localEmployee = employes.find(emp => 
             (emp.email && emp.email.toLowerCase() === identifier) || 
             (emp.telephone === identifier) ||
@@ -77,23 +86,23 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
         );
 
         if (localEmployee) {
-            const expectedPass = localEmployee.password || localEmployee.telephone;
-            
-            if (pass === expectedPass || pass === "admin") {
+            // Mot de passe par défaut = numéro de téléphone
+            if (pass === localEmployee.telephone || pass === "admin") {
                 onLogin({
                     id: localEmployee.id,
                     nom: localEmployee.nom,
                     role: localEmployee.role,
                     boutiqueId: localEmployee.boutiqueId,
-                    email: localEmployee.email,
-                    permissions: localEmployee.permissions
+                    email: localEmployee.email
                 });
             } else {
-                setError("Mot de passe incorrect.");
+                setError("Mot de passe incorrect pour ce compte.");
                 setShowReset(true);
             }
         } else {
-            setError("Identifiant inconnu.");
+            setError(isFirebaseConfigured 
+                ? "Identifiants invalides (ou compte non créé sur Firebase)." 
+                : "Identifiant inconnu en mode local.");
             setShowReset(true);
         }
         
@@ -101,7 +110,7 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
     };
 
     const handleClearCache = () => {
-        if (window.confirm("Voulez-vous réinitialiser l'application ? Cela effacera les données en cache.")) {
+        if (window.confirm("Voulez-vous réinitialiser l'application ? Cela effacera les données en cache et forcera une nouvelle synchronisation.")) {
             localStorage.clear();
             window.location.reload();
         }
@@ -115,8 +124,8 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
                         <ShieldCheck size={32} />
                     </div>
                     <h1 className="text-2xl font-bold tracking-wider">{COMPANY_CONFIG.name}</h1>
-                    <p className="text-brand-100 opacity-80 text-[10px] mt-1 uppercase font-bold tracking-widest uppercase">
-                        {isFirebaseConfigured ? 'Connexion Sécurisée Active' : 'Mode Local'}
+                    <p className="text-brand-100 opacity-80 text-[10px] mt-1 uppercase font-bold tracking-widest">
+                        {isFirebaseConfigured ? 'Connexion Cloud Active' : 'Mode Local Uniquement'}
                     </p>
                 </div>
                 
@@ -135,7 +144,7 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
                                 type="text" 
                                 required
                                 className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 font-bold"
-                                placeholder="Nom, Email ou Téléphone"
+                                placeholder="Email ou 'admin'"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                             />
@@ -176,11 +185,11 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
                                 onClick={handleClearCache}
                                 className="text-[9px] text-gray-500 hover:text-brand-600 flex items-center gap-1 font-bold uppercase"
                             >
-                                <RefreshCcw size={10} /> Réinitialiser
+                                <RefreshCcw size={10} /> Réinitialiser App
                             </button>
                             {showReset && (
                                 <div className="text-[9px] text-orange-600 font-bold uppercase italic">
-                                    Aide : Utilisez votre numéro de téléphone si aucun mot de passe n'a été défini.
+                                    Identifiants de secours : admin / admin
                                 </div>
                             )}
                         </div>

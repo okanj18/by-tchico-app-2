@@ -14,21 +14,6 @@ export const RoleEmploye = {
     CHAUFFEUR: 'CHAUFFEUR' as RoleEmploye
 };
 
-export type NiveauAcces = 'NONE' | 'READ' | 'WRITE';
-
-export interface PermissionsUtilisateur {
-    dashboard: NiveauAcces;
-    ventes: NiveauAcces;
-    production: NiveauAcces;
-    stock: NiveauAcces;
-    approvisionnement: NiveauAcces;
-    fournisseurs: NiveauAcces;
-    rh: NiveauAcces;
-    clients: NiveauAcces;
-    finance: NiveauAcces;
-    catalogue: NiveauAcces;
-}
-
 export enum StatutCommande {
     EN_ATTENTE = 'En Attente',
     EN_COUPE = 'En Coupe',
@@ -70,7 +55,6 @@ export interface SessionUser {
     role: RoleEmploye;
     boutiqueId?: string;
     email?: string;
-    permissions?: PermissionsUtilisateur;
 }
 
 export interface Boutique {
@@ -85,7 +69,6 @@ export interface TransactionPaie {
     type: 'ACOMPTE' | 'PRIME' | 'SALAIRE_NET';
     montant: number;
     description: string;
-    createdBy?: string;
 }
 
 export interface Absence {
@@ -100,19 +83,18 @@ export interface Absence {
 export interface Employe {
     id: string;
     nom: string;
+    numeroCNI?: string;
     cniRecto?: string;
     cniVerso?: string;
     role: RoleEmploye;
     telephone: string;
     email?: string;
-    password?: string;
     salaireBase: number;
     typeContrat: string;
     boutiqueId?: string;
     historiquePaie?: TransactionPaie[];
     absences?: Absence[];
     actif?: boolean;
-    permissions?: PermissionsUtilisateur;
 }
 
 export interface Pointage {
@@ -200,7 +182,7 @@ export interface Commande {
     quantite: number;
     elements?: ElementCommande[];
     repartitionStatuts?: Record<string, number>; 
-    repartitionDetails?: Record<string, Record<string, number>>; 
+    repartitionDetails?: Record<string, Record<string, number>>; // Nouveau: Statut -> { NomArticle: Qte }
     consommations?: Consommation[];
     detailsVente?: LigneCommande[];
     notes?: string;
@@ -218,7 +200,6 @@ export interface Depense {
     description: string;
     boutiqueId?: string;
     compteId?: string;
-    createdBy?: string;
 }
 
 export interface Product {
@@ -333,7 +314,6 @@ export interface TransactionTresorerie {
     compteDestinationId?: string;
     description: string;
     categorie: string;
-    createdBy?: string;
 }
 
 export interface GalleryItem {
