@@ -43,7 +43,11 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({ currentView, setView, isOp
         return availableViews.includes(item.id);
     });
 
-    const showSettings = user?.role === RoleEmploye.ADMIN || user?.role === RoleEmploye.GERANT;
+    // Autorise l'accès aux réglages si Admin, Gérant ou si la permission 'settings' n'est pas 'NONE'
+    const showSettings = user?.role === RoleEmploye.ADMIN || 
+                       user?.role === RoleEmploye.GERANT || 
+                       (user?.permissions?.settings && user.permissions.settings !== 'NONE');
+                       
     const isConnected = !!app;
 
     return (

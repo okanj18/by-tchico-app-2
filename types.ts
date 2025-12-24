@@ -27,6 +27,7 @@ export interface PermissionsUtilisateur {
     clients: NiveauAcces;
     finance: NiveauAcces;
     catalogue: NiveauAcces;
+    settings: NiveauAcces;
 }
 
 export enum StatutCommande {
