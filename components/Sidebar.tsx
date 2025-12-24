@@ -16,29 +16,38 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = React.memo(({ currentView, setView, isOpen, setIsOpen, availableViews, user, onLogout }) => {
-    // Définition des items
+    
     const allMenuItems = [
-        { id: 'dashboard', label: 'Tableau de Bord', icon: LayoutDashboard },
-        { id: 'ventes', label: 'Ventes / Caisse', icon: ShoppingBag },
-        { id: 'catalogue-public', label: 'Catalogue Digital', icon: Grid }, 
-        { id: 'galerie', label: 'Galerie & Modèles', icon: Image }, 
-        { id: 'production', label: 'Atelier & Production', icon: Scissors },
-        { id: 'catalogue', label: 'Gestion Articles', icon: Tag },
-        { id: 'stock', label: 'Stock & Boutiques', icon: Box },
-        { id: 'approvisionnement', label: 'Approvisionnement', icon: ShoppingCart },
-        { id: 'fournisseurs', label: 'Fournisseurs', icon: Truck },
-        { id: 'rh', label: 'Ressources Humaines', icon: Briefcase },
-        { id: 'clients', label: 'Clients & Mesures', icon: Users },
-        { id: 'finance', label: 'Finance & Rentabilité', icon: Wallet },
+        { id: 'dashboard', label: 'Tableau de Bord', icon: LayoutDashboard, permKey: 'dashboard' },
+        { id: 'ventes', label: 'Ventes / Caisse', icon: ShoppingBag, permKey: 'ventes' },
+        { id: 'catalogue-public', label: 'Catalogue Digital', icon: Grid, permKey: 'catalogue' }, 
+        { id: 'galerie', label: 'Galerie & Modèles', icon: Image, permKey: 'catalogue' }, 
+        { id: 'production', label: 'Atelier & Production', icon: Scissors, permKey: 'production' },
+        { id: 'catalogue', label: 'Gestion Articles', icon: Tag, permKey: 'catalogue' },
+        { id: 'stock', label: 'Stock & Boutiques', icon: Box, permKey: 'stock' },
+        { id: 'approvisionnement', label: 'Approvisionnement', icon: ShoppingCart, permKey: 'approvisionnement' },
+        { id: 'fournisseurs', label: 'Fournisseurs', icon: Truck, permKey: 'fournisseurs' },
+        { id: 'rh', label: 'Ressources Humaines', icon: Briefcase, permKey: 'rh' },
+        { id: 'clients', label: 'Clients & Mesures', icon: Users, permKey: 'clients' },
+        { id: 'finance', label: 'Finance & Rentabilité', icon: Wallet, permKey: 'finance' },
     ];
 
-    const visibleItems = allMenuItems.filter(item => availableViews.includes(item.id));
+    // Filtrage dynamique selon les permissions de l'utilisateur
+    const visibleItems = allMenuItems.filter(item => {
+        if (user?.role === RoleEmploye.ADMIN) return true;
+        
+        // Vérification des permissions granulaires
+        const perm = user?.permissions?.[item.permKey as keyof typeof user.permissions];
+        if (perm === 'NONE') return false;
+        
+        return availableViews.includes(item.id);
+    });
+
     const showSettings = user?.role === RoleEmploye.ADMIN || user?.role === RoleEmploye.GERANT;
     const isConnected = !!app;
 
     return (
         <>
-             {/* Mobile Overlay */}
             {isOpen && (
                 <div 
                     className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden"
@@ -46,12 +55,10 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({ currentView, setView, isOp
                 />
             )}
 
-            {/* Sidebar */}
             <div className={`fixed inset-y-0 left-0 z-30 w-64 bg-brand-900 text-white transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:static md:inset-0 shadow-xl flex flex-col h-full max-h-screen`}>
                 <div className="p-4 flex flex-col items-center justify-center border-b border-brand-800 shrink-0">
                     <h1 className="text-xl font-bold tracking-wider text-brand-100 text-center">{COMPANY_CONFIG.name}</h1>
                     
-                    {/* Indicateur de Connexion */}
                     <div className={`mt-2 flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border ${isConnected ? 'bg-green-900/30 border-green-700 text-green-400' : 'bg-red-900/30 border-red-700 text-red-400'}`}>
                         {isConnected ? <Wifi size={10} /> : <WifiOff size={10} />}
                         {isConnected ? 'EN LIGNE (SYNC)' : 'HORS LIGNE'}
@@ -62,7 +69,7 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({ currentView, setView, isOp
                             <span className="text-[10px] bg-brand-800 px-2 py-0.5 rounded text-brand-200 border border-brand-700 uppercase">
                                 {user.role}
                             </span>
-                            {user.boutiqueId && <span className="text-[10px] text-brand-300 mt-0.5">📍 {user.boutiqueId}</span>}
+                            <span className="text-[9px] text-brand-400 mt-1 font-black uppercase">{user.nom}</span>
                         </div>
                     )}
                 </div>
