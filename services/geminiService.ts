@@ -2,20 +2,12 @@
 import { GoogleGenAI } from "@google/genai";
 import { COMPANY_CONFIG } from "../config";
 
-// Initialize Gemini with Vite env variable
-// Fix: cast import.meta to any and use optional chaining to avoid runtime error
-const apiKey = (import.meta as any).env?.VITE_API_KEY || '';
-let ai: GoogleGenAI | null = null;
-
-if (apiKey) {
-    ai = new GoogleGenAI({ apiKey });
-}
+// Initialize Gemini with process.env.API_KEY string directly per coding guidelines.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const getAIAnalysis = async (contextData: string, userPrompt: string): Promise<string> => {
     try {
-        if (!ai) return "Clé API non configurée (Mode Démo)";
-
-        const model = 'gemini-2.5-flash';
+        const model = 'gemini-3-flash-preview';
         
         const systemInstruction = `
             Tu es un assistant expert en gestion d'entreprise pour "${COMPANY_CONFIG.name}", ${COMPANY_CONFIG.aiContext}.
@@ -42,6 +34,7 @@ export const getAIAnalysis = async (contextData: string, userPrompt: string): Pr
             }
         });
 
+        // Use the .text property directly, it is not a method.
         return response.text || "Désolé, je n'ai pas pu générer une analyse pour le moment.";
     } catch (error) {
         console.error("Erreur Gemini:", error);
@@ -51,10 +44,8 @@ export const getAIAnalysis = async (contextData: string, userPrompt: string): Pr
 
 export const draftClientMessage = async (clientName: string, orderDescription: string, status: string): Promise<string> => {
      try {
-        if (!ai) return `Bonjour ${clientName}, votre commande est au statut : ${status}.`;
-
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3-flash-preview',
             contents: `Rédige un message WhatsApp court et poli pour le client ${clientName}.
             Sa commande "${orderDescription}" est actuellement au statut : "${status}".
             Si c'est "Prêt", invite-le à passer à la boutique ${COMPANY_CONFIG.name}.
@@ -66,30 +57,28 @@ export const draftClientMessage = async (clientName: string, orderDescription: s
      }
 }
 
-export const parseMeasurementsFromText = async (text: string): Promise<Record<string, number>> => {
+export const parseMeasurementsFromText = async (text: string): Promise<Record<string, string | number>> => {
     try {
-        if (!ai) return {};
-
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3-flash-preview',
             contents: `
                 Analyse le texte suivant qui contient des mesures de couture dictées vocalement.
                 Texte : "${text}"
                 
-                Extrais les valeurs numériques et associe-les aux clés JSON suivantes (si mentionnées).
-                Clés disponibles : 
+                Extrais les valeurs et associe-les aux clés JSON correspondantes.
+                
+                RÈGLE CRITIQUE POUR LES MESURES MULTIPLES (DOUBLES) :
+                Si l'utilisateur énonce deux chiffres pour un même champ (ex: "épaule trente huit quarante deux", "poitrine quarante sur quarante deux"), tu DOIS renvoyer la valeur sous forme de chaîne de caractères avec un slash : "38/42" ou "40/42". Ne fais jamais l'addition.
+                
+                Clés JSON à utiliser (SI MENTIONNÉES) : 
                 - tourCou, epaule, poitrine, longueurManche, tourBras, tourPoignet
-                - longueurBoubou1, longueurBoubou2 (si on dit "longueur boubou 140 sur 145" par exemple)
-                - longueurChemise, carrureDos, carrureDevant, taille, blouse, ceinture
-                - tourFesse, tourCuisse, entreJambe, longueurPantalon
-                - genou1, genou2 (si on dit "genou 40 sur 38")
-                - bas
+                - longueurBoubou, longueurChemise, carrureDos, carrureDevant, taille, blouse, ceinture
+                - tourFesse, tourCuisse, genou, mollet, bas, entreJambe, longueurPantalon
 
-                Règles :
-                1. Renvoie UNIQUEMENT un objet JSON valide sans Markdown.
-                2. Les valeurs doivent être des nombres (ex: 80, pas "80cm").
-                3. Si une mesure est ambigüe, fais de ton mieux pour deviner le contexte (ex: "manche 60" = longueurManche).
-                4. Ignore les clés non trouvées.
+                Règles de sortie :
+                1. Renvoie UNIQUEMENT un objet JSON valide.
+                2. Les valeurs sont soit des nombres, soit des chaînes au format "X/Y".
+                3. Ignore les mots inutiles.
             `,
             config: {
                 responseMimeType: 'application/json'
