@@ -1,7 +1,8 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Article, Boutique, Client, Commande, StatutCommande, ModePaiement, CompteFinancier, CompanyAssets } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Search, ShoppingCart, User, Printer, History, X, CheckCircle, AlertTriangle, Plus, Trash2, Wallet, Ban, FileText, Minus, Save, UserX, ClipboardList, Layers } from 'lucide-react';
+import { Search, ShoppingCart, User, Printer, History, X, CheckCircle, AlertTriangle, Plus, Trash2, Wallet, Ban, FileText, Minus, Save, UserX, ClipboardList, Layers, DollarSign } from 'lucide-react';
 
 interface SalesViewProps {
     articles: Article[];
@@ -73,7 +74,6 @@ const SalesView: React.FC<SalesViewProps> = ({
     const cartTotal = cart.reduce((acc, item) => acc + (item.prix * item.quantite), 0);
     const tvaAmount = tvaEnabled ? Math.round((cartTotal - remise) * COMPANY_CONFIG.tvaRate) : 0;
     const finalTotal = Math.max(0, cartTotal - remise + tvaAmount);
-    const changeAmount = Math.max(0, amountPaid - finalTotal);
 
     // --- ACTIONS ---
     const addToCart = (article: Article, variant: string = 'Standard') => {
@@ -82,7 +82,8 @@ const SalesView: React.FC<SalesViewProps> = ({
             return;
         }
 
-        const stock = article.stockParLieu[selectedBoutiqueId]?.[variant] || 0;
+        const shopStock = (article.stockParLieu[selectedBoutiqueId] || {}) as Record<string, number>;
+        const stock = shopStock[variant] || 0;
         const inCart = cart.find(i => i.articleId === article.id && i.variante === variant)?.quantite || 0;
 
         if (stock <= inCart) {
@@ -114,7 +115,8 @@ const SalesView: React.FC<SalesViewProps> = ({
                 if (selectedBoutiqueId && delta > 0) {
                     const article = articles.find(a => a.id === i.articleId);
                     if (article) {
-                        const stock = article.stockParLieu[selectedBoutiqueId]?.[i.variante] || 0;
+                        const shopStock = (article.stockParLieu[selectedBoutiqueId] || {}) as Record<string, number>;
+                        const stock = shopStock[i.variante] || 0;
                         if (stock < newQty) {
                             alert(`Stock insuffisant pour cette quantité.`);
                             return i;
@@ -154,7 +156,7 @@ const SalesView: React.FC<SalesViewProps> = ({
 
     const handleConfirmPayment = () => {
         if (!selectedOrderForPayment || payAmount <= 0 || !payAccount) return;
-        onAddPayment(selectedOrderForPayment.id, payAmount, payMethod, "Règlement solde", payDate, payAccount);
+        onAddPayment(selectedOrderForPayment.id, payAmount, payMethod, "Règlement solde vente boutique", payDate, payAccount);
         setPaymentModalOpen(false); setSelectedOrderForPayment(null);
     };
 
@@ -173,7 +175,7 @@ const SalesView: React.FC<SalesViewProps> = ({
 
     const handleConfirmCancel = () => {
         if (!selectedOrderForCancel) return;
-        if (selectedOrderForCancel.avance > 0 && !refundAccountId) { alert("Choisir compte source."); return; }
+        if (selectedOrderForCancel.avance > 0 && !refundAccountId) { alert("Choisir compte source pour le remboursement."); return; }
         onCancelSale(selectedOrderForCancel.id, refundAccountId);
         setIsCancelModalOpen(false); setSelectedOrderForCancel(null);
     };
@@ -202,8 +204,8 @@ const SalesView: React.FC<SalesViewProps> = ({
                         <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 align-content-start">
                             {filteredArticles.map(article => {
                                 const hasVariants = article.variantes && article.variantes.length > 0;
-                                // Fix: Explicitly type cast Object.values results to number[] to resolve 'unknown' comparison error on line 235
-                                const totalStockInShop = (Object.values(article.stockParLieu[selectedBoutiqueId] || {}) as number[]).reduce((acc: number, q: number) => acc + q, 0);
+                                const shopStockRec = (article.stockParLieu[selectedBoutiqueId] || {}) as Record<string, number>;
+                                const totalStockInShop = (Object.values(shopStockRec) as number[]).reduce((acc: number, q: number) => acc + q, 0);
 
                                 return (
                                     <div key={article.id} className="bg-gray-50 border border-gray-100 rounded-lg p-3 hover:shadow-md transition-shadow flex flex-col">
@@ -218,9 +220,7 @@ const SalesView: React.FC<SalesViewProps> = ({
                                             {hasVariants ? (
                                                 <div className="grid grid-cols-2 gap-1">
                                                     {article.variantes.map(v => {
-                                                        // Fix: Explicitly cast the nested record to ensure vStock is inferred as a number for the comparison operation
-                                                        const shopStock = (article.stockParLieu[selectedBoutiqueId] || {}) as Record<string, number>;
-                                                        const vStock = shopStock[v] || 0;
+                                                        const vStock = shopStockRec[v] || 0;
                                                         return (
                                                             <button 
                                                                 key={v} 
@@ -275,28 +275,178 @@ const SalesView: React.FC<SalesViewProps> = ({
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-200 uppercase text-[10px] tracking-widest"><tr><th className="py-3 px-4">Date</th><th className="py-3 px-4">Client</th><th className="py-3 px-4">Articles</th><th className="py-3 px-4 text-right">Total</th><th className="py-3 px-4 text-center">Actions</th></tr></thead>
                             <tbody className="divide-y divide-gray-100">
-                                {salesHistory.map(sale => (
-                                    <tr key={sale.id} className="hover:bg-gray-50 transition-colors">
-                                        <td className="py-3 px-4 text-gray-500 text-xs">{new Date(sale.dateCommande).toLocaleDateString()}</td>
-                                        <td className="py-3 px-4 font-bold text-gray-800 uppercase text-xs">{sale.clientNom}</td>
-                                        <td className="py-3 px-4 text-gray-400 text-xs truncate max-w-xs">{sale.description}</td>
-                                        <td className="py-3 px-4 text-right font-black text-brand-900">{sale.prixTotal.toLocaleString()} F</td>
-                                        <td className="py-3 px-4 text-center">
-                                            <div className="flex items-center justify-center gap-1">
-                                                <button onClick={() => generatePrintContent(sale, 'TICKET')} className="p-1.5 hover:bg-gray-100 rounded" title="Ticket"><Printer size={16}/></button>
-                                                <button onClick={() => setSelectedOrderDetails(sale)} className="p-1.5 hover:bg-gray-100 rounded"><FileText size={16} /></button>
-                                                {sale.statut !== StatutCommande.ANNULE && (<button onClick={() => openCancelModal(sale)} className="p-1.5 text-red-400 hover:text-red-600" title="Annuler"><Ban size={16}/></button>)}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
+                                {salesHistory.map(sale => {
+                                    const isCancelled = sale.statut === StatutCommande.ANNULE;
+                                    return (
+                                        <tr key={sale.id} className={`hover:bg-gray-50 transition-colors ${isCancelled ? 'opacity-50 grayscale bg-gray-50' : ''}`}>
+                                            <td className="py-3 px-4 text-gray-500 text-xs">
+                                                {new Date(sale.dateCommande).toLocaleDateString()}
+                                                {isCancelled && <span className="block text-[8px] font-black text-red-600 uppercase">Annulé</span>}
+                                            </td>
+                                            <td className="py-3 px-4 font-bold text-gray-800 uppercase text-xs">{sale.clientNom}</td>
+                                            <td className="py-3 px-4 text-gray-400 text-xs truncate max-w-xs">{sale.description}</td>
+                                            <td className="py-3 px-4 text-right font-black text-brand-900">{sale.prixTotal.toLocaleString()} F</td>
+                                            <td className="py-3 px-4 text-center">
+                                                <div className="flex items-center justify-center gap-1">
+                                                    <button onClick={() => generatePrintContent(sale, 'TICKET')} className="p-1.5 hover:bg-gray-100 rounded text-gray-500" title="Imprimer Ticket"><Printer size={16}/></button>
+                                                    <button onClick={() => setSelectedOrderDetails(sale)} className="p-1.5 hover:bg-gray-100 rounded text-blue-600" title="Voir Détails et Versements"><FileText size={16} /></button>
+                                                    {!isCancelled && sale.reste > 0 && (
+                                                        <button onClick={() => openPaymentModal(sale)} className="p-1.5 hover:bg-gray-100 rounded text-green-600" title="Encaisser le solde"><Wallet size={16}/></button>
+                                                    )}
+                                                    {!isCancelled && (
+                                                        <button onClick={() => openCancelModal(sale)} className="p-1.5 text-red-400 hover:text-red-600" title="Annuler la vente"><Ban size={16}/></button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
                 </div>
             )}
 
-            {/* MODALS (Détails, Annulation, etc.) restants inchangés mais avec UI cohérente */}
+            {/* MODAL DETAILS VENTE & HISTORIQUE VERSEMENTS */}
+            {selectedOrderDetails && (
+                <div className="fixed inset-0 bg-black/60 z-[300] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col h-[80vh] overflow-hidden">
+                        <div className="p-6 bg-gray-50 border-b flex justify-between items-center">
+                            <div>
+                                <h3 className="text-xl font-black text-gray-800 uppercase">Détails Vente #{selectedOrderDetails.id.slice(-6)}</h3>
+                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">{new Date(selectedOrderDetails.dateCommande).toLocaleDateString()}</p>
+                            </div>
+                            <button onClick={() => setSelectedOrderDetails(null)} className="p-2 hover:bg-gray-200 rounded-full"><X size={24}/></button>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+                            {/* Recap Client */}
+                            <div className="bg-brand-50 p-4 rounded-xl border border-brand-100">
+                                <h4 className="text-[10px] font-black text-brand-800 uppercase mb-2">Client</h4>
+                                <p className="font-black text-brand-900 uppercase text-sm">{selectedOrderDetails.clientNom}</p>
+                            </div>
+
+                            {/* Liste Articles */}
+                            <div>
+                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Articles vendus</h4>
+                                <div className="space-y-2">
+                                    {selectedOrderDetails.detailsVente?.map((item, idx) => (
+                                        <div key={idx} className="flex justify-between items-center py-2 border-b border-gray-100 text-xs font-bold">
+                                            <span>{item.nomArticle} ({item.variante}) x{item.quantite}</span>
+                                            <span className="text-gray-900">{(item.quantite * item.prixUnitaire).toLocaleString()} F</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* HISTORIQUE DES VERSEMENTS */}
+                            <div>
+                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                    <History size={14} className="text-brand-600"/> Historique des versements
+                                </h4>
+                                <div className="space-y-3">
+                                    {selectedOrderDetails.paiements && selectedOrderDetails.paiements.length > 0 ? (
+                                        selectedOrderDetails.paiements.map((p, idx) => (
+                                            <div key={p.id || idx} className="flex justify-between items-center p-3 bg-green-50 border-l-4 border-green-600 rounded-r-lg">
+                                                <div>
+                                                    <p className="text-[10px] font-black text-green-900 uppercase">{p.moyenPaiement} {p.note && `• ${p.note}`}</p>
+                                                    <p className="text-[9px] text-green-700 font-bold">{new Date(p.date).toLocaleDateString()} à {new Date(p.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+                                                </div>
+                                                <span className="font-black text-green-700">+{p.montant.toLocaleString()} F</span>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <p className="text-center text-gray-400 text-[10px] italic py-4">Aucun versement enregistré.</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Recap Finance */}
+                            <div className="pt-6 border-t border-gray-100 space-y-2">
+                                <div className="flex justify-between text-xs font-black text-gray-400 uppercase"><span>Total Facturé</span><span>{selectedOrderDetails.prixTotal.toLocaleString()} F</span></div>
+                                <div className="flex justify-between text-xs font-black text-green-600 uppercase"><span>Montant Encaissé</span><span>{selectedOrderDetails.avance.toLocaleString()} F</span></div>
+                                <div className={`flex justify-between text-lg font-black p-4 rounded-xl mt-4 ${selectedOrderDetails.reste > 0 ? 'bg-red-50 text-red-700 border border-red-100' : 'bg-green-50 text-green-700 border border-green-100'}`}>
+                                    <span className="uppercase text-xs tracking-widest">Reste à percevoir</span>
+                                    <span>{selectedOrderDetails.reste.toLocaleString()} F</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="p-6 bg-gray-50 border-t flex justify-end">
+                            <button onClick={() => setSelectedOrderDetails(null)} className="px-8 py-3 bg-gray-800 text-white rounded-xl font-black uppercase text-xs tracking-widest shadow-lg">Fermer</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL PAIEMENT SOLDE */}
+            {paymentModalOpen && selectedOrderForPayment && (
+                <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 backdrop-blur-sm animate-in zoom-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8">
+                        <div className="flex justify-between items-center mb-8 border-b pb-4">
+                            <h3 className="text-xl font-black text-gray-800 uppercase tracking-tighter flex items-center gap-3">
+                                <Wallet size={24} className="text-green-600"/> Encaisser Solde
+                            </h3>
+                            <button onClick={() => setPaymentModalOpen(false)}><X size={24} className="text-gray-400"/></button>
+                        </div>
+                        <div className="space-y-6">
+                            <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 flex justify-between items-center">
+                                <span className="text-xs font-black text-orange-800 uppercase tracking-widest">Reste Dû</span>
+                                <span className="text-xl font-black text-orange-900">{selectedOrderForPayment.reste.toLocaleString()} F</span>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Montant perçu</label>
+                                <input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-2xl bg-gray-50 focus:border-green-600 outline-none transition-all" value={payAmount} onChange={e => setPayAmount(Math.min(selectedOrderForPayment.reste, parseInt(e.target.value) || 0))} />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Caisse de Destination</label>
+                                <select className="w-full p-4 border-2 border-gray-100 rounded-2xl bg-gray-50 text-sm font-bold" value={payAccount} onChange={e => setPayAccount(e.target.value)}>
+                                    <option value="">-- Choisir un compte --</option>
+                                    {comptes.map(acc => (<option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Mode de Paiement</label>
+                                <select className="w-full p-4 border-2 border-gray-100 rounded-2xl bg-gray-50 text-sm font-bold uppercase" value={payMethod} onChange={e => setPayMethod(e.target.value as ModePaiement)}>
+                                    <option value="ESPECE">Espèce</option>
+                                    <option value="WAVE">Wave</option>
+                                    <option value="ORANGE_MONEY">Orange Money</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-3 mt-10">
+                            <button onClick={() => setPaymentModalOpen(false)} className="px-6 py-4 text-gray-400 font-bold uppercase text-[10px] tracking-widest hover:text-gray-600">Annuler</button>
+                            <button onClick={handleConfirmPayment} disabled={!payAccount || payAmount <= 0} className="px-10 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-30 active:scale-95 transition-all">Valider</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL ANNULATION VENTE */}
+            {isCancelModalOpen && selectedOrderForCancel && (
+                <div className="fixed inset-0 bg-black/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md animate-in zoom-in duration-200">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-10 text-center border-t-8 border-red-500">
+                        <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6"><Ban size={40}/></div>
+                        <h3 className="text-2xl font-black text-gray-800 mb-2 uppercase tracking-tighter">Annulation Vente</h3>
+                        <p className="text-sm text-gray-500 mb-8 font-bold">Confirmer l'annulation de la vente pour <span className="text-gray-900 uppercase">{selectedOrderForCancel.clientNom}</span> ?</p>
+                        
+                        {selectedOrderForCancel.avance > 0 && (
+                            <div className="mb-8 text-left bg-red-50 p-6 rounded-2xl border border-red-100">
+                                <label className="block text-[10px] font-black text-red-800 uppercase tracking-widest mb-3 text-center">Compte de remboursement ({selectedOrderForCancel.avance.toLocaleString()} F)</label>
+                                <select className="w-full p-4 border-2 border-white rounded-xl text-xs font-bold shadow-sm" value={refundAccountId} onChange={e => setRefundAccountId(e.target.value)}>
+                                    <option value="">-- Choisir Caisse Source --</option>
+                                    {comptes.map(acc => (<option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>))}
+                                </select>
+                            </div>
+                        )}
+                        
+                        <div className="flex flex-col gap-3">
+                            <button onClick={handleConfirmCancel} className="w-full py-5 bg-red-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95">Confirmer l'Annulation</button>
+                            <button onClick={() => { setIsCancelModalOpen(false); setSelectedOrderForCancel(null); }} className="w-full py-4 text-gray-400 font-bold uppercase text-[10px] tracking-widest">Garder la vente</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
