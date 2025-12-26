@@ -686,7 +686,8 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Prix d'achat (FCFA)</label>
                                         <input 
                                             type="number" 
-                                            value={formData.prixAchatDefault}
+                                            value={formData.prixAchatDefault === 0 ? '' : formData.prixAchatDefault}
+                                            placeholder="0"
                                             onChange={e => setFormData({...formData, prixAchatDefault: parseInt(e.target.value) || 0})}
                                             className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-brand-500"
                                         />
@@ -695,7 +696,8 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Prix de vente (FCFA)</label>
                                         <input 
                                             type="number" 
-                                            value={formData.prixVenteDefault}
+                                            value={formData.prixVenteDefault === 0 ? '' : formData.prixVenteDefault}
+                                            placeholder="0"
                                             onChange={e => setFormData({...formData, prixVenteDefault: parseInt(e.target.value) || 0})}
                                             className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-brand-500"
                                         />
@@ -750,7 +752,8 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                                         <input 
                                             type="number" 
                                             disabled={hasSizes || hasColors} // Read-only if variants
-                                            value={totalStockDisplay}
+                                            value={totalStockDisplay === 0 ? '' : totalStockDisplay}
+                                            placeholder="0"
                                             onChange={e => setSimpleQuantity(parseInt(e.target.value) || 0)}
                                             className={`w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 font-bold text-gray-900 ${(hasSizes || hasColors) ? 'bg-gray-100' : 'bg-white'}`}
                                         />
@@ -760,7 +763,8 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Seuil d'alerte</label>
                                         <input 
                                             type="number" 
-                                            value={formData.seuilAlerte}
+                                            value={formData.seuilAlerte === 0 ? '' : formData.seuilAlerte}
+                                            placeholder="0"
                                             onChange={e => setFormData({...formData, seuilAlerte: parseInt(e.target.value) || 0})}
                                             className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-brand-500"
                                         />
@@ -801,7 +805,8 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                                                         <label className="block text-xs text-gray-500 mb-1">Quantité</label>
                                                         <input 
                                                             type="number" 
-                                                            value={row.quantity}
+                                                            value={row.quantity === 0 ? '' : row.quantity}
+                                                            placeholder="0"
                                                             onChange={e => updateRow(row.id, 'quantity', parseInt(e.target.value) || 0)}
                                                             className="w-full p-2 border border-gray-300 rounded text-sm font-bold text-center focus:ring-1 focus:ring-brand-500"
                                                         />

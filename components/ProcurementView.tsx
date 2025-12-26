@@ -610,7 +610,8 @@ const ProcurementView: React.FC<ProcurementViewProps> = ({
                                             setTempLine({ ...tempLine, articleId: e.target.value, variante: '', prixUnitaire: art ? art.prixAchatDefault : 0 });
                                         }}>
                                             <option value="">-- Article --</option>
-                                            {articles.filter(a => a.typeArticle === 'MATIERE_PREMIERE').map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}
+                                            {/* CORRECTION : On affiche TOUS les articles actifs, pas seulement MATIERE_PREMIERE */}
+                                            {articles.filter(a => !a.archived).map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}
                                         </select>
                                     </div>
                                     <div className="w-1/4">
