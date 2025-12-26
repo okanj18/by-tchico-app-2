@@ -1,4 +1,3 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { COMPANY_CONFIG } from "../config";
 
@@ -57,7 +56,7 @@ export const draftClientMessage = async (clientName: string, orderDescription: s
      }
 }
 
-export const parseMeasurementsFromText = async (text: string): Promise<Record<string, string | number>> => {
+export const parseMeasurementsFromText = async (text: string): Promise<Record<string, number>> => {
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
@@ -65,20 +64,18 @@ export const parseMeasurementsFromText = async (text: string): Promise<Record<st
                 Analyse le texte suivant qui contient des mesures de couture dictées vocalement.
                 Texte : "${text}"
                 
-                Extrais les valeurs et associe-les aux clés JSON correspondantes.
-                
-                RÈGLE CRITIQUE POUR LES MESURES MULTIPLES (DOUBLES) :
-                Si l'utilisateur énonce deux chiffres pour un même champ (ex: "épaule trente huit quarante deux", "poitrine quarante sur quarante deux"), tu DOIS renvoyer la valeur sous forme de chaîne de caractères avec un slash : "38/42" ou "40/42". Ne fais jamais l'addition.
-                
-                Clés JSON à utiliser (SI MENTIONNÉES) : 
+                Extrais les valeurs numériques et associe-les aux clés JSON suivantes (si mentionnées).
+                Clés disponibles : 
                 - tourCou, epaule, poitrine, longueurManche, tourBras, tourPoignet
-                - longueurBoubou, longueurChemise, carrureDos, carrureDevant, taille, blouse, ceinture
-                - tourFesse, tourCuisse, genou, mollet, bas, entreJambe, longueurPantalon
+                - longueurBoubou1, longueurBoubou2
+                - longueurChemise, carrureDos, carrureDevant, taille, blouse, ceinture
+                - tourFesse, tourCuisse, entreJambe, longueurPantalon
+                - genou1, genou2, bas
 
-                Règles de sortie :
-                1. Renvoie UNIQUEMENT un objet JSON valide.
-                2. Les valeurs sont soit des nombres, soit des chaînes au format "X/Y".
-                3. Ignore les mots inutiles.
+                Règles :
+                1. Renvoie UNIQUEMENT un objet JSON valide sans Markdown.
+                2. Les valeurs doivent être des nombres.
+                3. Ignore les clés non trouvées.
             `,
             config: {
                 responseMimeType: 'application/json'
