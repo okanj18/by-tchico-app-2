@@ -1,6 +1,7 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie, NiveauAcces, PermissionsUtilisateur } from '../types';
-import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock, Truck, CheckSquare, Square, Save, Image as ImageIcon, Upload, Shield, Eye, AlertTriangle, Calendar, CreditCard, BarChart3, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock, Truck, CheckSquare, Square, Save, Image as ImageIcon, Upload, Shield, Eye, AlertTriangle, Calendar, CreditCard, BarChart3, ChevronLeft, ChevronRight, UserX } from 'lucide-react';
 import { QRScannerModal, QRGeneratorModal } from './QRTools';
 import { uploadImageToCloud } from '../services/storageService';
 
@@ -69,6 +70,9 @@ const HRView: React.FC<HRViewProps> = ({
     const [selectedEmployeeForHistory, setSelectedEmployeeForHistory] = useState<Employe | null>(null);
     const [editingPayEntry, setEditingPayEntry] = useState<TransactionPaie | null>(null);
 
+    // Manual Pointage Edit
+    const [editingPointage, setEditingPointage] = useState<Pointage | null>(null);
+
     // Transport Modal
     const [transportModalOpen, setTransportModalOpen] = useState(false);
     const [transportData, setTransportData] = useState({ 
@@ -136,6 +140,12 @@ const HRView: React.FC<HRViewProps> = ({
         const timeString = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
         let calculatedStatut: 'PRESENT' | 'RETARD' = (now.getHours() > WORK_START_HOUR || (now.getHours() === WORK_START_HOUR && now.getMinutes() > TOLERANCE_MINUTES)) ? 'RETARD' : 'PRESENT';
         onAddPointage({ id: `PT_${Date.now()}`, employeId, date: pointageDate, heureArrivee: timeString, statut: calculatedStatut });
+    };
+
+    const handleMarkAbsent = (employeId: string) => {
+        if (window.confirm("Marquer cet employé comme absent pour aujourd'hui ?")) {
+            onAddPointage({ id: `PT_ABS_${Date.now()}`, employeId, date: pointageDate, statut: 'ABSENT' });
+        }
     };
 
     const handleClockOut = (pt: Pointage) => {
@@ -210,7 +220,6 @@ const HRView: React.FC<HRViewProps> = ({
     const handleConfirmPayment = () => {
         if (!selectedEmployeeForPay || transactionData.montant <= 0) return;
         
-        // Si c'est une prime, pas besoin de caisse
         if (transactionData.type !== 'PRIME' && !paymentAccountId) {
             alert("Veuillez choisir une caisse pour ce règlement.");
             return;
@@ -225,10 +234,8 @@ const HRView: React.FC<HRViewProps> = ({
             createdBy: currentUser?.nom 
         };
 
-        // Mise à jour employé (Dette / Historique)
         onUpdateEmploye({ ...selectedEmployeeForPay, historiquePaie: [entry, ...(selectedEmployeeForPay.historiquePaie || [])] });
 
-        // Si ce n'est pas une prime, on déduis de la caisse
         if (transactionData.type !== 'PRIME' && paymentAccountId) {
             onAddTransaction({ 
                 id:`TR_P_${Date.now()}`, 
@@ -251,6 +258,7 @@ const HRView: React.FC<HRViewProps> = ({
             case 'PRESENT': return 'bg-green-100 text-green-800';
             case 'RETARD': return 'bg-orange-100 text-orange-800';
             case 'ABSENT': return 'bg-red-100 text-red-800';
+            case 'CONGE': return 'bg-blue-100 text-blue-800';
             default: return 'bg-gray-100';
         }
     };
@@ -347,21 +355,97 @@ const HRView: React.FC<HRViewProps> = ({
                                                 {emp.nom}
                                                 <button onClick={() => setSelectedEmployeeForPtHistory(emp)} className="opacity-0 group-hover:opacity-100 p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Récapitulatif Individuel"><Clock size={16}/></button>
                                             </td>
-                                            <td className="py-4 px-4 text-center">{pt ? <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${getPointageStatusColor(pt.statut)}`}>{pt.statut}</span> : <span className="text-gray-300 text-xs">NON POINTÉ</span>}</td>
+                                            <td className="py-4 px-4 text-center">{pt ? <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${getPointageStatusColor(pt.statut)}`}>{pt.statut}</span> : <span className="text-gray-300 text-xs font-bold">NON POINTÉ</span>}</td>
                                             <td className="py-4 px-4 text-center font-mono font-bold text-gray-600">{pt?.heureArrivee || '--:--'}</td>
                                             <td className="py-4 px-4 text-center font-mono font-bold text-gray-600">{pt?.heureDepart || '--:--'}</td>
                                             <td className="py-4 px-6 text-center">
-                                                {!pt ? (
-                                                    <button onClick={() => handleClockIn(emp.id)} className="bg-green-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-green-700 shadow-md">Arrivée</button>
-                                                ) : (
-                                                    pt.statut !== 'ABSENT' && !pt.heureDepart && <button onClick={() => handleClockOut(pt)} className="bg-brand-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 shadow-md">Départ</button>
-                                                )}
+                                                <div className="flex items-center justify-center gap-2">
+                                                    {!pt ? (
+                                                        <>
+                                                            <button onClick={() => handleClockIn(emp.id)} className="bg-green-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-green-700 shadow-md">Arrivée</button>
+                                                            <button onClick={() => handleMarkAbsent(emp.id)} className="bg-red-50 text-red-600 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-red-100 shadow-sm border border-red-200">Absent</button>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            {pt.statut !== 'ABSENT' && pt.statut !== 'CONGE' && !pt.heureDepart && (
+                                                                <button onClick={() => handleClockOut(pt)} className="bg-brand-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 shadow-md">Départ</button>
+                                                            )}
+                                                            <button onClick={() => setEditingPointage(pt)} className="p-2 text-gray-400 hover:text-brand-600 rounded-lg border border-gray-100" title="Modifier manuellement"><Edit2 size={16}/></button>
+                                                        </>
+                                                    )}
+                                                </div>
                                             </td>
                                         </tr>
                                     );
                                 })}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+
+            {/* --- MODAL MODIFICATION MANUELLE POINTAGE --- */}
+            {editingPointage && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-8 border-b pb-4">
+                            <h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg tracking-tighter">
+                                <Clock className="text-brand-600" /> Modifier Pointage
+                            </h3>
+                            <button onClick={() => setEditingPointage(null)}><X size={28}/></button>
+                        </div>
+                        
+                        <div className="space-y-6">
+                            <div className="bg-gray-50 p-4 rounded-2xl text-center border">
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Employé</p>
+                                <p className="text-sm font-black text-gray-900 uppercase">{activeEmployes.find(e => e.id === editingPointage.employeId)?.nom}</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Statut Présence</label>
+                                <select 
+                                    className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white"
+                                    value={editingPointage.statut}
+                                    onChange={e => setEditingPointage({...editingPointage, statut: e.target.value as any})}
+                                >
+                                    <option value="PRESENT">Présent</option>
+                                    <option value="RETARD">Retard</option>
+                                    <option value="ABSENT">Absent</option>
+                                    <option value="CONGE">Congé</option>
+                                </select>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Heure Arrivée</label>
+                                    <input 
+                                        type="time" 
+                                        className="w-full p-4 border-2 border-gray-100 rounded-2xl font-mono font-bold"
+                                        value={editingPointage.heureArrivee || ''}
+                                        onChange={e => setEditingPointage({...editingPointage, heureArrivee: e.target.value})}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Heure Départ</label>
+                                    <input 
+                                        type="time" 
+                                        className="w-full p-4 border-2 border-gray-100 rounded-2xl font-mono font-bold"
+                                        value={editingPointage.heureDepart || ''}
+                                        onChange={e => setEditingPointage({...editingPointage, heureDepart: e.target.value})}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-3 mt-10 pt-4 border-t">
+                            <button onClick={() => setEditingPointage(null)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button>
+                            <button 
+                                onClick={() => { onUpdatePointage(editingPointage); setEditingPointage(null); alert("Pointage mis à jour !"); }}
+                                className="px-10 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all"
+                            >
+                                Enregistrer
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -615,7 +699,6 @@ const HRView: React.FC<HRViewProps> = ({
                         </div>
                         <div className="p-4 border-t bg-gray-50 flex justify-end shrink-0 rounded-b-3xl">
                             <button onClick={() => {
-                                // Logique simple d'export CSV
                                 const data = activeEmployes.map(emp => {
                                     const stats = getEmployeeRecap(emp.id, recapMonth);
                                     return `${emp.nom},${stats.present},${stats.retard},${stats.absent}`;
@@ -676,7 +759,6 @@ const HRView: React.FC<HRViewProps> = ({
                                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{new Date(p.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
                                         <p className="font-mono font-bold text-sm text-gray-700">{p.heureArrivee || '--:--'} à {p.heureDepart || 'En poste'}</p>
                                     </div>
-                                    {/* Fixed: Use 'p.statut' instead of undefined 'pt.statut' */}
                                     <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${getPointageStatusColor(p.statut)}`}>{p.statut}</span>
                                 </div>
                             ))}
@@ -754,7 +836,6 @@ const HRView: React.FC<HRViewProps> = ({
                                 <input type="number" className="w-full p-4 border-2 border-brand-900/10 rounded-2xl text-2xl font-black bg-brand-50 text-brand-900" value={transactionData.montant || ''} onChange={e => setTransactionData({...transactionData, montant: parseInt(e.target.value)||0})} placeholder="0" />
                             </div>
 
-                            {/* CAISSE SOURCE : Masquée si c'est une PRIME */}
                             {transactionData.type !== 'PRIME' && (
                                 <div className="animate-in fade-in duration-300">
                                     <label className="block text-[10px] font-black text-gray-400 mb-1 ml-1 uppercase">Caisse Source</label>
