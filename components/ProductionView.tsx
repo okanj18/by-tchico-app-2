@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
-import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction, ElementCommande, PaiementClient } from '../types';
-import { Scissors, LayoutList, Users, Search, X, Activity, Clock, Calendar, CheckCircle, CheckSquare, Zap, Columns, Trophy, Wallet, Printer, Eye, UserPlus, Plus, Save, Truck, ArrowRightLeft, DollarSign, Trash2, AlertTriangle, ChevronLeft, ChevronRight, ClipboardList, Minus } from 'lucide-react';
+import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction, ElementCommande, PaiementClient, Consommation } from '../types';
+import { Scissors, LayoutList, Users, Search, X, Activity, Clock, Calendar, CheckCircle, CheckSquare, Zap, Columns, Trophy, Wallet, Printer, Eye, UserPlus, Plus, Save, Truck, ArrowRightLeft, DollarSign, Trash2, AlertTriangle, ChevronLeft, ChevronRight, ClipboardList, Minus, Box, Shirt, UserCheck, Edit2, Ban } from 'lucide-react';
 import { COMPANY_CONFIG } from '../config';
 
 interface ProductionViewProps {
@@ -38,15 +38,19 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     // Modal States
     const [taskModalOpen, setTaskModalOpen] = useState(false);
     const [orderModalOpen, setOrderModalOpen] = useState(false);
+    const [isEditingOrder, setIsEditingOrder] = useState(false);
     const [paymentModalOpen, setPaymentModalOpen] = useState(false);
     const [deliveryModal, setDeliveryModal] = useState<{ order: Commande, maxQty: number, qty: number } | null>(null);
     const [kanbanMoveModal, setKanbanMoveModal] = useState<{
         order: Commande, fromStatus: StatutCommande, toStatus: StatutCommande, movements: Record<string, number>, assignTailorId: string
     } | null>(null);
     const [orderDetailView, setOrderDetailView] = useState<Commande | null>(null);
+    const [cancelModalOpen, setCancelModalOpen] = useState<Commande | null>(null);
 
     // Form Multi-Articles
     const [newOrderItems, setNewOrderItems] = useState<{nom: string, qte: number}[]>([{nom: '', qte: 1}]);
+    const [consommations, setConsommations] = useState<{articleId: string, variante: string, quantite: number}[]>([]);
+    
     const [newOrderData, setNewOrderData] = useState<Partial<Commande>>({
         clientId: '', description: '', prixTotal: 0, avance: 0, dateLivraisonPrevue: ''
     });
@@ -89,12 +93,38 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         }).sort((a, b) => new Date(b.dateCommande).getTime() - new Date(a.dateCommande).getTime());
     }, [commandes, searchTerm, viewMode, listFilter]);
 
+    // Performances Calculation
+    const performanceStats = useMemo(() => {
+        const stats: Record<string, { done: number, pending: number, total: number }> = {};
+        tailleurs.forEach(t => stats[t.id] = { done: 0, pending: 0, total: 0 });
+
+        commandes.forEach(cmd => {
+            (cmd.taches || []).forEach(tache => {
+                if (stats[tache.tailleurId]) {
+                    stats[tache.tailleurId].total += tache.quantite;
+                    if (tache.statut === 'FAIT') stats[tache.tailleurId].done += tache.quantite;
+                    else stats[tache.tailleurId].pending += tache.quantite;
+                }
+            });
+        });
+
+        return Object.entries(stats).map(([id, s]) => ({
+            id,
+            nom: tailleurs.find(t => t.id === id)?.nom || 'Inconnu',
+            ...s,
+            ratio: s.total > 0 ? Math.round((s.done / s.total) * 100) : 0
+        })).sort((a, b) => b.done - a.done);
+    }, [commandes, tailleurs]);
+
     // --- LOGIQUE METIER ---
 
     const handleAddItemRow = () => setNewOrderItems([...newOrderItems, {nom: '', qte: 1}]);
     const handleRemoveItemRow = (idx: number) => setNewOrderItems(newOrderItems.filter((_, i) => i !== idx));
 
-    const handleCreateCustomOrder = () => {
+    const handleAddConsommationRow = () => setConsommations([...consommations, { articleId: '', variante: '', quantite: 0 }]);
+    const handleRemoveConsommationRow = (idx: number) => setConsommations(consommations.filter((_, i) => i !== idx));
+
+    const handleCreateOrUpdateCustomOrder = () => {
         if (!newOrderData.clientId || !newOrderData.prixTotal || newOrderItems.some(i => !i.nom)) {
             alert("Veuillez remplir le client, le prix et les noms d'articles."); return;
         }
@@ -106,23 +136,59 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             initialDetails[it.nom.toUpperCase()] = it.qte;
         });
 
-        const order: Commande = {
-            id: `CMD_SM_${Date.now()}`, clientId: newOrderData.clientId || '', clientNom: client?.nom || 'Inconnu',
-            description: newOrderItems.map(i => `${i.nom} (x${i.qte})`).join(', '),
-            dateCommande: new Date().toISOString(), dateLivraisonPrevue: newOrderData.dateLivraisonPrevue || '',
-            statut: StatutCommande.EN_ATTENTE, tailleursIds: [], prixTotal: newOrderData.prixTotal || 0,
-            avance: newOrderData.avance || 0, reste: (newOrderData.prixTotal || 0) - (newOrderData.avance || 0),
-            type: 'SUR_MESURE', quantite: totalQty, 
-            repartitionStatuts: { [StatutCommande.EN_ATTENTE]: totalQty },
-            repartitionDetails: { [StatutCommande.EN_ATTENTE]: initialDetails },
-            paiements: (newOrderData.avance || 0) > 0 ? [{ id: `P_${Date.now()}`, date: new Date().toISOString(), montant: newOrderData.avance || 0, moyenPaiement: 'ESPECE', note: 'Acompte' }] : [],
-            elements: newOrderItems.map(i => ({nom: i.nom.toUpperCase(), quantite: i.qte})), taches: []
-        };
-        onCreateOrder(order, [], 'ESPECE', initialAccountId);
-        setOrderModalOpen(false); alert("Commande créée !");
+        if (isEditingOrder && newOrderData.id) {
+            const existing = commandes.find(c => c.id === newOrderData.id);
+            if (!existing) return;
+            const updatedOrder: Commande = {
+                ...existing,
+                clientId: newOrderData.clientId || existing.clientId,
+                clientNom: client?.nom || existing.clientNom,
+                description: newOrderItems.map(i => `${i.nom} (x${i.qte})`).join(', '),
+                prixTotal: newOrderData.prixTotal || existing.prixTotal,
+                reste: (newOrderData.prixTotal || 0) - existing.avance,
+                dateLivraisonPrevue: newOrderData.dateLivraisonPrevue || existing.dateLivraisonPrevue,
+                elements: newOrderItems.map(i => ({nom: i.nom.toUpperCase(), quantite: i.qte})),
+                quantite: totalQty
+            };
+            onUpdateOrder(updatedOrder);
+            alert("Commande mise à jour !");
+        } else {
+            const order: Commande = {
+                id: `CMD_SM_${Date.now()}`, clientId: newOrderData.clientId || '', clientNom: client?.nom || 'Inconnu',
+                description: newOrderItems.map(i => `${i.nom} (x${i.qte})`).join(', '),
+                dateCommande: new Date().toISOString(), dateLivraisonPrevue: newOrderData.dateLivraisonPrevue || '',
+                statut: StatutCommande.EN_ATTENTE, tailleursIds: [], prixTotal: newOrderData.prixTotal || 0,
+                avance: newOrderData.avance || 0, reste: (newOrderData.prixTotal || 0) - (newOrderData.avance || 0),
+                type: 'SUR_MESURE', quantite: totalQty, 
+                repartitionStatuts: { [StatutCommande.EN_ATTENTE]: totalQty },
+                repartitionDetails: { [StatutCommande.EN_ATTENTE]: initialDetails },
+                paiements: (newOrderData.avance || 0) > 0 ? [{ id: `P_${Date.now()}`, date: new Date().toISOString(), montant: newOrderData.avance || 0, moyenPaiement: 'ESPECE', note: 'Acompte' }] : [],
+                elements: newOrderItems.map(i => ({nom: i.nom.toUpperCase(), quantite: i.qte})), taches: []
+            };
+            onCreateOrder(order, consommations, 'ESPECE', initialAccountId);
+            alert("Commande créée et stock matières premières déduit !");
+        }
+        
+        setOrderModalOpen(false);
+        setIsEditingOrder(false);
+        setConsommations([]);
     };
 
-    // Glisser-Déposer
+    const handleEditOrderRequest = (order: Commande) => {
+        setNewOrderData({...order});
+        setNewOrderItems(order.elements?.map(e => ({nom: e.nom, qte: e.quantite})) || [{nom: order.description, qte: order.quantite}]);
+        setIsEditingOrder(true);
+        setOrderModalOpen(true);
+    };
+
+    const handleCancelOrder = (order: Commande) => {
+        if (window.confirm(`Voulez-vous vraiment annuler la commande de ${order.clientNom} ?`)) {
+            onUpdateOrder({ ...order, statut: StatutCommande.ANNULE });
+            setCancelModalOpen(null);
+        }
+    };
+
+    // Glisser-Déposer (Kanban)
     const handleDragStart = (e: React.DragEvent, orderId: string, fromStatus: string) => {
         e.dataTransfer.setData('orderId', orderId);
         e.dataTransfer.setData('fromStatus', fromStatus);
@@ -137,18 +203,12 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         const order = commandes.find(c => c.id === orderId);
         if (!order) return;
 
-        // Auto-migration pour les anciennes commandes
         let currentDetails = order.repartitionDetails?.[fromStatus] || {};
-        
-        // Si les détails sont vides mais qu'il y a du stock global dans cette colonne
         const qtyInStatus = order.repartitionStatuts?.[fromStatus] || (order.statut === fromStatus ? order.quantite : 0);
         
         if (Object.keys(currentDetails).length === 0 && qtyInStatus > 0) {
-            // On essaie de peupler avec les éléments de la commande ou la description
             if (order.elements && order.elements.length > 0) {
-                order.elements.forEach(el => {
-                    currentDetails[el.nom] = el.quantite;
-                });
+                order.elements.forEach(el => { currentDetails[el.nom] = el.quantite; });
             } else {
                 currentDetails["Articles"] = qtyInStatus;
             }
@@ -224,14 +284,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         
         if (rule) {
             const itemName = task.elementNom || 'Standard';
-            
-            // Auto-init si vide
             if (!newDetails[rule.from]) newDetails[rule.from] = {};
             if (!newDetails[rule.to]) newDetails[rule.to] = {};
             
             const availableInSource = newStatut === 'FAIT' ? (newDetails[rule.from][itemName] || 0) : (newDetails[rule.to][itemName] || 0);
-            
-            // Si pas trouvé dans les détails (vieille commande), on prend dans la quantité globale
             const qtyToMove = (availableInSource > 0) ? Math.min(task.quantite, availableInSource) : task.quantite;
             
             if (qtyToMove > 0) {
@@ -280,22 +336,16 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         
         let allDone = !KANBAN_STATUS_ORDER.some(s => (newRepartition[s] || 0) > 0);
         onUpdateOrder({ ...order, repartitionStatuts: newRepartition, repartitionDetails: newDetails, statut: allDone ? StatutCommande.LIVRE : order.statut });
-        setDeliveryModal(null); alert("Livraison validée.");
+        setDeliveryModal(null);
     };
 
     const getAssignableQtyForElement = (order: Commande, elementNom: string, action: ActionProduction) => {
-        // Fallback pour les commandes sans liste d'éléments explicite
         if (!order.elements || order.elements.length === 0) {
-            const alreadyAssignedTotal = (order.taches || [])
-                .filter(t => t.action === action)
-                .reduce((acc, t) => acc + t.quantite, 0);
+            const alreadyAssignedTotal = (order.taches || []).filter(t => t.action === action).reduce((acc, t) => acc + t.quantite, 0);
             return Math.max(0, order.quantite - alreadyAssignedTotal);
         }
-
         const totalOrdered = order.elements.find(e => e.nom === elementNom)?.quantite || 0;
-        const alreadyAssigned = (order.taches || [])
-            .filter(t => t.elementNom === elementNom && t.action === action)
-            .reduce((acc, t) => acc + t.quantite, 0);
+        const alreadyAssigned = (order.taches || []).filter(t => t.elementNom === elementNom && t.action === action).reduce((acc, t) => acc + t.quantite, 0);
         return Math.max(0, totalOrdered - alreadyAssigned);
     };
 
@@ -306,7 +356,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 <div className="flex items-center gap-3">
                     <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier & Flux</h2>
                     <div className="flex gap-2">
-                        <button onClick={() => setOrderModalOpen(true)} className="bg-brand-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-black shadow-lg transition-all active:scale-95"><Plus size={16}/> Nouvelle Commande</button>
+                        <button onClick={() => { setIsEditingOrder(false); setNewOrderData({clientId: '', description: '', prixTotal: 0, avance: 0, dateLivraisonPrevue: ''}); setNewOrderItems([{nom: '', qte: 1}]); setOrderModalOpen(true); setConsommations([]); }} className="bg-brand-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-black shadow-lg transition-all active:scale-95"><Plus size={16}/> Nouvelle Commande</button>
                         <button onClick={() => { setNewTaskData({ orderId: '', elementNom: '', action: 'COUTURE', quantite: 1, note: '', tailleurId: '', date: new Date().toISOString().split('T')[0] }); setTaskModalOpen(true); }} className="bg-brand-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-brand-700 shadow-lg transition-all active:scale-95"><UserPlus size={16}/> Assigner Tâche</button>
                     </div>
                 </div>
@@ -407,16 +457,29 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 <tbody className="divide-y divide-gray-100">
                                     {filteredCommandes.map(order => {
                                         const qtyPret = order.repartitionStatuts?.[StatutCommande.PRET] || (order.statut === StatutCommande.PRET ? order.quantite : 0);
+                                        const isCancelled = order.statut === StatutCommande.ANNULE;
                                         return (
-                                            <tr key={order.id} className="hover:bg-gray-50 transition-colors group">
-                                                <td className="p-4"><div className="font-black text-gray-900 uppercase text-sm">{order.clientNom}</div><div className="text-[10px] text-gray-400 font-bold mt-1">CMD: {new Date(order.dateCommande).toLocaleDateString()} • LIV: <span className="text-brand-700">{new Date(order.dateLivraisonPrevue).toLocaleDateString()}</span></div></td>
+                                            <tr key={order.id} className={`hover:bg-gray-50 transition-colors group ${isCancelled ? 'bg-red-50/30' : ''}`}>
+                                                <td className="p-4"><div className={`font-black uppercase text-sm ${isCancelled ? 'line-through text-gray-400' : 'text-gray-900'}`}>{order.clientNom}</div><div className="text-[10px] text-gray-400 font-bold mt-1">CMD: {new Date(order.dateCommande).toLocaleDateString()} • LIV: <span className="text-brand-700">{new Date(order.dateLivraisonPrevue).toLocaleDateString()}</span></div></td>
                                                 <td className="p-4 text-right"><div className="font-black text-gray-900">{order.prixTotal.toLocaleString()} F</div><div className={`text-[10px] font-black ${order.reste > 0 ? 'text-red-600' : 'text-green-700'}`}>{order.reste > 0 ? `RESTE: ${order.reste.toLocaleString()} F` : 'SOLDÉ'}</div></td>
-                                                <td className="p-4"><div className="flex flex-wrap gap-1.5">{KANBAN_STATUS_ORDER.map(s => { const q = order.repartitionStatuts?.[s] || (order.statut === s ? order.quantite : 0); return q > 0 && (<span key={s} className="px-2 py-0.5 bg-white text-brand-900 rounded border border-brand-100 text-[8px] font-black uppercase shadow-sm">{s} ({q})</span>); })}</div></td>
+                                                <td className="p-4">
+                                                    {isCancelled ? (
+                                                        <span className="px-2 py-0.5 bg-red-600 text-white rounded text-[8px] font-black uppercase">ANNULÉ</span>
+                                                    ) : (
+                                                        <div className="flex flex-wrap gap-1.5">{KANBAN_STATUS_ORDER.map(s => { const q = order.repartitionStatuts?.[s] || (order.statut === s ? order.quantite : 0); return q > 0 && (<span key={s} className="px-2 py-0.5 bg-white text-brand-900 rounded border border-brand-100 text-[8px] font-black uppercase shadow-sm">{s} ({q})</span>); })}</div>
+                                                    )}
+                                                </td>
                                                 <td className="p-4 text-right">
                                                     <div className="flex justify-end gap-1.5">
                                                         <button onClick={() => setOrderDetailView(order)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg border border-transparent hover:border-blue-100" title="Détails & Finance"><Eye size={18}/></button>
-                                                        {qtyPret > 0 && (<button onClick={() => setDeliveryModal({ order, maxQty: qtyPret, qty: qtyPret })} className="px-3 py-1.5 text-white bg-green-600 hover:bg-green-700 rounded-lg text-[9px] font-black uppercase flex items-center gap-1 shadow-lg active:scale-95"><Truck size={12}/> Livrer</button>)}
-                                                        {order.reste > 0 && (<button onClick={() => {setSelectedOrderForPayment(order); setPayAmount(order.reste); setPaymentModalOpen(true);}} className="p-2 text-orange-600 hover:bg-orange-100 rounded-lg border border-transparent hover:border-orange-100"><DollarSign size={18}/></button>)}
+                                                        {!isCancelled && (
+                                                            <>
+                                                                <button onClick={() => handleEditOrderRequest(order)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg border border-transparent hover:border-gray-200" title="Modifier"><Edit2 size={18}/></button>
+                                                                {qtyPret > 0 && (<button onClick={() => setDeliveryModal({ order, maxQty: qtyPret, qty: qtyPret })} className="px-3 py-1.5 text-white bg-green-600 hover:bg-green-700 rounded-lg text-[9px] font-black uppercase flex items-center gap-1 shadow-lg active:scale-95"><Truck size={12}/> Livrer</button>)}
+                                                                {order.reste > 0 && (<button onClick={() => {setSelectedOrderForPayment(order); setPayAmount(order.reste); setPaymentModalOpen(true);}} className="p-2 text-orange-600 hover:bg-orange-100 rounded-lg border border-transparent hover:border-orange-100"><DollarSign size={18}/></button>)}
+                                                                <button onClick={() => setCancelModalOpen(order)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg border border-transparent" title="Annuler"><Ban size={18}/></button>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -427,42 +490,158 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         </div>
                     </div>
                 )}
-            </div>
 
-            {/* MODAL NOUVELLE COMMANDE */}
-            {orderModalOpen && (
-                <div className="fixed inset-0 bg-brand-900/80 z-[250] flex items-center justify-center p-4 backdrop-blur-md">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-10 flex flex-col max-h-[90vh] animate-in zoom-in duration-300 border border-brand-100">
-                        <div className="flex justify-between items-center mb-8 border-b pb-6 shrink-0">
-                            <h3 className="text-2xl font-black text-gray-800 flex items-center gap-3 uppercase tracking-tighter"><Scissors className="text-brand-600" size={32}/> Nouvelle Commande</h3>
-                            <button onClick={() => setOrderModalOpen(false)} className="hover:bg-gray-100 p-2 rounded-full"><X size={32}/></button>
+                {viewMode === 'TAILORS' && (
+                    <div className="bg-white border rounded-2xl shadow-sm h-full flex flex-col overflow-hidden animate-in fade-in duration-300">
+                        <div className="p-4 bg-gray-50 border-b flex justify-between items-center shrink-0">
+                            <h3 className="font-black text-xs uppercase tracking-widest text-gray-500">Liste des Artisans & Tâches</h3>
+                            <div className="text-[10px] font-black text-brand-700 bg-brand-50 px-3 py-1 rounded-full uppercase">{tailleurs.length} Artisans Actifs</div>
                         </div>
-                        <div className="flex-1 overflow-y-auto space-y-8 pr-2 custom-scrollbar">
-                            <div><label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Sélectionner Client</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl text-sm font-bold bg-gray-50 focus:border-brand-600 transition-all outline-none" value={newOrderData.clientId} onChange={e => setNewOrderData({...newOrderData, clientId: e.target.value})}><option value="">-- Choisir un client --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.telephone})</option>)}</select></div>
-                            
-                            <div className="space-y-4">
-                                <div className="flex justify-between items-center"><label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Articles de la commande</label><button onClick={handleAddItemRow} className="p-1 bg-brand-50 text-brand-600 rounded hover:bg-brand-100"><Plus size={14}/></button></div>
-                                {newOrderItems.map((item, idx) => (
-                                    <div key={idx} className="flex gap-3 items-center animate-in slide-in-from-left duration-200">
-                                        <input type="text" placeholder="Nom (ex: Chemise)" className="flex-1 p-4 border-2 border-gray-100 rounded-2xl text-sm font-bold bg-gray-50 focus:border-brand-600 outline-none uppercase" value={item.nom} onChange={e => { const list = [...newOrderItems]; list[idx].nom = e.target.value.toUpperCase(); setNewOrderItems(list); }} />
-                                        <input type="number" min="1" className="w-20 p-4 border-2 border-gray-100 rounded-2xl text-center font-black bg-gray-50" value={item.qte} onChange={e => { const list = [...newOrderItems]; list[idx].qte = parseInt(e.target.value)||1; setNewOrderItems(list); }} />
-                                        {newOrderItems.length > 1 && <button onClick={() => handleRemoveItemRow(idx)} className="text-red-400 hover:text-red-600"><Minus size={20}/></button>}
+                        <div className="flex-1 overflow-auto p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 align-content-start custom-scrollbar">
+                            {tailleurs.map(tailor => {
+                                const activeTasks = commandes.flatMap(o => (o.taches || []).map(t => ({...t, order: o}))).filter(t => t.tailleurId === tailor.id && t.statut === 'A_FAIRE');
+                                return (
+                                    <div key={tailor.id} className="bg-white border rounded-2xl p-5 shadow-sm hover:shadow-md transition-all group border-b-4 border-b-gray-200 hover:border-b-brand-500">
+                                        <div className="flex items-center gap-3 mb-4">
+                                            <div className="w-12 h-12 bg-brand-100 text-brand-900 rounded-full flex items-center justify-center font-black text-lg uppercase shadow-inner">{tailor.nom.charAt(0)}</div>
+                                            <div>
+                                                <h4 className="font-black text-gray-800 uppercase text-sm leading-none">{tailor.nom}</h4>
+                                                <p className="text-[10px] text-brand-600 font-bold mt-1 uppercase tracking-widest">{tailor.role}</p>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest border-b pb-1">Tâches en cours ({activeTasks.length})</p>
+                                            <div className="max-h-[200px] overflow-y-auto no-scrollbar space-y-1.5">
+                                                {activeTasks.map(t => (
+                                                    <div key={t.id} className="bg-gray-50 p-2 rounded-lg border border-gray-100 flex justify-between items-center">
+                                                        <div>
+                                                            <p className="text-[10px] font-black text-gray-800 uppercase truncate max-w-[120px]">{t.order.clientNom}</p>
+                                                            <p className="text-[8px] text-gray-400 font-bold uppercase">{t.action} x{t.quantite} {t.elementNom && `(${t.elementNom})`}</p>
+                                                        </div>
+                                                        <span className="text-[8px] font-black bg-white px-2 py-0.5 rounded border border-gray-200">J-{(new Date(t.date).getTime() - new Date().getTime()) / (1000*3600*24) | 0}</span>
+                                                    </div>
+                                                ))}
+                                                {activeTasks.length === 0 && <p className="text-[10px] text-gray-400 italic py-2 text-center">Aucune tâche assignée.</p>}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
+                {viewMode === 'PERFORMANCE' && (
+                    <div className="bg-white border rounded-2xl shadow-sm h-full flex flex-col overflow-hidden animate-in fade-in duration-300">
+                        <div className="p-8 bg-gray-50 border-b shrink-0 text-center">
+                            <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tighter flex justify-center items-center gap-3"><Trophy className="text-brand-600" size={32}/> Classement Performance Artisans</h3>
+                            <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em] mt-2">Basé sur les pièces terminées (FAIT)</p>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                            <div className="max-w-2xl mx-auto space-y-6">
+                                {performanceStats.map((stat, idx) => (
+                                    <div key={stat.id} className="relative group">
+                                        <div className="flex justify-between items-end mb-2">
+                                            <div className="flex items-center gap-3">
+                                                <span className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm shadow-sm ${idx === 0 ? 'bg-yellow-400 text-white animate-bounce' : idx === 1 ? 'bg-gray-300 text-white' : idx === 2 ? 'bg-orange-300 text-white' : 'bg-gray-100 text-gray-400'}`}>{idx + 1}</span>
+                                                <span className="font-black text-gray-800 uppercase text-sm">{stat.nom}</span>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-xl font-black text-brand-900">{stat.done}</span>
+                                                <span className="text-[10px] text-gray-400 font-bold uppercase ml-1">Pièces Terminées</span>
+                                            </div>
+                                        </div>
+                                        <div className="w-full h-4 bg-gray-100 rounded-full overflow-hidden shadow-inner border">
+                                            <div 
+                                                className={`h-full transition-all duration-1000 ease-out rounded-full ${idx === 0 ? 'bg-yellow-400' : 'bg-brand-600'}`} 
+                                                style={{ width: `${stat.ratio}%` }}
+                                            ></div>
+                                        </div>
+                                        <div className="flex justify-between mt-1 px-1">
+                                            <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Taux de Complétion: {stat.ratio}%</span>
+                                            <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{stat.pending} En attente</span>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
-
-                            <div className="grid grid-cols-1 gap-6 bg-brand-50 p-6 rounded-3xl border border-brand-100 shadow-inner">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2"><label className="text-[10px] font-black text-brand-800 uppercase tracking-widest ml-1">Prix Total (TTC)</label><input type="number" placeholder="0" className="w-full p-4 border-2 border-white rounded-2xl text-xl font-black text-brand-900 placeholder:text-gray-300" value={newOrderData.prixTotal || ''} onChange={e => setNewOrderData({...newOrderData, prixTotal: parseInt(e.target.value)||0})}/></div>
-                                    <div className="space-y-2"><label className="text-[10px] font-black text-brand-800 uppercase tracking-widest ml-1">Acompte Reçu</label><input type="number" placeholder="0" className="w-full p-4 border-2 border-white rounded-2xl text-xl font-black text-green-600 placeholder:text-gray-300" value={newOrderData.avance || ''} onChange={e => setNewOrderData({...newOrderData, avance: parseInt(e.target.value)||0})}/></div>
-                                </div>
-                                <div className="space-y-2"><label className="text-[10px] font-black text-brand-800 uppercase tracking-widest ml-1">Date Livraison</label><input type="date" className="w-full p-4 border-2 border-white rounded-2xl text-xs font-bold bg-white" value={newOrderData.dateLivraisonPrevue} onChange={e => setNewOrderData({...newOrderData, dateLivraisonPrevue: e.target.value})}/></div>
-                            </div>
-                            <div className="space-y-2 pb-6"><label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Compte d'encaissement</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl text-sm font-bold bg-gray-50 focus:border-brand-600 outline-none" value={initialAccountId} onChange={e => setInitialAccountId(e.target.value)}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
                         </div>
+                    </div>
+                )}
+            </div>
+
+            {/* MODAL NOUVELLE COMMANDE OU MODIFICATION */}
+            {orderModalOpen && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[250] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl p-8 flex flex-col max-h-[95vh] animate-in zoom-in duration-300 border border-brand-100">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4 shrink-0">
+                            <h3 className="text-2xl font-black text-gray-800 flex items-center gap-3 uppercase tracking-tighter"><Scissors className="text-brand-600" size={32}/> {isEditingOrder ? 'Modifier la Commande' : 'Nouvelle Commande Sur-Mesure'}</h3>
+                            <button onClick={() => { setOrderModalOpen(false); setIsEditingOrder(false); }} className="hover:bg-gray-100 p-2 rounded-full"><X size={32}/></button>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                                <div className="space-y-4">
+                                    <div><label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Sélectionner Client</label><select className="w-full p-3 border-2 border-gray-100 rounded-2xl text-sm font-bold bg-gray-50 focus:border-brand-600 outline-none transition-all" value={newOrderData.clientId} onChange={e => setNewOrderData({...newOrderData, clientId: e.target.value})}><option value="">-- Choisir un client --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.telephone})</option>)}</select></div>
+                                    <div className="space-y-3">
+                                        <div className="flex justify-between items-center"><label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Détails articles</label><button onClick={handleAddItemRow} className="p-1 bg-brand-50 text-brand-600 rounded hover:bg-brand-100 transition-colors"><Plus size={14}/></button></div>
+                                        {newOrderItems.map((item, idx) => (
+                                            <div key={idx} className="flex gap-2 items-center">
+                                                <input type="text" placeholder="Nom (ex: Ensemble Bazin)" className="flex-1 p-3 border-2 border-gray-100 rounded-xl text-xs font-bold bg-gray-50 focus:border-brand-600 outline-none uppercase" value={item.nom} onChange={e => { const list = [...newOrderItems]; list[idx].nom = e.target.value.toUpperCase(); setNewOrderItems(list); }} />
+                                                <input type="number" min="1" className="w-16 p-3 border-2 border-gray-100 rounded-xl text-center font-black bg-gray-50" value={item.qte} onChange={e => { const list = [...newOrderItems]; list[idx].qte = parseInt(e.target.value)||1; setNewOrderItems(list); }} />
+                                                {newOrderItems.length > 1 && <button onClick={() => handleRemoveItemRow(idx)} className="text-red-400 p-1"><Minus size={18}/></button>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="bg-gray-50 p-4 rounded-3xl border border-gray-200">
+                                    <div className="flex justify-between items-center mb-3">
+                                        <label className="text-[10px] font-black text-brand-800 uppercase tracking-widest ml-1 flex items-center gap-2"><Box size={14}/> {isEditingOrder ? 'Matières liées (Lecture seule)' : 'Fournitures / Matières'}</label>
+                                        {!isEditingOrder && <button onClick={handleAddConsommationRow} className="p-1 bg-brand-600 text-white rounded shadow-sm hover:bg-brand-700 transition-all"><Plus size={14}/></button>}
+                                    </div>
+                                    <div className="space-y-2 max-h-[250px] overflow-y-auto no-scrollbar">
+                                        {isEditingOrder ? (
+                                             <p className="text-[10px] text-gray-400 italic text-center py-4">Modification du stock consommé impossible après création.</p>
+                                        ) : consommations.map((usage, idx) => (
+                                            <div key={idx} className="p-3 bg-white rounded-xl border border-gray-100 shadow-sm space-y-2">
+                                                <select className="w-full p-2 border-b text-[10px] font-bold outline-none" value={usage.articleId} onChange={e => {
+                                                    const list = [...consommations];
+                                                    list[idx].articleId = e.target.value;
+                                                    list[idx].variante = articles.find(a => a.id === e.target.value)?.variantes[0] || 'Standard';
+                                                    setConsommations(list);
+                                                }}>
+                                                    <option value="">-- Choisir Matière --</option>
+                                                    {articles.filter(a => a.typeArticle === 'MATIERE_PREMIERE').map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}
+                                                </select>
+                                                <div className="flex gap-2 items-center">
+                                                    <select className="flex-1 p-2 bg-gray-50 rounded-lg text-[9px] font-black uppercase" value={usage.variante} onChange={e => { const list = [...consommations]; list[idx].variante = e.target.value; setConsommations(list); }}>
+                                                        {articles.find(a => a.id === usage.articleId)?.variantes.map(v => <option key={v} value={v}>{v}</option>)}
+                                                    </select>
+                                                    <input type="number" step="0.1" placeholder="Qté" className="w-16 p-2 bg-gray-50 rounded-lg text-[10px] font-black text-center" value={usage.quantite || ''} onChange={e => { const list = [...consommations]; list[idx].quantite = parseFloat(e.target.value)||0; setConsommations(list); }} />
+                                                    <button onClick={() => handleRemoveConsommationRow(idx)} className="text-red-400 p-1"><Trash2 size={14}/></button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {!isEditingOrder && consommations.length === 0 && <p className="text-[10px] text-gray-400 italic text-center py-4">Aucune fourniture liée.</p>}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-brand-50 p-6 rounded-3xl border border-brand-100 shadow-inner">
+                                <div className="space-y-4">
+                                    <div><label className="text-[10px] font-black text-brand-800 uppercase tracking-widest ml-1">Prix Total Estimé (F)</label><input type="number" className="w-full p-4 border-2 border-white rounded-2xl text-2xl font-black text-brand-900 bg-white" value={newOrderData.prixTotal || ''} onChange={e => setNewOrderData({...newOrderData, prixTotal: parseInt(e.target.value)||0})} /></div>
+                                    {!isEditingOrder && <div><label className="text-[10px] font-black text-brand-800 uppercase tracking-widest ml-1">Acompte Reçu (F)</label><input type="number" className="w-full p-4 border-2 border-white rounded-2xl text-2xl font-black text-green-600 bg-white" value={newOrderData.avance || ''} onChange={e => setNewOrderData({...newOrderData, avance: parseInt(e.target.value)||0})} /></div>}
+                                </div>
+                                <div className="space-y-4">
+                                    <div><label className="text-[10px] font-black text-brand-800 uppercase tracking-widest ml-1">Date Livraison Prévue</label><input type="date" className="w-full p-4 border-2 border-white rounded-2xl text-sm font-bold bg-white" value={newOrderData.dateLivraisonPrevue} onChange={e => setNewOrderData({...newOrderData, dateLivraisonPrevue: e.target.value})} /></div>
+                                    {!isEditingOrder && <div><label className="text-[10px] font-black text-brand-800 uppercase tracking-widest ml-1">Caisse d'Encaissement</label><select className="w-full p-4 border-2 border-white rounded-2xl text-sm font-bold bg-white" value={initialAccountId} onChange={e => setInitialAccountId(e.target.value)}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>}
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="flex justify-end gap-4 mt-8 shrink-0 pt-4 border-t">
-                            <button onClick={() => setOrderModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button>
-                            <button onClick={handleCreateCustomOrder} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-2xl hover:bg-black transition-all transform active:scale-95">Valider</button>
+                            <button onClick={() => { setOrderModalOpen(false); setIsEditingOrder(false); }} className="px-8 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button>
+                            <button onClick={handleCreateOrUpdateCustomOrder} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-2xl hover:bg-black transition-all transform active:scale-95">{isEditingOrder ? 'Mettre à jour' : 'Valider la Commande'}</button>
                         </div>
                     </div>
                 </div>
@@ -471,14 +650,14 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             {/* MODAL ASSIGNATION TACHE */}
             {taskModalOpen && (
                 <div className="fixed inset-0 bg-brand-900/70 z-[200] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-300 border border-gray-100">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-300 border border-brand-100">
                         <div className="flex justify-between items-center mb-8 border-b pb-4"><h3 className="font-black text-gray-800 flex items-center gap-3 uppercase tracking-tighter text-lg"><UserPlus size={24} className="text-brand-600"/> Nouvelle Assignation</h3><button onClick={() => setTaskModalOpen(false)} className="hover:bg-gray-100 p-2 rounded-full transition-colors"><X size={24}/></button></div>
                         <div className="space-y-6">
                             <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Commande Client</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl text-sm font-bold bg-gray-50 focus:border-brand-600 transition-all outline-none" value={newTaskData.orderId} onChange={e => {
                                 const cmdId = e.target.value;
                                 const cmd = commandes.find(c => c.id === cmdId);
                                 setNewTaskData({...newTaskData, orderId: cmdId, elementNom: cmd?.elements?.[0]?.nom || 'Articles'});
-                            }}><option value="">-- Sélectionner Commande --</option>{commandes.filter(c => !c.archived && c.statut !== StatutCommande.LIVRE).map(c => <option key={c.id} value={c.id}>{c.clientNom} (#{c.id.slice(-6)})</option>)}</select></div>
+                            }}><option value="">-- Sélectionner Commande --</option>{commandes.filter(c => !c.archived && c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE).map(c => <option key={c.id} value={c.id}>{c.clientNom} (#{c.id.slice(-6)})</option>)}</select></div>
                             
                             {newTaskData.orderId && (
                                 <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Article spécifique</label><select className="w-full p-4 border-2 border-brand-50 rounded-2xl text-sm font-black bg-brand-50/20 text-brand-900 focus:border-brand-600 transition-all outline-none" value={newTaskData.elementNom} onChange={e => setNewTaskData({...newTaskData, elementNom: e.target.value})}><option value="">-- Choisir Article --</option>{(commandes.find(c => c.id === newTaskData.orderId)?.elements || [{nom: "Articles", quantite: 0}]).map(el => <option key={el.nom} value={el.nom}>{el.nom} (Total: {el.quantite || "Général"})</option>)}</select></div>
@@ -551,7 +730,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL DETAILS & FINANCE */}
+            {/* MODAL DETAILS & FINANCE & ARTISANS */}
             {orderDetailView && (
                 <div className="fixed inset-0 bg-brand-900/90 z-[300] flex items-center justify-center p-4 backdrop-blur-md">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col h-[85vh] animate-in slide-in-from-bottom-8 duration-300">
@@ -564,6 +743,31 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 <div><h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Composition</h4><div className="space-y-2">{(orderDetailView.elements || [{nom: "Pièces", quantite: orderDetailView.quantite}]).map((e, i) => (<div key={i} className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-100"><span className="text-sm font-bold text-gray-800 uppercase">{e.nom}</span><span className="font-black text-brand-600">x{e.quantite}</span></div>))}</div></div>
                                 <div><h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Dates Clés</h4><div className="space-y-3"><div className="flex justify-between text-sm"><span className="text-gray-500 font-bold uppercase">Commande :</span><span className="font-bold">{new Date(orderDetailView.dateCommande).toLocaleDateString()}</span></div><div className="flex justify-between text-sm"><span className="text-gray-500 font-bold uppercase">Livraison :</span><span className="font-black text-brand-700 underline decoration-2">{new Date(orderDetailView.dateLivraisonPrevue).toLocaleDateString()}</span></div></div></div>
                             </div>
+
+                            {/* SECTION ARTISANS AYANT INTERVENUS */}
+                            <div>
+                                <h4 className="text-[10px] font-black text-brand-600 uppercase tracking-widest mb-4 flex items-center gap-2"><UserCheck size={14}/> Artisans intervenus</h4>
+                                <div className="flex flex-wrap gap-3">
+                                    {(() => {
+                                        const workersIds = Array.from(new Set(orderDetailView.taches?.map(t => t.tailleurId) || []));
+                                        return workersIds.length > 0 ? workersIds.map(id => {
+                                            const tailor = employes.find(e => e.id === id);
+                                            const tasksCount = orderDetailView.taches?.filter(t => t.tailleurId === id).length || 0;
+                                            const completedCount = orderDetailView.taches?.filter(t => t.tailleurId === id && t.statut === 'FAIT').length || 0;
+                                            return (
+                                                <div key={id} className="bg-gray-50 border border-gray-200 p-3 rounded-2xl flex items-center gap-3 shadow-sm min-w-[180px]">
+                                                    <div className="w-8 h-8 bg-brand-900 text-white rounded-full flex items-center justify-center font-black text-xs">{tailor?.nom.charAt(0)}</div>
+                                                    <div>
+                                                        <p className="text-[10px] font-black text-gray-800 uppercase">{tailor?.nom}</p>
+                                                        <p className="text-[8px] font-bold text-gray-400 uppercase">{completedCount}/{tasksCount} tâches terminées</p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }) : <p className="text-[10px] text-gray-400 italic">Aucun artisan assigné pour le moment.</p>;
+                                    })()}
+                                </div>
+                            </div>
+
                             <div>
                                 <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Historique des Règlements</h4>
                                 <div className="space-y-3">
@@ -591,11 +795,26 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8">
                         <div className="flex justify-between items-center mb-8 border-b pb-4"><h3 className="text-xl font-black flex items-center gap-3 text-gray-800 uppercase tracking-tighter"><Wallet size={24} className="text-green-600"/> Encaissement Solde</h3><button onClick={() => setPaymentModalOpen(false)}><X size={24} className="text-gray-400"/></button></div>
                         <div className="space-y-6">
-                            <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 flex justify-between items-center"><span className="text-xs font-black text-orange-800 uppercase">Reste Dû</span><span className="text-xl font-black text-orange-900">{selectedOrderForPayment.reste.toLocaleString()} F</span></div>
+                            <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 flex justify-between items-center"><span className="text-xs font-black text-orange-800 uppercase tracking-widest">Reste Dû</span><span className="text-xl font-black text-orange-900">{selectedOrderForPayment.reste.toLocaleString()} F</span></div>
                             <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Montant perçu</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-2xl bg-gray-50 focus:border-orange-500 outline-none transition-all" value={payAmount} onChange={e => setPayAmount(Math.min(selectedOrderForPayment.reste, parseInt(e.target.value) || 0))} /></div>
                             <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Caisse de Destination</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl bg-gray-50 text-sm font-bold" value={payAccount} onChange={e => setPayAccount(e.target.value)}><option value="">-- Choisir un compte --</option>{comptes.map(acc => (<option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>))}</select></div>
                         </div>
                         <div className="flex justify-end gap-3 mt-10"><button onClick={() => setPaymentModalOpen(false)} className="px-6 py-4 text-gray-400 font-bold uppercase text-[10px] tracking-widest">Annuler</button><button onClick={handleConfirmPayment} disabled={!payAccount || payAmount <= 0} className="px-10 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-30 active:scale-95">Valider</button></div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL ANNULATION COMMANDE */}
+            {cancelModalOpen && (
+                <div className="fixed inset-0 bg-brand-900/90 z-[350] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-10 text-center border-t-8 border-red-500 animate-in zoom-in duration-200">
+                        <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6"><Ban size={40}/></div>
+                        <h3 className="text-2xl font-black text-gray-800 mb-2 uppercase tracking-tighter">Annulation Commande</h3>
+                        <p className="text-sm text-gray-500 mb-8 font-bold">Voulez-vous vraiment annuler la commande de <span className="text-gray-900 uppercase">{cancelModalOpen.clientNom}</span> ? Cette action passera le statut en "Annulé".</p>
+                        <div className="flex flex-col gap-3">
+                            <button onClick={() => handleCancelOrder(cancelModalOpen)} className="w-full py-5 bg-red-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95">Confirmer l'Annulation</button>
+                            <button onClick={() => setCancelModalOpen(null)} className="w-full py-4 text-gray-400 font-bold uppercase text-[10px] tracking-widest">Garder la Commande</button>
+                        </div>
                     </div>
                 </div>
             )}

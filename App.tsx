@@ -252,7 +252,49 @@ const App: React.FC = () => {
                         onCancelSale={(id, acc) => { setCommandes(prev => prev.map(c => c.id === id ? { ...c, statut: StatutCommande.ANNULE } : c)); }} 
                         comptes={comptes} companyAssets={companyAssets} 
                     />}
-                    {currentView === 'production' && <ProductionView commandes={commandes} employes={employes} clients={clients} articles={articles} userRole={user.role} onUpdateStatus={(id, s) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, statut: s } : c))} onCreateOrder={(o, cons, meth, acc) => { setCommandes(prev => [o, ...prev]); if (o.avance > 0 && acc) setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + o.avance } : c)); }} onUpdateOrder={handleUpdateOrder} onAddPayment={(id, amt, meth, note, date, acc) => { setCommandes(prev => prev.map(c => c.id === id ? { ...c, avance: c.avance + amt, reste: Math.max(0, c.reste - amt), paiements: [...(c.paiements || []), { id: `P_${Date.now()}`, date, montant: amt, moyenPaiement: meth, note }] } : c)); if (acc) setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + amt } : c)); }} onArchiveOrder={(id) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} comptes={comptes} companyAssets={companyAssets} />}
+                    {currentView === 'production' && <ProductionView 
+                        commandes={commandes} 
+                        employes={employes} 
+                        clients={clients} 
+                        articles={articles} 
+                        userRole={user.role} 
+                        onUpdateStatus={(id, s) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, statut: s } : c))} 
+                        onCreateOrder={(o, cons, meth, acc) => { 
+                            setCommandes(prev => [o, ...prev]); 
+                            if (o.avance > 0 && acc) setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + o.avance } : c));
+                            
+                            // DÉDUCTION STOCK MATIERES PREMIERES (ATELIER)
+                            if (cons && cons.length > 0) {
+                                setArticles(prevArticles => prevArticles.map(art => {
+                                    const usages = cons.filter(u => u.articleId === art.id);
+                                    if (usages.length === 0) return art;
+                                    
+                                    const newStock = JSON.parse(JSON.stringify(art.stockParLieu));
+                                    if (!newStock['ATELIER']) newStock['ATELIER'] = {};
+                                    
+                                    usages.forEach(usage => {
+                                        newStock['ATELIER'][usage.variante] = (newStock['ATELIER'][usage.variante] || 0) - usage.quantite;
+                                        
+                                        const mv: MouvementStock = {
+                                            id: `M_CONS_${Date.now()}_${usage.articleId}`, date: new Date().toISOString(),
+                                            articleId: art.id, articleNom: art.nom, variante: usage.variante,
+                                            type: TypeMouvement.CONSOMMATION, quantite: -usage.quantite, lieuId: 'ATELIER',
+                                            commentaire: `Production pour Commande #${o.id.slice(-6)}`
+                                        };
+                                        setMouvements(prevMv => [mv, ...prevMv]);
+                                    });
+                                    return { ...art, stockParLieu: newStock };
+                                }));
+                            }
+                        }} 
+                        onUpdateOrder={handleUpdateOrder} 
+                        onAddPayment={(id, amt, meth, note, date, acc) => { 
+                            setCommandes(prev => prev.map(c => c.id === id ? { ...c, avance: c.avance + amt, reste: Math.max(0, c.reste - amt), paiements: [...(c.paiements || []), { id: `P_${Date.now()}`, date, montant: amt, moyenPaiement: meth, note }] } : c)); 
+                            if (acc) setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + amt } : c)); 
+                        }} 
+                        onArchiveOrder={(id) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} 
+                        comptes={comptes} companyAssets={companyAssets} 
+                    />}
                     {currentView === 'catalogue' && <ArticlesView articles={articles} onAddArticle={handleAddArticle} onUpdateArticle={handleUpdateArticle} />}
                     {currentView === 'stock' && <StockView articles={articles} boutiques={boutiques} mouvements={mouvements} userRole={user.role} onAddMouvement={handleAddMouvement} onAddBoutique={(b) => setBoutiques(prev => [...prev, b])} />}
                     {currentView === 'fournisseurs' && <SuppliersView fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} onAddFournisseur={(f) => setFournisseurs(prev => [...prev, f])} onUpdateFournisseur={(f) => setFournisseurs(prev => prev.map(old => old.id === f.id ? f : old))} onAddPayment={handleAddPaymentFournisseur} comptes={comptes} />}
