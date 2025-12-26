@@ -58,7 +58,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         if (clean.startsWith("+221")) clean = clean.substring(4);
         if (clean.startsWith("00221")) clean = clean.substring(5);
         if (clean.length < 2) return phone;
-        // Format masqué pour BY TCHICO : 77 ••• •• ••
+        // Format masqué strict : 77 ••• •• ••
         return `${clean.substring(0, 2)} ••• •• ••`;
     };
 
@@ -70,7 +70,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         let hasMesures = false;
         MEASUREMENT_FIELDS.forEach(f => {
             const val = client.mesures?.[f.key];
-            if (val && val !== 0 && val !== '0') {
+            if (val && val !== 0 && val !== '0' && val !== '') {
                 text += `• ${f.label}: ${val} cm\n`;
                 hasMesures = true;
             }
@@ -79,7 +79,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         if (!hasMesures) text += "_Aucune mesure enregistrée._\n";
         if (client.notes) text += `\n*Notes:* ${client.notes}`;
         
-        text += `\n\n_Généré par ${COMPANY_CONFIG.name}_`;
+        text += `\n\n_Généré par ${COMPANY_CONFIG.name} Manager_`;
         return text;
     };
 
@@ -127,7 +127,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
     };
 
     const handleDelete = (id: string) => {
-        if (window.confirm("Supprimer ce client ?")) {
+        if (window.confirm("Supprimer définitivement ce client ?")) {
             onDeleteClient(id); 
             setSelectedClient(null);
         }
@@ -150,7 +150,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
 
     return (
         <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-8rem)]">
-            {/* Liste des clients à gauche */}
+            {/* Colonne Gauche : Liste */}
             <div className="w-full lg:w-1/3 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
                 <div className="p-4 border-b bg-gray-50 flex justify-between items-center shrink-0">
                     <h3 className="font-bold text-gray-700 uppercase text-xs tracking-widest">Répertoire Clients</h3>
@@ -172,11 +172,11 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 </div>
             </div>
 
-            {/* Fiche détaillée à droite avec EXPORTATION VISIBLE */}
+            {/* Colonne Droite : Fiche et EXPORTATION */}
             <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 p-6 overflow-y-auto custom-scrollbar">
                 {selectedClient ? (
                     <div className="space-y-8 animate-in fade-in duration-300">
-                        {/* Header Fiche Client */}
+                        {/* Header Client */}
                         <div className="flex flex-col md:flex-row justify-between items-start gap-6 bg-gray-50/50 p-6 rounded-3xl border border-gray-100">
                             <div className="flex-1">
                                 <h2 className="text-3xl font-black text-gray-800 uppercase tracking-tighter leading-none">{selectedClient.nom}</h2>
@@ -192,21 +192,21 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                             </div>
                         </div>
 
-                        {/* SECTION EXPORTATION DÉDIÉE ET TRÈS VISIBLE */}
-                        <div className="bg-brand-900 text-white p-6 rounded-[2rem] shadow-xl space-y-4">
+                        {/* SECTION EXPORTATION - TRÈS VISIBLE */}
+                        <div className="bg-brand-900 text-white p-6 rounded-[2rem] shadow-xl border-4 border-brand-100 space-y-4">
                             <div className="flex items-center gap-3">
                                 <div className="p-2 bg-white/20 rounded-lg"><Send size={20}/></div>
                                 <div>
                                     <h3 className="font-black uppercase text-sm tracking-widest">Partager la fiche mesures</h3>
-                                    <p className="text-[10px] text-brand-200 font-bold uppercase">Exporter les mesures en masquant le téléphone</p>
+                                    <p className="text-[10px] text-brand-200 font-bold uppercase">Envoi sécurisé (téléphone masqué)</p>
                                 </div>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <button onClick={handleShareWhatsApp} className="bg-green-600 hover:bg-green-700 text-white py-4 rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-3 transition-all active:scale-95 shadow-lg">
-                                    <MessageCircle size={20}/> Partager sur WhatsApp
+                                    <MessageCircle size={20}/> WhatsApp
                                 </button>
                                 <button onClick={handleCopyToClipboard} className={`py-4 rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-3 transition-all active:scale-95 border-2 shadow-lg ${copySuccess ? 'bg-green-100 text-green-800 border-green-200' : 'bg-white text-brand-900 border-white hover:bg-brand-50'}`}>
-                                    {copySuccess ? <Check size={20}/> : <Copy size={20}/>} {copySuccess ? 'Copié avec succès !' : 'Copier les mesures'}
+                                    {copySuccess ? <Check size={20}/> : <Copy size={20}/>} {copySuccess ? 'Copié !' : 'Copier pour l\'Atelier'}
                                 </button>
                             </div>
                         </div>
@@ -217,7 +217,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                                 {MEASUREMENT_FIELDS.map(f => {
                                     const val = selectedClient.mesures?.[f.key];
-                                    const hasValue = val && val !== 0 && val !== '0';
+                                    const hasValue = val && val !== 0 && val !== '0' && val !== '';
                                     return (
                                         <div key={f.key} className={`p-4 rounded-2xl border transition-all ${hasValue ? 'bg-brand-50/50 border-brand-100 shadow-sm' : 'bg-gray-50 border-gray-100 opacity-60'}`}>
                                             <span className="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">{f.label}</span>
@@ -230,7 +230,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
 
                         {selectedClient.notes && (
                             <div className="bg-amber-50 p-6 rounded-3xl border border-amber-100">
-                                <h4 className="text-[10px] font-black text-amber-800 uppercase mb-2 flex items-center gap-2 tracking-widest"><ClipboardList size={16}/> Notes & Observations</h4>
+                                <h4 className="text-[10px] font-black text-amber-800 uppercase mb-2 flex items-center gap-2 tracking-widest"><ClipboardList size={16}/> Notes</h4>
                                 <p className="text-sm text-amber-900 leading-relaxed font-medium">{selectedClient.notes}</p>
                             </div>
                         )}
@@ -238,7 +238,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 ) : (
                     <div className="h-full flex flex-col items-center justify-center text-gray-300">
                         <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4"><User size={40} className="opacity-20"/></div>
-                        <p className="font-black text-xs uppercase tracking-widest text-center">Sélectionnez un client pour voir,<br/>modifier ou exporter sa fiche.</p>
+                        <p className="font-black text-xs uppercase tracking-widest text-center">Sélectionnez un client pour voir sa fiche</p>
                     </div>
                 )}
             </div>
@@ -248,48 +248,45 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 <div className="fixed inset-0 bg-black/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden animate-in zoom-in duration-300 border border-gray-200">
                         <div className="bg-brand-900 text-white p-6 flex justify-between items-center shrink-0">
-                            <div>
-                                <h3 className="font-black uppercase text-xl tracking-tight flex items-center gap-3"><Ruler size={28}/> {isEditing ? 'Mise à jour Fiche' : 'Nouvelle Fiche Client'}</h3>
-                                <p className="text-[10px] text-brand-300 font-bold uppercase mt-1 tracking-widest opacity-80">Saisie complète des mesures anthropométriques</p>
-                            </div>
-                            <button onClick={() => setIsModalOpen(false)} className="hover:bg-white/10 p-2 rounded-full transition-all"><X size={32}/></button>
+                            <h3 className="font-black uppercase text-xl tracking-tight flex items-center gap-3"><Ruler size={28}/> {isEditing ? 'Mise à jour' : 'Nouveau Client'}</h3>
+                            <button onClick={() => setIsModalOpen(false)} className="hover:bg-white/10 p-2 rounded-full"><X size={32}/></button>
                         </div>
                         
                         <div className="p-8 overflow-y-auto flex-1 space-y-10 custom-scrollbar">
                             <section>
                                 <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-6 border-b pb-2">Informations de Contact</h4>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                                    <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase ml-1">Nom Complet</label><input type="text" value={clientFormData.nom} onChange={e => setClientFormData({...clientFormData, nom: e.target.value.toUpperCase()})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none text-sm transition-all uppercase" placeholder="EX: AMADOU DIOP" /></div>
-                                    <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase ml-1">Téléphone</label><input type="text" value={clientFormData.telephone} onChange={e => setClientFormData({...clientFormData, telephone: e.target.value})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none text-sm transition-all" placeholder="+221 ..." /></div>
-                                    <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase ml-1">Email</label><input type="email" value={clientFormData.email} onChange={e => setClientFormData({...clientFormData, email: e.target.value})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none text-sm transition-all" placeholder="exemple@mail.com" /></div>
-                                    <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase ml-1">Anniversaire</label><input type="date" value={clientFormData.dateAnniversaire} onChange={e => setClientFormData({...clientFormData, dateAnniversaire: e.target.value})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none text-sm transition-all" /></div>
+                                    <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Nom Complet</label><input type="text" value={clientFormData.nom} onChange={e => setClientFormData({...clientFormData, nom: e.target.value.toUpperCase()})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none uppercase" /></div>
+                                    <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Téléphone</label><input type="text" value={clientFormData.telephone} onChange={e => setClientFormData({...clientFormData, telephone: e.target.value})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50" /></div>
+                                    <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Email</label><input type="email" value={clientFormData.email} onChange={e => setClientFormData({...clientFormData, email: e.target.value})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50" /></div>
+                                    <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Anniversaire</label><input type="date" value={clientFormData.dateAnniversaire} onChange={e => setClientFormData({...clientFormData, dateAnniversaire: e.target.value})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50" /></div>
                                 </div>
                             </section>
 
                             <section>
                                 <div className="flex justify-between items-end mb-6 border-b pb-2">
-                                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em]">Tableau des Mesures (Format libre : ex 38/42)</h4>
-                                    <button onClick={startVoice} className={`flex items-center gap-2 px-6 py-2.5 rounded-full text-[10px] font-black uppercase text-white transition-all shadow-lg active:scale-95 ${isListening ? 'bg-red-600 animate-pulse' : 'bg-brand-600 hover:bg-brand-700'}`}><Mic size={16}/> {isListening ? 'ÉCOUTE...' : 'DICTER MESURES'}</button>
+                                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em]">Mesures (Format libre autorisé)</h4>
+                                    <button onClick={startVoice} className={`flex items-center gap-2 px-6 py-2.5 rounded-full text-[10px] font-black uppercase text-white transition-all ${isListening ? 'bg-red-600 animate-pulse' : 'bg-brand-600'}`}><Mic size={16}/> {isListening ? 'ÉCOUTE...' : 'DICTER MESURES'}</button>
                                 </div>
                                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-6 gap-y-5">
                                     {MEASUREMENT_FIELDS.map(f => (
                                         <div key={f.key} className="space-y-1">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase ml-1">{f.label}</label>
-                                            <input type="text" value={clientFormData.mesures?.[f.key] || ''} onChange={e => setClientFormData({...clientFormData, mesures: { ...(clientFormData.mesures||{}), [f.key]: e.target.value }})} className="w-full p-4 border-2 border-brand-50 bg-brand-50/30 rounded-2xl text-center text-sm font-black text-brand-900 focus:border-brand-600 focus:bg-white transition-all outline-none" placeholder="ex: 42/44" />
+                                            <label className="text-[10px] font-black text-gray-500 uppercase">{f.label}</label>
+                                            <input type="text" value={clientFormData.mesures?.[f.key] || ''} onChange={e => setClientFormData({...clientFormData, mesures: { ...(clientFormData.mesures||{}), [f.key]: e.target.value }})} className="w-full p-4 border-2 border-brand-50 bg-brand-50/30 rounded-2xl text-center font-black text-brand-900 focus:border-brand-600 focus:bg-white outline-none" />
                                         </div>
                                     ))}
                                 </div>
                             </section>
 
                             <section>
-                                <label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-[0.3em] block mb-2">Notes & Observations</label>
-                                <textarea rows={3} value={clientFormData.notes} onChange={e => setClientFormData({...clientFormData, notes: e.target.value})} className="w-full p-5 border-2 border-gray-100 rounded-[2rem] bg-gray-50 focus:border-brand-600 outline-none text-sm font-medium" placeholder="Informations complémentaires..."></textarea>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] block mb-2">Notes & Observations</label>
+                                <textarea rows={3} value={clientFormData.notes} onChange={e => setClientFormData({...clientFormData, notes: e.target.value})} className="w-full p-5 border-2 border-gray-100 rounded-[2rem] bg-gray-50 outline-none" placeholder="Ex: Préfère une coupe cintrée..."></textarea>
                             </section>
                         </div>
 
-                        <div className="p-6 bg-gray-50 border-t flex flex-col md:flex-row justify-end gap-3 shrink-0">
-                            <button onClick={() => setIsModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-xs tracking-widest">Annuler</button>
-                            <button onClick={handleSave} className="px-12 py-4 bg-brand-900 text-white rounded-[1.5rem] font-black uppercase text-xs tracking-[0.2em] shadow-2xl hover:bg-black transition-all transform active:scale-95">ENREGISTRER LA FICHE</button>
+                        <div className="p-6 bg-gray-50 border-t flex justify-end gap-3 shrink-0">
+                            <button onClick={() => setIsModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-xs">Annuler</button>
+                            <button onClick={handleSave} className="px-12 py-4 bg-brand-900 text-white rounded-[1.5rem] font-black uppercase text-xs shadow-2xl active:scale-95 transition-all">ENREGISTRER</button>
                         </div>
                     </div>
                 </div>

@@ -1,11 +1,10 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { COMPANY_CONFIG } from "../config";
 
-// Initialize Gemini with process.env.API_KEY string directly per coding guidelines.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 export const getAIAnalysis = async (contextData: string, userPrompt: string): Promise<string> => {
     try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const model = 'gemini-3-flash-preview';
         
         const systemInstruction = `
@@ -33,7 +32,6 @@ export const getAIAnalysis = async (contextData: string, userPrompt: string): Pr
             }
         });
 
-        // Use the .text property directly, it is not a method.
         return response.text || "Désolé, je n'ai pas pu générer une analyse pour le moment.";
     } catch (error) {
         console.error("Erreur Gemini:", error);
@@ -43,6 +41,7 @@ export const getAIAnalysis = async (contextData: string, userPrompt: string): Pr
 
 export const draftClientMessage = async (clientName: string, orderDescription: string, status: string): Promise<string> => {
      try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: `Rédige un message WhatsApp court et poli pour le client ${clientName}.
@@ -56,26 +55,26 @@ export const draftClientMessage = async (clientName: string, orderDescription: s
      }
 }
 
-export const parseMeasurementsFromText = async (text: string): Promise<Record<string, number>> => {
+export const parseMeasurementsFromText = async (text: string): Promise<Record<string, string | number>> => {
     try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: `
                 Analyse le texte suivant qui contient des mesures de couture dictées vocalement.
                 Texte : "${text}"
                 
-                Extrais les valeurs numériques et associe-les aux clés JSON suivantes (si mentionnées).
-                Clés disponibles : 
+                Extrais les valeurs et associe-les aux clés JSON correspondantes.
+                
+                RÈGLE CRITIQUE POUR LES MESURES MULTIPLES :
+                Si l'utilisateur énonce deux chiffres (ex: "épaule 38 42"), renvoie "38/42".
+                
+                Clés JSON : 
                 - tourCou, epaule, poitrine, longueurManche, tourBras, tourPoignet
-                - longueurBoubou1, longueurBoubou2
-                - longueurChemise, carrureDos, carrureDevant, taille, blouse, ceinture
-                - tourFesse, tourCuisse, entreJambe, longueurPantalon
-                - genou1, genou2, bas
+                - longueurBoubou, longueurChemise, carrureDos, carrureDevant, taille, blouse, ceinture
+                - tourFesse, tourCuisse, genou, mollet, bas, entreJambe, longueurPantalon
 
-                Règles :
-                1. Renvoie UNIQUEMENT un objet JSON valide sans Markdown.
-                2. Les valeurs doivent être des nombres.
-                3. Ignore les clés non trouvées.
+                Renvoie UNIQUEMENT un objet JSON.
             `,
             config: {
                 responseMimeType: 'application/json'
