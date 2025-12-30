@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Client, Commande } from '../types';
-import { User, Ruler, Plus, X, Save, Edit2, Copy, Check, Search, Mic, Trash2, Mail, ClipboardList, Send, Trophy, Medal, Award, Users } from 'lucide-react';
+import { User, Ruler, Plus, X, Save, Edit2, Copy, Check, Search, Mic, Trash2, Mail, ClipboardList, Send, Trophy, Medal, Award, Users, AlertCircle, Calendar } from 'lucide-react';
 import { parseMeasurementsFromText } from '../services/geminiService';
 import { COMPANY_CONFIG } from '../config';
 
@@ -25,7 +25,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         nom: '', telephone: '', email: '', dateAnniversaire: '', notes: '', mesures: {}
     });
 
-    // ORDRE EXACT DEMANDÉ PAR L'UTILISATEUR
     const MEASUREMENT_FIELDS = [
         { key: 'epaule', label: 'ÉPAULE' },
         { key: 'longueurManche', label: 'LONG. MANCHE' },
@@ -56,7 +55,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         ).sort((a, b) => a.nom.localeCompare(b.nom));
     }, [clients, searchTerm]);
 
-    // LOGIQUE DE CLASSEMENT (OR, ARGENT, BRONZE)
     const getClientRank = (clientId: string) => {
         const count = commandes.filter(cmd => cmd.clientId === clientId && cmd.statut !== 'Annulé').length;
         if (count >= 10) return { label: 'OR', color: 'text-yellow-500', bg: 'bg-yellow-50', icon: <Trophy size={14} className="text-yellow-600"/>, border: 'border-yellow-200' };
@@ -65,18 +63,16 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         return null;
     };
 
-    const maskPhone = (phone: string) => {
-        if (!phone) return "";
-        let clean = phone.replace(/\s/g, "");
-        if (clean.length < 2) return phone;
-        return `${clean.substring(0, 2)} ••• •• ••`;
+    // VÉRIFICATION DE LA DATE DES DERNIÈRES MESURES
+    const getMeasurementStatus = (client: Client) => {
+        if (!client.lastOrderDate) return { label: 'Nouveau', color: 'text-blue-500' };
+        const sixMonthsAgo = Date.now() - (6 * 30 * 24 * 60 * 60 * 1000);
+        if (client.lastOrderDate < sixMonthsAgo) return { label: 'À vérifier', color: 'text-orange-500', icon: <AlertCircle size={12}/> };
+        return { label: 'À jour', color: 'text-green-500' };
     };
 
     const formatMeasurementsText = (client: Client) => {
-        const maskedPhone = maskPhone(client.telephone);
-        let text = `*MESURES : ${client.nom}*\n`;
-        text += `📞 Client : ${maskedPhone}\n\n`;
-        
+        let text = `*MESURES : ${client.nom}*\n\n`;
         let hasMesures = false;
         MEASUREMENT_FIELDS.forEach(f => {
             const val = client.mesures?.[f.key];
@@ -85,10 +81,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 hasMesures = true;
             }
         });
-        
         if (!hasMesures) text += "_Aucune mesure enregistrée._\n";
-        if (client.notes) text += `\n*Notes:* ${client.notes}`;
-        
         text += `\n\n_Généré par ${COMPANY_CONFIG.name} Manager_`;
         return text;
     };
@@ -106,11 +99,8 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
     };
 
     const handleSave = () => {
-        if (!clientFormData.nom || !clientFormData.telephone) { 
-            alert("Le nom et le téléphone sont obligatoires."); 
-            return; 
-        }
-        const finalClient = { ...clientFormData } as Client;
+        if (!clientFormData.nom || !clientFormData.telephone) { alert("Le nom et le téléphone sont obligatoires."); return; }
+        const finalClient = { ...clientFormData, lastOrderDate: Date.now() } as Client;
         if (isEditing) onUpdateClient(finalClient);
         else onAddClient({ ...finalClient, id: `C${Date.now()}` });
         setSelectedClient(finalClient);
@@ -134,7 +124,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
 
     return (
         <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-8rem)]">
-            {/* SIDEBAR RÉPERTOIRE */}
             <div className="w-full lg:w-1/3 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
                 <div className="p-4 border-b bg-gray-50 flex justify-between items-center shrink-0">
                     <div>
@@ -169,7 +158,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 </div>
             </div>
 
-            {/* VUE DÉTAILLÉE */}
             <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 p-6 overflow-y-auto custom-scrollbar">
                 {selectedClient ? (
                     <div className="space-y-8 animate-in fade-in duration-300">
@@ -179,12 +167,16 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                                     <h2 className="text-3xl font-black text-gray-800 uppercase tracking-tighter leading-none">{selectedClient.nom}</h2>
                                     {(() => {
                                         const rank = getClientRank(selectedClient.id);
-                                        return rank && <div className={`${rank.bg} ${rank.color} ${rank.border} border px-3 py-1 rounded-full flex items-center gap-2 text-[10px] font-black uppercase tracking-widest animate-pulse shadow-sm`}>{rank.icon} Client {rank.label}</div>;
+                                        return rank && <div className={`${rank.bg} ${rank.color} ${rank.border} border px-3 py-1 rounded-full flex items-center gap-2 text-[10px] font-black uppercase tracking-widest shadow-sm`}>{rank.icon} Client {rank.label}</div>;
                                     })()}
                                 </div>
                                 <div className="flex flex-wrap gap-3 mt-4 text-[11px] font-black text-gray-500 uppercase tracking-widest">
                                     <span className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-full border border-gray-200 shadow-sm"><Search size={14} className="text-brand-600"/> {selectedClient.telephone}</span>
                                     {selectedClient.email && <span className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-full border border-gray-200 shadow-sm"><Mail size={14} className="text-brand-600"/> {selectedClient.email}</span>}
+                                    {(() => {
+                                        const status = getMeasurementStatus(selectedClient);
+                                        return <span className={`flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-full border border-gray-200 shadow-sm ${status.color}`}>{status.icon} Mesures: {status.label}</span>;
+                                    })()}
                                 </div>
                             </div>
                             
@@ -194,24 +186,22 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                             </div>
                         </div>
 
-                        {/* PARTAGE */}
                         <div className="bg-brand-900 text-white p-6 rounded-[2rem] shadow-xl border-4 border-brand-100 space-y-4">
                             <div className="flex items-center gap-3">
                                 <div className="p-2 bg-white/20 rounded-lg"><Send size={20}/></div>
                                 <div>
-                                    <h3 className="font-black uppercase text-sm tracking-widest">Partager la fiche mesures</h3>
+                                    <h3 className="font-black uppercase text-sm tracking-widest">Fiche Mesures Digitale</h3>
                                     <p className="text-[10px] text-brand-200 font-bold uppercase">Format optimisé pour l'atelier</p>
                                 </div>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <button onClick={() => { const text = formatMeasurementsText(selectedClient); window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank'); }} className="bg-green-600 hover:bg-green-700 text-white py-4 rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-3 transition-all active:scale-95 shadow-lg">WhatsApp</button>
-                                <button onClick={handleCopyToClipboard} className={`py-4 rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-3 transition-all active:scale-95 border-2 shadow-lg ${copySuccess ? 'bg-green-100 text-green-800 border-green-200' : 'bg-white text-brand-900 border-white hover:bg-brand-50'}`}>
+                                <button onClick={() => { const text = formatMeasurementsText(selectedClient); window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank'); }} className="bg-green-600 hover:bg-green-700 text-white py-4 rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-3 transition-all shadow-lg">WhatsApp Atelier</button>
+                                <button onClick={handleCopyToClipboard} className={`py-4 rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-3 transition-all border-2 shadow-lg ${copySuccess ? 'bg-green-100 text-green-800 border-green-200' : 'bg-white text-brand-900 border-white hover:bg-brand-50'}`}>
                                     {copySuccess ? <Check size={20}/> : <Copy size={20}/>} {copySuccess ? 'Copié !' : 'Copier Mesures'}
                                 </button>
                             </div>
                         </div>
 
-                        {/* GRILLE DES MESURES (RÉALIGNÉE) */}
                         <div>
                             <h3 className="text-xs font-black text-brand-900 uppercase tracking-[0.2em] mb-6 flex items-center gap-3"><Ruler size={20}/> Fiche Anthropométrique (CM)</h3>
                             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
@@ -226,11 +216,12 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                                     );
                                 })}
                             </div>
+                            <p className="text-[9px] text-gray-400 mt-4 uppercase font-bold italic flex items-center gap-1"><Calendar size={10}/> Dernier ajustement: {selectedClient.lastOrderDate ? new Date(selectedClient.lastOrderDate).toLocaleDateString() : 'Non daté'}</p>
                         </div>
 
                         {selectedClient.notes && (
                             <div className="bg-amber-50 p-6 rounded-3xl border border-amber-100">
-                                <h4 className="text-[10px] font-black text-amber-800 uppercase mb-2 flex items-center gap-2 tracking-widest"><ClipboardList size={16}/> Observations Spéciales</h4>
+                                <h4 className="text-[10px] font-black text-amber-800 uppercase mb-2 flex items-center gap-2 tracking-widest"><ClipboardList size={16}/> Observations Style</h4>
                                 <p className="text-sm text-amber-900 leading-relaxed font-medium">{selectedClient.notes}</p>
                             </div>
                         )}
@@ -238,12 +229,11 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 ) : (
                     <div className="h-full flex flex-col items-center justify-center text-gray-300">
                         <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4 border border-gray-100 shadow-inner"><User size={40} className="opacity-20"/></div>
-                        <p className="font-black text-[10px] uppercase tracking-[0.3em] text-center">Répertoire BY TCHICO<br/>Sélectionnez un client</p>
+                        <p className="font-black text-[10px] uppercase tracking-[0.3em] text-center">Sélectionnez un client dans le répertoire</p>
                     </div>
                 )}
             </div>
 
-            {/* MODAL AJOUT / MODIF */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden animate-in zoom-in duration-300 border border-gray-200">
@@ -279,7 +269,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                             </section>
 
                             <section>
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] block mb-2">Notes & Observations (Style, préférences...)</label>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] block mb-2">Notes & Observations Spéciales</label>
                                 <textarea rows={3} value={clientFormData.notes} onChange={e => setClientFormData({...clientFormData, notes: e.target.value})} className="w-full p-5 border-2 border-gray-100 rounded-[2rem] bg-gray-50 outline-none focus:border-brand-500 shadow-sm" placeholder="Ex: Préfère une coupe cintrée, manches plus courtes..."></textarea>
                             </section>
                         </div>
