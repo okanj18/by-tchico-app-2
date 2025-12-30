@@ -1,13 +1,14 @@
 
 import React, { useState, useMemo } from 'react';
 import { Fournisseur, CommandeFournisseur, CompteFinancier, StatutCommandeFournisseur } from '../types';
-import { Plus, Search, Truck, Edit2, Phone, MapPin, ShoppingCart, DollarSign, X, Save, History } from 'lucide-react';
+import { Plus, Search, Truck, Edit2, Phone, MapPin, ShoppingCart, DollarSign, X, Save, History, Trash2, AlertTriangle, Ban } from 'lucide-react';
 
 interface SuppliersViewProps {
     fournisseurs: Fournisseur[];
     commandesFournisseurs: CommandeFournisseur[];
     onAddFournisseur: (f: Fournisseur) => void;
     onUpdateFournisseur: (f: Fournisseur) => void;
+    onDeleteFournisseur: (id: string) => void;
     onAddPayment: (orderId: string, amount: number, date: string, accountId?: string) => void;
     comptes: CompteFinancier[];
 }
@@ -17,6 +18,7 @@ const SuppliersView: React.FC<SuppliersViewProps> = ({
     commandesFournisseurs, 
     onAddFournisseur, 
     onUpdateFournisseur, 
+    onDeleteFournisseur,
     onAddPayment,
     comptes 
 }) => {
@@ -24,6 +26,7 @@ const SuppliersView: React.FC<SuppliersViewProps> = ({
     const [selectedSupplier, setSelectedSupplier] = useState<Fournisseur | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     
     // Form Data
     const [formData, setFormData] = useState<Partial<Fournisseur>>({
@@ -88,6 +91,14 @@ const SuppliersView: React.FC<SuppliersViewProps> = ({
         setIsModalOpen(true);
     };
 
+    const confirmDelete = () => {
+        if (selectedSupplier) {
+            onDeleteFournisseur(selectedSupplier.id);
+            setSelectedSupplier(null);
+            setIsDeleteModalOpen(false);
+        }
+    };
+
     const handleSave = () => {
         if (!formData.nomEntreprise) return;
         
@@ -127,7 +138,6 @@ const SuppliersView: React.FC<SuppliersViewProps> = ({
     const handleConfirmPayment = () => {
         if (!selectedOrderForPayment || paymentAmount <= 0) return;
         
-        // --- BLOCAGE SÉCURITÉ ---
         if (!paymentAccountId) {
             alert("Veuillez sélectionner un compte de paiement (source du règlement).");
             return;
@@ -138,7 +148,6 @@ const SuppliersView: React.FC<SuppliersViewProps> = ({
             alert(`🚫 SOLDE INSUFFISANT !\n\nLe compte "${selectedAccount.nom}" n'a que ${selectedAccount.solde.toLocaleString()} F.\nImpossible de payer ${paymentAmount.toLocaleString()} F.`);
             return;
         }
-        // ------------------------
 
         onAddPayment(selectedOrderForPayment.id, paymentAmount, paymentDate, paymentAccountId);
         setIsPaymentModalOpen(false);
@@ -202,9 +211,14 @@ const SuppliersView: React.FC<SuppliersViewProps> = ({
                                         ))}
                                     </div>
                                 </div>
-                                <button onClick={() => handleOpenEdit(selectedSupplier)} className="flex items-center gap-1 text-sm text-gray-500 hover:text-brand-600 border border-gray-300 rounded px-3 py-1.5 hover:bg-gray-50 transition-colors">
-                                    <Edit2 size={14}/> Modifier
-                                </button>
+                                <div className="flex gap-2">
+                                    <button onClick={() => handleOpenEdit(selectedSupplier)} className="flex items-center gap-1 text-sm text-gray-500 hover:text-brand-600 border border-gray-300 rounded px-3 py-1.5 hover:bg-gray-50 transition-colors">
+                                        <Edit2 size={14}/> Modifier
+                                    </button>
+                                    <button onClick={() => setIsDeleteModalOpen(true)} className="flex items-center gap-1 text-sm text-red-500 hover:text-white border border-red-200 rounded px-3 py-1.5 hover:bg-red-600 transition-colors shadow-sm">
+                                        <Trash2 size={14}/> Supprimer
+                                    </button>
+                                </div>
                             </div>
                             
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600 mb-6">
@@ -343,6 +357,27 @@ const SuppliersView: React.FC<SuppliersViewProps> = ({
                         <div className="flex justify-end gap-3 mt-6">
                             <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Annuler</button>
                             <button onClick={handleSave} className="px-4 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 flex items-center gap-2"><Save size={18}/> Enregistrer</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Confirmation Suppression */}
+            {isDeleteModalOpen && selectedSupplier && (
+                <div className="fixed inset-0 bg-black/80 z-[600] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-10 text-center border-t-8 border-red-500 animate-in zoom-in duration-300">
+                        <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <Trash2 size={40}/>
+                        </div>
+                        <h3 className="text-2xl font-black text-gray-800 mb-2 uppercase tracking-tighter">Supprimer Fournisseur</h3>
+                        <p className="text-sm text-gray-500 mb-8 font-bold">
+                            Voulez-vous vraiment supprimer définitivement <span className="text-gray-900 uppercase">"{selectedSupplier.nomEntreprise}"</span> de votre carnet d'adresses ?
+                            <br/><br/>
+                            <span className="text-red-600 text-xs italic">Les commandes passées avec ce fournisseur ne seront pas effacées.</span>
+                        </p>
+                        <div className="flex flex-col gap-3">
+                            <button onClick={confirmDelete} className="w-full py-5 bg-red-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">Confirmer la Suppression</button>
+                            <button onClick={() => setIsDeleteModalOpen(false)} className="w-full py-4 text-gray-400 font-bold uppercase text-[10px] tracking-widest">Annuler</button>
                         </div>
                     </div>
                 </div>
