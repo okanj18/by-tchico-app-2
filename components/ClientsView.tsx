@@ -58,7 +58,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         if (clean.startsWith("+221")) clean = clean.substring(4);
         if (clean.startsWith("00221")) clean = clean.substring(5);
         if (clean.length < 2) return phone;
-        // Format masqué strict : 77 ••• •• ••
         return `${clean.substring(0, 2)} ••• •• ••`;
     };
 
@@ -127,7 +126,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
     };
 
     const handleDelete = (id: string) => {
-        if (window.confirm("Supprimer définitivement ce client ?")) {
+        if (window.confirm("Supprimer définitivement ce client de votre répertoire ? Cette action est irréversible.")) {
             onDeleteClient(id); 
             setSelectedClient(null);
         }
@@ -150,7 +149,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
 
     return (
         <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-8rem)]">
-            {/* Colonne Gauche : Liste */}
             <div className="w-full lg:w-1/3 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
                 <div className="p-4 border-b bg-gray-50 flex justify-between items-center shrink-0">
                     <h3 className="font-bold text-gray-700 uppercase text-xs tracking-widest">Répertoire Clients</h3>
@@ -172,11 +170,9 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 </div>
             </div>
 
-            {/* Colonne Droite : Fiche et EXPORTATION */}
             <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 p-6 overflow-y-auto custom-scrollbar">
                 {selectedClient ? (
                     <div className="space-y-8 animate-in fade-in duration-300">
-                        {/* Header Client */}
                         <div className="flex flex-col md:flex-row justify-between items-start gap-6 bg-gray-50/50 p-6 rounded-3xl border border-gray-100">
                             <div className="flex-1">
                                 <h2 className="text-3xl font-black text-gray-800 uppercase tracking-tighter leading-none">{selectedClient.nom}</h2>
@@ -192,7 +188,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                             </div>
                         </div>
 
-                        {/* SECTION EXPORTATION - TRÈS VISIBLE */}
                         <div className="bg-brand-900 text-white p-6 rounded-[2rem] shadow-xl border-4 border-brand-100 space-y-4">
                             <div className="flex items-center gap-3">
                                 <div className="p-2 bg-white/20 rounded-lg"><Send size={20}/></div>
@@ -211,7 +206,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                             </div>
                         </div>
 
-                        {/* Grille des mesures */}
                         <div>
                             <h3 className="text-xs font-black text-brand-900 uppercase tracking-[0.2em] mb-6 flex items-center gap-3"><Ruler size={20}/> Détails Anthropométriques (CM)</h3>
                             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
@@ -243,7 +237,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 )}
             </div>
 
-            {/* Modal de création/édition */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden animate-in zoom-in duration-300 border border-gray-200">
@@ -257,7 +250,9 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                                 <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-6 border-b pb-2">Informations de Contact</h4>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                                     <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Nom Complet</label><input type="text" value={clientFormData.nom} onChange={e => setClientFormData({...clientFormData, nom: e.target.value.toUpperCase()})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none uppercase" /></div>
-                                    <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Téléphone</label><input type="text" value={clientFormData.telephone} onChange={e => setClientFormData({...clientFormData, telephone: e.target.value})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50" /></div>
+                                    <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Téléphone</label>
+                                    {/* Fix reference error: change 'formData' to 'clientFormData' */}
+                                    <input type="text" value={clientFormData.telephone} onChange={e => setClientFormData({...clientFormData, telephone: e.target.value})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50" /></div>
                                     <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Email</label><input type="email" value={clientFormData.email} onChange={e => setClientFormData({...clientFormData, email: e.target.value})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50" /></div>
                                     <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Anniversaire</label><input type="date" value={clientFormData.dateAnniversaire} onChange={e => setClientFormData({...clientFormData, dateAnniversaire: e.target.value})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50" /></div>
                                 </div>

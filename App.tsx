@@ -60,8 +60,10 @@ const App: React.FC = () => {
 
     const handleAddClient = (c: Client) => setClients(prev => [...prev, c]);
     const handleUpdateClient = (c: Client) => setClients(prev => prev.map(cli => cli.id === c.id ? c : cli));
+    
+    // Suppression directe sans double confirmation
     const handleDeleteClient = (id: string) => {
-        if (window.confirm("Supprimer définitivement ce client ?")) setClients(prev => prev.filter(c => c.id !== id));
+        setClients(prev => prev.filter(c => c.id !== id));
     };
 
     const handleAddDepense = (d: Depense) => {
@@ -101,7 +103,6 @@ const App: React.FC = () => {
     const handleUpdateOrder = (o: Commande) => setCommandes(prev => prev.map(cmd => cmd.id === o.id ? o : cmd));
     const handleAddTransaction = (t: TransactionTresorerie) => setTransactions(prev => [t, ...prev]);
 
-    // --- LOGIQUE DE VENTE SYNCHRONISÉE ---
     const handleMakeSale = (d: any) => {
         const saleId = `CMD_VTE_${Date.now()}`;
         const newCmd: Commande = {
@@ -118,19 +119,14 @@ const App: React.FC = () => {
 
         setCommandes(prev => [newCmd, ...prev]);
 
-        // 1. Déduction Stock + Mouvements de stock
         setArticles(prevArticles => prevArticles.map(art => {
             const itemsToDeduct = d.items.filter((i: any) => i.articleId === art.id);
             if (itemsToDeduct.length === 0) return art;
-
             const newStock = JSON.parse(JSON.stringify(art.stockParLieu));
             if (!newStock[d.boutiqueId]) newStock[d.boutiqueId] = {};
-
             itemsToDeduct.forEach((item: any) => {
                 const qtyToDeduct = item.quantite;
                 newStock[d.boutiqueId][item.variante] = (newStock[d.boutiqueId][item.variante] || 0) - qtyToDeduct;
-
-                // Création mouvement pour l'historique
                 const mv: MouvementStock = {
                     id: `M_VTE_${Date.now()}_${item.id}`, date: new Date().toISOString(),
                     articleId: art.id, articleNom: art.nom, variante: item.variante,
@@ -139,11 +135,9 @@ const App: React.FC = () => {
                 };
                 setMouvements(prevMv => [mv, ...prevMv]);
             });
-
             return { ...art, stockParLieu: newStock };
         }));
 
-        // 2. Mise à jour Trésorerie
         if (d.montantRecu > 0 && d.accountId) {
             setTransactions(prev => [{
                 id: `TR_VTE_${Date.now()}`, date: new Date().toISOString(), type: 'ENCAISSEMENT',
@@ -216,10 +210,43 @@ const App: React.FC = () => {
     };
 
     const handleClearData = () => {
-        if (window.confirm("⚠️ ACTION IRRÉVERSIBLE\n\nEffacer TOUTES les données ?")) {
-            setBoutiques([]); setEmployes([]); setPointages([]); setClients([]); setCommandes([]); setDepenses([]); setArticles([]);
-            setCommandesFournisseurs([]); setFournisseurs([]); setMouvements([]); setComptes([]); setTransactions([]); setGalleryItems([]);
+        if (window.confirm("⚠️ ACTION IRRÉVERSIBLE\n\nSouhaitez-vous vraiment effacer TOUTES les données de l'application ?\n(Ventes, Clients, Stocks, Employés, Logos...)")) {
+            // 1. Remise à zéro des états React
+            setBoutiques([]); setEmployes([]); setPointages([]); setClients([]); setCommandes([]); 
+            setDepenses([]); setArticles([]); setCommandesFournisseurs([]); setFournisseurs([]); 
+            setMouvements([]); setComptes([]); setTransactions([]); setGalleryItems([]);
+            setCompanyAssets({ logoStr: '', stampStr: '', signatureStr: '' });
+            
+            // 2. Nettoyage explicite du LocalStorage
+            Object.keys(localStorage).forEach(key => {
+                if (key.startsWith('by_tchico_')) localStorage.removeItem(key);
+            });
+            
+            alert("✅ L'application a été réinitialisée. Les données de démonstration seront masquées au prochain démarrage.");
+            setView('dashboard');
         }
+    };
+
+    const handleFullRestore = (d: any) => {
+        if (!d || typeof d !== 'object') return;
+        if (!window.confirm("⚠️ RESTAURATION TOTALE\n\nCela remplacera TOUTES vos données actuelles par celles du fichier. Continuer ?")) return;
+
+        if (d.boutiques) setBoutiques(d.boutiques);
+        if (d.employes) setEmployes(d.employes);
+        if (d.pointages) setPointages(d.pointages);
+        if (d.clients) setClients(d.clients);
+        if (d.commandes) setCommandes(d.commandes);
+        if (d.depenses) setDepenses(d.depenses);
+        if (d.articles) setArticles(d.articles);
+        if (d.commandesFournisseurs) setCommandesFournisseurs(d.commandesFournisseurs);
+        if (d.fournisseurs) setFournisseurs(d.fournisseurs);
+        if (d.mouvements) setMouvements(d.mouvements);
+        if (d.comptes) setComptes(d.comptes);
+        if (d.transactions) setTransactions(d.transactions);
+        if (d.galleryItems) setGalleryItems(d.galleryItems);
+        if (d.companyAssets) setCompanyAssets(d.companyAssets);
+
+        alert("✅ Restauration terminée avec succès !");
     };
 
     const availableViews = useMemo(() => {
@@ -243,68 +270,26 @@ const App: React.FC = () => {
                 </header>
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 custom-scrollbar">
                     {currentView === 'dashboard' && <Dashboard commandes={commandes} employes={employes} depenses={depenses} clients={clients} />}
-                    {currentView === 'ventes' && <SalesView articles={articles} boutiques={boutiques} clients={clients} commandes={commandes} 
-                        onMakeSale={handleMakeSale} 
-                        onAddPayment={(id, amt, meth, note, date, acc) => { 
-                            setCommandes(prev => prev.map(c => c.id === id ? { ...c, avance: c.avance + amt, reste: Math.max(0, c.reste - amt), paiements: [...(c.paiements || []), { id: `P_${Date.now()}`, date, montant: amt, moyenPaiement: meth, note }] } : c)); 
-                            if (acc) { setTransactions(prev => [{ id: `TR_PAY_${Date.now()}`, date: new Date().toISOString(), type: 'ENCAISSEMENT', montant: amt, compteId: acc, description: `Encaissement #${id.slice(-6)}`, categorie: 'VENTE' }, ...prev]); setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + amt } : c)); } 
-                        }} 
-                        onCancelSale={(id, acc) => { setCommandes(prev => prev.map(c => c.id === id ? { ...c, statut: StatutCommande.ANNULE } : c)); }} 
-                        comptes={comptes} companyAssets={companyAssets} 
-                    />}
-                    {currentView === 'production' && <ProductionView 
-                        commandes={commandes} 
-                        employes={employes} 
-                        clients={clients} 
-                        articles={articles} 
-                        userRole={user.role} 
-                        onUpdateStatus={(id, s) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, statut: s } : c))} 
-                        onCreateOrder={(o, cons, meth, acc) => { 
-                            setCommandes(prev => [o, ...prev]); 
-                            if (o.avance > 0 && acc) setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + o.avance } : c));
-                            
-                            // DÉDUCTION STOCK MATIERES PREMIERES (ATELIER)
-                            if (cons && cons.length > 0) {
-                                setArticles(prevArticles => prevArticles.map(art => {
-                                    const usages = cons.filter(u => u.articleId === art.id);
-                                    if (usages.length === 0) return art;
-                                    
-                                    const newStock = JSON.parse(JSON.stringify(art.stockParLieu));
-                                    if (!newStock['ATELIER']) newStock['ATELIER'] = {};
-                                    
-                                    usages.forEach(usage => {
-                                        newStock['ATELIER'][usage.variante] = (newStock['ATELIER'][usage.variante] || 0) - usage.quantite;
-                                        
-                                        const mv: MouvementStock = {
-                                            id: `M_CONS_${Date.now()}_${usage.articleId}`, date: new Date().toISOString(),
-                                            articleId: art.id, articleNom: art.nom, variante: usage.variante,
-                                            type: TypeMouvement.CONSOMMATION, quantite: -usage.quantite, lieuId: 'ATELIER',
-                                            commentaire: `Production pour Commande #${o.id.slice(-6)}`
-                                        };
-                                        setMouvements(prevMv => [mv, ...prevMv]);
-                                    });
-                                    return { ...art, stockParLieu: newStock };
-                                }));
-                            }
-                        }} 
-                        onUpdateOrder={handleUpdateOrder} 
-                        onAddPayment={(id, amt, meth, note, date, acc) => { 
-                            setCommandes(prev => prev.map(c => c.id === id ? { ...c, avance: c.avance + amt, reste: Math.max(0, c.reste - amt), paiements: [...(c.paiements || []), { id: `P_${Date.now()}`, date, montant: amt, moyenPaiement: meth, note }] } : c)); 
-                            if (acc) setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + amt } : c)); 
-                        }} 
-                        onArchiveOrder={(id) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} 
-                        comptes={comptes} companyAssets={companyAssets} 
-                    />}
+                    {currentView === 'ventes' && <SalesView articles={articles} boutiques={boutiques} clients={clients} commandes={commandes} onMakeSale={handleMakeSale} onAddPayment={(id, amt, meth, note, date, acc) => { setCommandes(prev => prev.map(c => c.id === id ? { ...c, avance: c.avance + amt, reste: Math.max(0, c.reste - amt), paiements: [...(c.paiements || []), { id: `P_${Date.now()}`, date, montant: amt, moyenPaiement: meth, note }] } : c)); if (acc) { setTransactions(prev => [{ id: `TR_PAY_${Date.now()}`, date: new Date().toISOString(), type: 'ENCAISSEMENT', montant: amt, compteId: acc, description: `Encaissement #${id.slice(-6)}`, categorie: 'VENTE' }, ...prev]); setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + amt } : c)); } }} onCancelSale={(id, acc) => { setCommandes(prev => prev.map(c => c.id === id ? { ...c, statut: StatutCommande.ANNULE } : c)); }} comptes={comptes} companyAssets={companyAssets} />}
+                    {currentView === 'production' && <ProductionView commandes={commandes} employes={employes} clients={clients} articles={articles} userRole={user.role} onUpdateStatus={(id, s) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, statut: s } : c))} onCreateOrder={(o, cons, meth, acc) => { setCommandes(prev => [o, ...prev]); if (o.avance > 0 && acc) setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + o.avance } : c)); if (cons && cons.length > 0) { setArticles(prevArticles => prevArticles.map(art => { const usages = cons.filter(u => u.articleId === art.id); if (usages.length === 0) return art; const newStock = JSON.parse(JSON.stringify(art.stockParLieu)); if (!newStock['ATELIER']) newStock['ATELIER'] = {}; usages.forEach(usage => { newStock['ATELIER'][usage.variante] = (newStock['ATELIER'][usage.variante] || 0) - usage.quantite; const mv: MouvementStock = { id: `M_CONS_${Date.now()}_${usage.articleId}`, date: new Date().toISOString(), articleId: art.id, articleNom: art.nom, variante: usage.variante, type: TypeMouvement.CONSOMMATION, quantite: -usage.quantite, lieuId: 'ATELIER', commentaire: `Production pour Commande #${o.id.slice(-6)}` }; setMouvements(prevMv => [mv, ...prevMv]); }); return { ...art, stockParLieu: newStock }; })); } }} onUpdateOrder={handleUpdateOrder} onAddPayment={(id, amt, meth, note, date, acc) => { setCommandes(prev => prev.map(c => c.id === id ? { ...c, avance: c.avance + amt, reste: Math.max(0, c.reste - amt), paiements: [...(c.paiements || []), { id: `P_${Date.now()}`, date, montant: amt, moyenPaiement: meth, note }] } : c)); if (acc) setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + amt } : c)); }} onArchiveOrder={(id) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} comptes={comptes} companyAssets={companyAssets} />}
                     {currentView === 'catalogue' && <ArticlesView articles={articles} onAddArticle={handleAddArticle} onUpdateArticle={handleUpdateArticle} />}
                     {currentView === 'stock' && <StockView articles={articles} boutiques={boutiques} mouvements={mouvements} userRole={user.role} onAddMouvement={handleAddMouvement} onAddBoutique={(b) => setBoutiques(prev => [...prev, b])} />}
                     {currentView === 'fournisseurs' && <SuppliersView fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} onAddFournisseur={(f) => setFournisseurs(prev => [...prev, f])} onUpdateFournisseur={(f) => setFournisseurs(prev => prev.map(old => old.id === f.id ? f : old))} onAddPayment={handleAddPaymentFournisseur} comptes={comptes} />}
                     {currentView === 'approvisionnement' && <ProcurementView commandesFournisseurs={commandesFournisseurs} fournisseurs={fournisseurs} articles={articles} boutiques={boutiques} onAddOrder={handleAddOrderFournisseur} onUpdateOrder={(o) => setCommandesFournisseurs(prev => prev.map(old => old.id === o.id ? o : old))} onReceiveOrder={handleReceiveOrderFournisseur} onAddPayment={handleAddPaymentFournisseur} onUpdateArticle={handleUpdateArticle} onArchiveOrder={(id) => setCommandesFournisseurs(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} comptes={comptes} />}
                     {currentView === 'rh' && <HRView employes={employes} boutiques={boutiques} onAddEmploye={handleAddEmploye} onUpdateEmploye={handleUpdateEmploye} onDeleteEmploye={handleHardDeleteEmploye} onArchiveEmploye={handleArchiveEmploye} onAddDepense={handleAddDepense} depenses={depenses} onDeleteDepense={handleDeleteDepense} onUpdateDepense={handleUpdateDepense} pointages={pointages} onAddPointage={(p) => setPointages(prev => [...prev, p])} onUpdatePointage={(p) => setPointages(prev => prev.map(old => old.id === p.id ? p : old))} currentUser={user} comptes={comptes} onUpdateComptes={setComptes} onAddTransaction={handleAddTransaction} />}
                     {currentView === 'clients' && <ClientsView clients={clients} commandes={commandes} onAddClient={handleAddClient} onUpdateClient={handleUpdateClient} onDeleteClient={handleDeleteClient} />}
-                    {currentView === 'finance' && <FinanceView depenses={depenses} commandes={commandes} boutiques={boutiques} onAddDepense={handleAddDepense} onDeleteDepense={handleDeleteDepense} onUpdateDepense={handleUpdateDepense} userRole={user.role} fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} clients={clients} comptes={comptes} transactions={transactions} onUpdateComptes={setComptes} onAddTransaction={handleAddTransaction} />}
+                    {currentView === 'finance' && <FinanceView depenses={depenses} commandes={commandes} boutiques={boutiques} onAddDepense={handleAddDepense} onDeleteDepense={handleDeleteDepense} onUpdateDepense={handleUpdateDepense} userRole={user.role} fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} clients={clients} comptes={comptes} transactions={transactions} onUpdateComptes={setComptes} onAddTransaction={handleAddTransaction} currentUser={user} />}
                     {currentView === 'galerie' && <GalleryView items={galleryItems} onAddItem={(i) => setGalleryItems(prev => [i, ...prev])} onDeleteItem={(id) => setGalleryItems(prev => prev.filter(i => i.id !== id))} />}
                     {currentView === 'catalogue-public' && <PublicCatalogView articles={articles} />}
-                    {currentView === 'settings' && <SettingsView fullData={{ boutiques, employes, pointages, clients, commandes, depenses, articles, commandesFournisseurs, fournisseurs, mouvements, comptes, transactions, galleryItems }} onRestore={(d) => { setClients(d.clients || []); setCommandes(d.commandes || []); } } onImport={(t, d) => { if(t === 'CLIENTS') setClients(prev => [...prev, ...d]); if(t === 'ARTICLES') setArticles(prev => [...prev, ...d]); }} onClearData={handleClearData} companyAssets={companyAssets} onUpdateAssets={setCompanyAssets} />}
+                    {currentView === 'settings' && <SettingsView fullData={{ boutiques, employes, pointages, clients, commandes, depenses, articles, commandesFournisseurs, fournisseurs, mouvements, comptes, transactions, galleryItems, companyAssets }} onRestore={handleFullRestore} onImport={(t, d) => { 
+                        const safeData = d.map(item => ({ ...item, id: item.id || `${t.slice(0,1)}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` }));
+                        if(t === 'CLIENTS') setClients(prev => [...prev, ...safeData]); 
+                        if(t === 'ARTICLES') setArticles(prev => [...prev, ...safeData]);
+                        if(t === 'FOURNISSEURS') setFournisseurs(prev => [...prev, ...safeData]);
+                        if(t === 'EMPLOYES') setEmployes(prev => [...prev, ...safeData]);
+                        if(t === 'DEPENSES') setDepenses(prev => [...prev, ...safeData]);
+                        if(t === 'POINTAGE') setPointages(prev => [...prev, ...safeData]);
+                    }} onClearData={handleClearData} companyAssets={companyAssets} onUpdateAssets={setCompanyAssets} />}
                 </div>
             </main>
         </div>
