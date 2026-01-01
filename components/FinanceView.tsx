@@ -17,7 +17,6 @@ interface FinanceViewProps {
     commandesFournisseurs: CommandeFournisseur[];
     clients: Client[];
     comptes: CompteFinancier[];
-    transactions: TransactionTresorerie[];
     onUpdateComptes: (comptes: CompteFinancier[]) => void;
     onAddTransaction: (t: TransactionTresorerie) => void;
     currentUser: SessionUser | null;
@@ -45,6 +44,7 @@ const FinanceView: React.FC<FinanceViewProps> = ({
     // Modals
     const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
     const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+    const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
     const [isWithdrawalModalOpen, setIsWithdrawalModalOpen] = useState(false);
@@ -158,14 +158,44 @@ const FinanceView: React.FC<FinanceViewProps> = ({
         setQuickTransaction({ compteId: '', montant: 0, motif: '', date: new Date().toISOString().split('T')[0] });
     };
 
+    const handleOpenEditAccount = (acc: CompteFinancier) => {
+        setNewAccount({ ...acc });
+        setEditingAccountId(acc.id);
+        setIsAccountModalOpen(true);
+    };
+
+    const handleDeleteAccount = (id: string) => {
+        const acc = comptes.find(c => c.id === id);
+        if (!acc) return;
+        if (acc.solde !== 0) {
+            alert("Impossible de supprimer un compte qui n'est pas vide. Veuillez transférer le solde restant d'abord.");
+            return;
+        }
+        if (window.confirm(`Supprimer définitivement le compte "${acc.nom}" ?`)) {
+            onUpdateComptes(comptes.filter(c => c.id !== id));
+        }
+    };
+
     const handleSaveAccount = () => {
         if (!newAccount.nom || !newAccount.type) return;
-        const acc: CompteFinancier = { 
-            id: `CPT_${Date.now()}`, nom: newAccount.nom.toUpperCase(), type: newAccount.type as TypeCompte, 
-            solde: newAccount.solde || 0, numero: newAccount.numero, boutiqueId: newAccount.boutiqueId 
-        };
-        onUpdateComptes([...comptes, acc]);
+        
+        if (editingAccountId) {
+            // MODE MODIFICATION
+            onUpdateComptes(comptes.map(c => c.id === editingAccountId ? { ...c, ...newAccount } as CompteFinancier : c));
+        } else {
+            // MODE CREATION
+            const acc: CompteFinancier = { 
+                id: `CPT_${Date.now()}`, 
+                nom: newAccount.nom.toUpperCase(), 
+                type: newAccount.type as TypeCompte, 
+                solde: newAccount.solde || 0, 
+                numero: newAccount.numero, 
+                boutiqueId: newAccount.boutiqueId 
+            };
+            onUpdateComptes([...comptes, acc]);
+        }
         setIsAccountModalOpen(false);
+        setEditingAccountId(null);
         setNewAccount({ nom: '', type: 'CAISSE', solde: 0, numero: '', boutiqueId: 'ATELIER' });
     };
 
@@ -386,14 +416,20 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                                 <button onClick={() => setIsDepositModalOpen(true)} className="bg-[#00a859] hover:bg-[#008f4c] text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all"><PlusCircle size={18}/> Dépôt</button>
                                 <button onClick={() => setIsWithdrawalModalOpen(true)} className="bg-[#ed1c24] hover:bg-[#d61921] text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all"><MinusCircle size={18}/> Retrait</button>
                                 <button onClick={() => setIsTransferModalOpen(true)} className="bg-[#0054ff] hover:bg-[#0047d9] text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all"><ArrowRightLeft size={18}/> Virement</button>
-                                <button onClick={() => setIsAccountModalOpen(true)} className="bg-[#1a1a1a] hover:bg-black text-white px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2 shadow-xl transition-all"><Plus size={20}/> Créer Compte</button>
+                                <button onClick={() => { setEditingAccountId(null); setNewAccount({nom: '', type: 'CAISSE', solde: 0, numero: '', boutiqueId: 'ATELIER'}); setIsAccountModalOpen(true); }} className="bg-[#1a1a1a] hover:bg-black text-white px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2 shadow-xl transition-all"><Plus size={20}/> Créer Compte</button>
                             </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 px-2">
                             {comptes.map(compte => {
                                 const boutique = boutiques.find(b => b.id === compte.boutiqueId) || (compte.boutiqueId === 'ATELIER' ? {nom: 'Atelier Central'} : null);
                                 return (
-                                    <div key={compte.id} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition-all group flex flex-col justify-between h-[160px]">
+                                    <div key={compte.id} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition-all group flex flex-col justify-between h-[160px] relative">
+                                        {/* BOUTONS ACTIONS COMPTE */}
+                                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button onClick={() => handleOpenEditAccount(compte)} className="p-1.5 bg-blue-50 text-blue-600 rounded-lg border border-blue-100 hover:bg-blue-100"><Edit2 size={12}/></button>
+                                            <button onClick={() => handleDeleteAccount(compte.id)} className="p-1.5 bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100"><Trash2 size={12}/></button>
+                                        </div>
+
                                         <div className="flex justify-between items-start">
                                             <div className="flex items-center gap-4">
                                                 <div className={`p-3 rounded-2xl shadow-inner ${compte.type === 'CAISSE' ? 'bg-[#e6f6ee] text-[#00a859]' : compte.type === 'MOBILE_MONEY' ? 'bg-[#fff5f5] text-[#ed1c24]' : 'bg-[#e6eeff] text-[#0054ff]'}`}>{compte.type === 'CAISSE' ? <Banknote size={24}/> : <Smartphone size={24}/>}</div>
@@ -413,7 +449,7 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                     </div>
                 )}
 
-                {/* --- DÉPENSES (RÉPLIQUE CAPTURE) --- */}
+                {/* --- DÉPENSES --- */}
                 {activeTab === 'EXPENSES' && (
                     <div className="space-y-6 animate-in slide-in-from-left-4 duration-300">
                         <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
@@ -465,7 +501,7 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                 )}
             </div>
 
-            {/* MODAL DEPENSE (REDESIGNED) */}
+            {/* MODAL DEPENSE */}
             {isExpenseModalOpen && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md">
                     <div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl animate-in zoom-in duration-200 border border-brand-100">
@@ -484,14 +520,15 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                 </div>
             )}
 
-            {/* MODALS DEPOT / RETRAIT / VIREMENT (Identiques au reste de l'app) */}
+            {/* MODALS DEPOT / RETRAIT / VIREMENT */}
             {(isDepositModalOpen || isWithdrawalModalOpen) && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md"><div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl border border-brand-100"><div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className={`text-xl font-black uppercase tracking-tighter flex items-center gap-3 ${isDepositModalOpen ? 'text-green-600' : 'text-red-600'}`}>{isDepositModalOpen ? <PlusCircle size={28}/> : <MinusCircle size={28}/>}{isDepositModalOpen ? 'Dépôt / Entrée' : 'Retrait / Sortie'}</h3><button onClick={() => { setIsDepositModalOpen(false); setIsWithdrawalModalOpen(false); }} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><X size={28}/></button></div><div className="space-y-6"><div><label className="block text-[11px] font-black text-gray-400 uppercase mb-2 tracking-widest">Compte</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50 outline-none" value={quickTransaction.compteId} onChange={e => setQuickTransaction({...quickTransaction, compteId: e.target.value})}><option value="">-- Choisir Compte --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div><div><label className="block text-[11px] font-black text-gray-400 uppercase mb-2 tracking-widest">Montant</label><input type="number" className={`w-full p-4 border-2 rounded-2xl text-2xl font-black focus:ring-0 outline-none transition-all ${isDepositModalOpen ? 'border-green-100 text-green-600 bg-green-50 focus:border-green-600' : 'border-red-100 text-red-600 bg-red-50 focus:border-red-600'}`} value={quickTransaction.montant || ''} onChange={e => setQuickTransaction({...quickTransaction, montant: parseInt(e.target.value)||0})} placeholder="0" /></div><div><label className="block text-[11px] font-black text-gray-400 uppercase mb-2 tracking-widest">Motif</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-gray-50 focus:border-brand-600 outline-none shadow-sm" value={quickTransaction.motif} onChange={e => setQuickTransaction({...quickTransaction, motif: e.target.value})} placeholder={isDepositModalOpen ? "Ex: Apport personnel" : "Ex: Frais divers"} /></div></div><div className="flex justify-end gap-3 mt-10 pt-5 border-t"><button onClick={() => { setIsDepositModalOpen(false); setIsWithdrawalModalOpen(false); }} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={() => handleQuickTransaction(isDepositModalOpen ? 'ENCAISSEMENT' : 'DECAISSEMENT')} className={`px-12 py-4 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all ${isDepositModalOpen ? 'bg-green-600 shadow-green-100' : 'bg-red-600 shadow-red-100'}`}>Valider</button></div></div></div>
             )}
 
             {isTransferModalOpen && (<div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md"><div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl border border-brand-100"><div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3 text-blue-600"><ArrowRightLeft size={32}/> Virement Interne</h3><button onClick={() => setIsTransferModalOpen(false)} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><X size={28}/></button></div><div className="space-y-6"><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Montant à transférer</label><input type="number" className="w-full p-4 border-2 border-blue-50 rounded-2xl text-2xl font-black text-blue-900 bg-blue-50/30 outline-none" value={transferData.montant || ''} onChange={e => setTransferData({...transferData, montant: parseInt(e.target.value)||0})} placeholder="0" /></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Source</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-xs" value={transferData.sourceId} onChange={e => setTransferData({...transferData, sourceId: e.target.value})}><option value="">-- Choisir --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Destination</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-xs" value={transferData.destId} onChange={e => setTransferData({...transferData, destId: e.target.value})}><option value="">-- Choisir --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div></div></div><div className="flex justify-end gap-3 mt-10 pt-4 border-t"><button onClick={() => setIsTransferModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={handleTransfer} disabled={transferData.montant <= 0 || !transferData.sourceId || !transferData.destId} className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-blue-100 active:scale-95 transition-all">Confirmer</button></div></div></div>)}
 
-            {isAccountModalOpen && (<div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md"><div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl border border-brand-100"><div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3"><Plus size={32} className="text-brand-600"/> Nouveau Compte</h3><button onClick={() => setIsAccountModalOpen(false)} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><X size={28}/></button></div><div className="space-y-6"><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Nom du compte</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 uppercase focus:border-brand-600 outline-none shadow-sm" value={newAccount.nom} onChange={e => setNewAccount({...newAccount, nom: e.target.value})} placeholder="Ex: Caisse Boutique" /></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Type</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 outline-none text-xs" value={newAccount.type} onChange={e => setNewAccount({...newAccount, type: e.target.value as any})}><option value="CAISSE">Caisse (Espèce)</option><option value="BANQUE">Banque (Virement/Chèque)</option><option value="MOBILE_MONEY">Mobile Money (Wave/OM)</option></select></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Solde Initial</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none" value={newAccount.solde || ''} onChange={e => setNewAccount({...newAccount, solde: parseInt(e.target.value)||0})} placeholder="0" /></div></div><div className="flex justify-end gap-3 mt-10 pt-5 border-t"><button onClick={() => setIsAccountModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={handleSaveAccount} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">Créer Compte</button></div></div></div>)}
+            {/* MODAL NOUVEAU COMPTE / MODIFICATION COMPTE */}
+            {isAccountModalOpen && (<div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md"><div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl border border-brand-100"><div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3"><Plus size={32} className="text-brand-600"/> {editingAccountId ? 'Modifier Compte' : 'Nouveau Compte'}</h3><button onClick={() => { setIsAccountModalOpen(false); setEditingAccountId(null); }} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><X size={28}/></button></div><div className="space-y-6"><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Nom du compte</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 uppercase focus:border-brand-600 outline-none shadow-sm" value={newAccount.nom} onChange={e => setNewAccount({...newAccount, nom: e.target.value})} placeholder="Ex: Caisse Boutique" /></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Type</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 outline-none text-xs" value={newAccount.type} onChange={e => setNewAccount({...newAccount, type: e.target.value as any})}><option value="CAISSE">Caisse (Espèce)</option><option value="BANQUE">Banque (Virement/Chèque)</option><option value="MOBILE_MONEY">Mobile Money (Wave/OM)</option></select></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Numéro de compte / Identifiant</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none" value={newAccount.numero} onChange={e => setNewAccount({...newAccount, numero: e.target.value})} placeholder="Ex: 77 123 45 67 ou IBAN" /></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Solde Initial</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none disabled:opacity-50" value={newAccount.solde || ''} onChange={e => setNewAccount({...newAccount, solde: parseInt(e.target.value)||0})} placeholder="0" disabled={!!editingAccountId} /></div></div><div className="flex justify-end gap-3 mt-10 pt-5 border-t"><button onClick={() => { setIsAccountModalOpen(false); setEditingAccountId(null); }} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={handleSaveAccount} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">{editingAccountId ? 'Mettre à jour' : 'Créer Compte'}</button></div></div></div>)}
         </div>
     );
 };
