@@ -5,27 +5,24 @@ import { COMPANY_CONFIG } from "../config";
 export const getAIAnalysis = async (contextData: string, userPrompt: string): Promise<string> => {
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const model = 'gemini-3-flash-preview';
+        // Utilisation du modèle Pro pour l'analyse stratégique complexe
+        const model = 'gemini-3-pro-preview';
         
-        const systemInstruction = `
-            Tu es un assistant expert en gestion d'entreprise pour "${COMPANY_CONFIG.name}", ${COMPANY_CONFIG.aiContext}.
-            Ta mission est d'aider le gérant à optimiser la production, suivre les ventes, et gérer les denses.
-            Réponds toujours de manière professionnelle, concise et en Français.
-            Utilise le contexte JSON fourni pour baser tes analyses.
-            La devise est le ${COMPANY_CONFIG.currency}.
-        `;
+        const systemInstruction = `Tu es un assistant expert en gestion d'entreprise pour "${COMPANY_CONFIG.name}", ${COMPANY_CONFIG.aiContext}.
+Ta mission est d'aider le gérant à optimiser la production, suivre les ventes, et gérer les dépenses.
+Réponds toujours de manière professionnelle, concise et en Français.
+Utilise le contexte JSON fourni pour baser tes analyses.
+La devise est le ${COMPANY_CONFIG.currency}.`;
 
-        const fullPrompt = `
-            CONTEXTE DONNÉES ENTREPRISE (JSON):
-            ${contextData}
+        const fullPrompt = `CONTEXTE DONNÉES ENTREPRISE (JSON):
+${contextData}
 
-            QUESTION UTILISATEUR:
-            ${userPrompt}
-        `;
+QUESTION UTILISATEUR:
+${userPrompt}`;
 
         const response = await ai.models.generateContent({
             model: model,
-            contents: fullPrompt,
+            contents: { parts: [{ text: fullPrompt }] },
             config: {
                 systemInstruction: systemInstruction,
                 temperature: 0.7,
@@ -34,7 +31,7 @@ export const getAIAnalysis = async (contextData: string, userPrompt: string): Pr
 
         return response.text || "Désolé, je n'ai pas pu générer une analyse pour le moment.";
     } catch (error) {
-        console.error("Erreur Gemini:", error);
+        console.error("Erreur Gemini Analysis:", error);
         return "Erreur de connexion à l'IA. Veuillez vérifier votre clé API ou votre connexion internet.";
     }
 };
@@ -50,16 +47,21 @@ export const analyzeProductionBottlenecks = async (commandes: any[], artisans: a
         }));
         
         const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `Analyse ce flux de production pour l'atelier de couture BY TCHICO :
-            Commandes en cours : ${JSON.stringify(summary)}
-            Artisans disponibles : ${artisans.length}
-            
-            Identifie s'il y a un goulot d'étranglement (ex: trop de commandes en "Couture") ou si un artisan est surchargé. 
-            Donne une recommandation d'action immédiate en 2 phrases maximum.`,
+            model: 'gemini-3-pro-preview',
+            contents: { 
+                parts: [{ 
+                    text: `Analyse ce flux de production pour l'atelier de couture BY TCHICO :
+Commandes en cours : ${JSON.stringify(summary)}
+Artisans disponibles : ${artisans.length}
+
+Identifie s'il y a un goulot d'étranglement (ex: trop de commandes en "Couture") ou si un artisan est surchargé. 
+Donne une recommandation d'action immédiate en 2 phrases maximum.` 
+                }] 
+            },
         });
         return response.text || "Flux de production stable.";
     } catch (e) {
+        console.error("Erreur Gemini Bottlenecks:", e);
         return "Analyse indisponible.";
     }
 };
@@ -68,13 +70,18 @@ export const recommendFabricMeterage = async (measurements: any, garmentType: st
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `En tant qu'expert tailleur, recommande le métrage de tissu nécessaire (en mètres) pour confectionner un(e) "${garmentType}".
-            Mesures du client (en cm) : ${JSON.stringify(measurements)}.
-            Donne une réponse courte, précise et explique brièvement pourquoi ce métrage.`,
+            model: 'gemini-3-pro-preview',
+            contents: { 
+                parts: [{ 
+                    text: `En tant qu'expert tailleur, recommande le métrage de tissu nécessaire (en mètres) pour confectionner un(e) "${garmentType}".
+Mesures du client (en cm) : ${JSON.stringify(measurements)}.
+Donne une réponse courte, précise et explique brièvement pourquoi ce métrage.` 
+                }] 
+            },
         });
         return response.text || "Erreur de calcul IA.";
     } catch (e) {
+        console.error("Erreur Gemini Meterage:", e);
         return "Impossible d'obtenir une recommandation pour le moment.";
     }
 };
@@ -84,10 +91,14 @@ export const draftClientMessage = async (clientName: string, orderDescription: s
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: `Rédige un message WhatsApp court et poli pour le client ${clientName}.
-            Sa commande "${orderDescription}" est actuellement au statut : "${status}".
-            Si c'est "Prêt", invite-le à passer à la boutique ${COMPANY_CONFIG.name}.
-            Utilise un ton chaleureux.`,
+            contents: { 
+                parts: [{ 
+                    text: `Rédige un message WhatsApp court et poli pour le client ${clientName}.
+Sa commande "${orderDescription}" est actuellement au statut : "${status}".
+Si c'est "Prêt", invite-le à passer à la boutique ${COMPANY_CONFIG.name}.
+Utilise un ton chaleureux.` 
+                }] 
+            },
         });
         return response.text || "";
      } catch (e) {
@@ -99,16 +110,14 @@ export const parseMeasurementsFromText = async (text: string): Promise<Record<st
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `
-                Analyse le texte suivant qui contient des mesures de couture dictées vocalement.
-                Texte : "${text}"
-                
-                Extrais les valeurs et associe-les aux clés JSON correspondantes.
-                
-                RÈGLE CRITIQUE POUR LES MESURES MULTIPLES :
-                Si l'utilisateur énonce deux chiffres (ex: "épaule 38 42"), renvoie "38/42".
-            `,
+            model: 'gemini-3-pro-preview',
+            contents: { parts: [{ text: `Analyse le texte suivant qui contient des mesures de couture dictées vocalement.
+Texte : "${text}"
+
+Extrais les valeurs et associe-les aux clés JSON correspondantes.
+
+RÈGLE CRITIQUE POUR LES MESURES MULTIPLES :
+Si l'utilisateur énonce deux chiffres (ex: "épaule 38 42"), renvoie "38/42".` }] },
             config: {
                 responseMimeType: 'application/json',
                 responseSchema: {
