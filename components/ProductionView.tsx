@@ -1,7 +1,9 @@
 
 import React, { useState, useMemo } from 'react';
-import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction, ElementCommande, PaiementClient, Consommation } from '../types';
-import { Scissors, LayoutList, Users, Search, X, Activity, Clock, Calendar, CheckCircle, CheckSquare, Zap, Columns, Trophy, Wallet, Printer, Eye, UserPlus, Plus, Save, Truck, ArrowRightLeft, DollarSign, Trash2, AlertTriangle, ChevronLeft, ChevronRight, ClipboardList, Minus, Box, Shirt, UserCheck, Edit2, Ban } from 'lucide-react';
+import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction } from '../types';
+/* Added Star to the lucide-react import list to fix the "Cannot find name 'Star'" error on line 526 */
+import { Scissors, Search, X, Activity, Clock, Calendar, CheckCircle, Columns, Eye, Plus, Edit2, UserPlus, Trophy, DollarSign, Ban, Truck, Users, ChevronLeft, ChevronRight, ClipboardList, FileText, Sparkles, Printer, Zap, TrendingUp, AlertCircle, Star } from 'lucide-react';
+import { analyzeProductionBottlenecks } from '../services/geminiService';
 import { COMPANY_CONFIG } from '../config';
 
 interface ProductionViewProps {
@@ -11,8 +13,8 @@ interface ProductionViewProps {
     articles: Article[];
     userRole: RoleEmploye;
     onUpdateStatus: (id: string, status: StatutCommande) => void;
-    onCreateOrder: (order: Commande, consommations: { articleId: string, variante: string, quantite: number }[], paymentMethod?: ModePaiement, accountId?: string) => void;
-    onUpdateOrder: (order: Commande, accountId?: string, paymentMethod?: ModePaiement) => void;
+    onCreateOrder: (order: Commande, consommations: any[], paymentMethod?: ModePaiement, accountId?: string) => void;
+    onUpdateOrder: (order: Commande) => void;
     onAddPayment: (orderId: string, amount: number, method: ModePaiement, note: string, date: string, accountId?: string) => void;
     onArchiveOrder: (orderId: string) => void;
     comptes: CompteFinancier[];
@@ -27,367 +29,380 @@ const KANBAN_STATUS_ORDER = [
     StatutCommande.PRET
 ];
 
+const STATUS_COLORS: Record<string, string> = {
+    [StatutCommande.EN_ATTENTE]: 'bg-gray-100 text-gray-600 border-gray-200',
+    [StatutCommande.EN_COUPE]: 'bg-blue-50 text-blue-700 border-blue-100',
+    [StatutCommande.COUTURE]: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+    [StatutCommande.FINITION]: 'bg-amber-50 text-amber-700 border-amber-100',
+    [StatutCommande.PRET]: 'bg-green-50 text-green-700 border-green-100',
+    [StatutCommande.LIVRE]: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+};
+
 const ProductionView: React.FC<ProductionViewProps> = ({ 
     commandes, employes, clients, articles, userRole, 
     onUpdateStatus, onCreateOrder, onUpdateOrder, onAddPayment, onArchiveOrder, comptes, companyAssets 
 }) => {
-    const [viewMode, setViewMode] = useState<'ORDERS' | 'TAILORS' | 'PERFORMANCE' | 'KANBAN' | 'PLANNING'>('PLANNING');
+    const [viewMode, setViewMode] = useState<'ORDERS' | 'KANBAN' | 'PLANNING' | 'TAILORS' | 'PERFORMANCE'>('PLANNING');
     const [searchTerm, setSearchTerm] = useState('');
-    const [listFilter, setListFilter] = useState<'ALL' | 'ACTIVE' | 'READY' | 'DELIVERED' | 'ARCHIVED'>('ACTIVE');
+    const [listFilter, setListFilter] = useState<'ACTIVE' | 'READY' | 'DEVIS' | 'ALL'>('ACTIVE');
     
     // Modal States
     const [taskModalOpen, setTaskModalOpen] = useState(false);
     const [orderModalOpen, setOrderModalOpen] = useState(false);
     const [isEditingOrder, setIsEditingOrder] = useState(false);
-    const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-    const [deliveryModal, setDeliveryModal] = useState<{ order: Commande, maxQty: number, qty: number } | null>(null);
-    const [kanbanMoveModal, setKanbanMoveModal] = useState<{
-        order: Commande, fromStatus: StatutCommande, toStatus: StatutCommande, movements: Record<string, number>, assignTailorId: string
-    } | null>(null);
+    const [paymentModalOpen, setPaymentModalOpen] = useState<Commande | null>(null);
     const [orderDetailView, setOrderDetailView] = useState<Commande | null>(null);
-    const [cancelModalOpen, setCancelModalOpen] = useState<Commande | null>(null);
 
-    // Form Multi-Articles
+    // AI Analysis State
+    const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+    const [isAiLoading, setIsAiLoading] = useState(false);
+
+    // Form Data
     const [newOrderItems, setNewOrderItems] = useState<{nom: string, qte: number}[]>([{nom: '', qte: 1}]);
-    const [consommations, setConsommations] = useState<{articleId: string, variante: string, quantite: number}[]>([]);
-    
     const [newOrderData, setNewOrderData] = useState<Partial<Commande>>({
-        clientId: '', description: '', prixTotal: 0, avance: 0, dateLivraisonPrevue: ''
+        clientId: '', dateLivraisonPrevue: '', prixTotal: 0, avance: 0, isDevis: false
     });
     const [initialAccountId, setInitialAccountId] = useState('');
-
-    const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<Commande | null>(null);
     const [payAmount, setPayAmount] = useState(0);
-    const [payAccount, setPayAccount] = useState('');
     const [payMethod, setPayMethod] = useState<ModePaiement>('ESPECE');
+    const [payAccount, setPayAccount] = useState('');
     const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
-
-    // Task Assignment Data
-    const [newTaskData, setNewTaskData] = useState<{ orderId: string, elementNom: string, action: ActionProduction, quantite: number, note: string, tailleurId: string, date: string }>({ 
-        orderId: '', elementNom: '', action: 'COUTURE', quantite: 1, note: '', tailleurId: '', date: new Date().toISOString().split('T')[0] 
+    const [newTaskData, setNewTaskData] = useState({ 
+        orderId: '', elementNom: '', action: 'COUPE' as ActionProduction, quantite: 1, tailleurId: '', note: '', date: new Date().toISOString().split('T')[0]
     });
 
-    const [agendaBaseDate, setAgendaBaseDate] = useState(() => {
-        const d = new Date(); d.setHours(0,0,0,0); return d;
-    });
+    // Planning Navigation
+    const [planningStartDate, setPlanningStartDate] = useState(new Date());
 
-    // --- DATA AGGREGATION ---
-    const tailleurs = useMemo(() => employes.filter(e => (e.role === RoleEmploye.TAILLEUR || e.role === RoleEmploye.CHEF_ATELIER || e.role === RoleEmploye.STAGIAIRE) && e.actif !== false).sort((a, b) => a.nom.localeCompare(b.nom)), [employes]);
-    
+    const tailleurs = useMemo(() => employes.filter(e => e.actif !== false && (e.role === 'TAILLEUR' || e.role === 'CHEF_ATELIER' || e.role === 'STAGIAIRE')), [employes]);
+
     const filteredCommandes = useMemo(() => {
         return commandes.filter(c => {
-            if (c.type !== 'SUR_MESURE') return false; 
+            if (c.type !== 'SUR_MESURE') return false;
             const isCompleted = c.statut === StatutCommande.LIVRE || c.statut === StatutCommande.ANNULE;
-            const isArchived = c.archived === true;
-            const isReady = (c.repartitionStatuts?.[StatutCommande.PRET] || 0) > 0 || c.statut === StatutCommande.PRET;
-
-            const matchesFilter = viewMode === 'ORDERS' ? (
-                listFilter === 'ACTIVE' ? (!isCompleted && !isArchived) :
-                listFilter === 'READY' ? (isReady && !isArchived) :
-                listFilter === 'DELIVERED' ? (isCompleted && !isArchived) :
-                listFilter === 'ARCHIVED' ? isArchived : true
-            ) : (!isCompleted && !isArchived);
-
-            const searchLower = searchTerm.toLowerCase();
-            return matchesFilter && (c.clientNom.toLowerCase().includes(searchLower) || c.id.toLowerCase().includes(searchLower));
+            const matchesFilter = listFilter === 'ACTIVE' ? !isCompleted && !c.isDevis :
+                                 listFilter === 'READY' ? c.statut === StatutCommande.PRET :
+                                 listFilter === 'DEVIS' ? c.isDevis === true : true;
+            return matchesFilter && c.clientNom.toLowerCase().includes(searchTerm.toLowerCase());
         }).sort((a, b) => new Date(b.dateCommande).getTime() - new Date(a.dateCommande).getTime());
-    }, [commandes, searchTerm, viewMode, listFilter]);
+    }, [commandes, searchTerm, listFilter]);
 
-    // Performances Calculation
-    const performanceStats = useMemo(() => {
-        const stats: Record<string, { done: number, pending: number, total: number }> = {};
-        tailleurs.forEach(t => stats[t.id] = { done: 0, pending: 0, total: 0 });
-
-        commandes.forEach(cmd => {
-            (cmd.taches || []).forEach(tache => {
-                if (stats[tache.tailleurId]) {
-                    stats[tache.tailleurId].total += tache.quantite;
-                    if (tache.statut === 'FAIT') stats[tache.tailleurId].done += tache.quantite;
-                    else stats[tache.tailleurId].pending += tache.quantite;
-                }
-            });
-        });
-
-        return Object.entries(stats).map(([id, s]) => ({
-            id,
-            nom: tailleurs.find(t => t.id === id)?.nom || 'Inconnu',
-            ...s,
-            ratio: s.total > 0 ? Math.round((s.done / s.total) * 100) : 0
-        })).sort((a, b) => b.done - a.done);
-    }, [commandes, tailleurs]);
-
-    // --- LOGIQUE METIER ---
-
-    const handleAddItemRow = () => setNewOrderItems([...newOrderItems, {nom: '', qte: 1}]);
-    const handleRemoveItemRow = (idx: number) => setNewOrderItems(newOrderItems.filter((_, i) => i !== idx));
-
-    const handleAddConsommationRow = () => setConsommations([...consommations, { articleId: '', variante: '', quantite: 0 }]);
-    const handleRemoveConsommationRow = (idx: number) => setConsommations(consommations.filter((_, i) => i !== idx));
-
-    const handleCreateOrUpdateCustomOrder = () => {
-        if (!newOrderData.clientId || !newOrderData.prixTotal || newOrderItems.some(i => !i.nom)) {
-            alert("Veuillez remplir le client, le prix et les noms d'articles."); return;
-        }
-        const client = clients.find(c => c.id === newOrderData.clientId);
-        const totalQty = newOrderItems.reduce((acc, i) => acc + i.qte, 0);
-        
-        const initialDetails: Record<string, number> = {};
-        newOrderItems.forEach(it => {
-            initialDetails[it.nom.toUpperCase()] = it.qte;
-        });
-
-        if (isEditingOrder && newOrderData.id) {
-            const existing = commandes.find(c => c.id === newOrderData.id);
-            if (!existing) return;
-            const updatedOrder: Commande = {
-                ...existing,
-                clientId: newOrderData.clientId || existing.clientId,
-                clientNom: client?.nom || existing.clientNom,
-                description: newOrderItems.map(i => `${i.nom} (x${i.qte})`).join(', '),
-                prixTotal: newOrderData.prixTotal || existing.prixTotal,
-                reste: (newOrderData.prixTotal || 0) - existing.avance,
-                dateLivraisonPrevue: newOrderData.dateLivraisonPrevue || existing.dateLivraisonPrevue,
-                elements: newOrderItems.map(i => ({nom: i.nom.toUpperCase(), quantite: i.qte})),
-                quantite: totalQty
-            };
-            onUpdateOrder(updatedOrder);
-            alert("Commande mise à jour !");
-        } else {
-            const order: Commande = {
-                id: `CMD_SM_${Date.now()}`, clientId: newOrderData.clientId || '', clientNom: client?.nom || 'Inconnu',
-                description: newOrderItems.map(i => `${i.nom} (x${i.qte})`).join(', '),
-                dateCommande: new Date().toISOString(), dateLivraisonPrevue: newOrderData.dateLivraisonPrevue || '',
-                statut: StatutCommande.EN_ATTENTE, tailleursIds: [], prixTotal: newOrderData.prixTotal || 0,
-                avance: newOrderData.avance || 0, reste: (newOrderData.prixTotal || 0) - (newOrderData.avance || 0),
-                type: 'SUR_MESURE', quantite: totalQty, 
-                repartitionStatuts: { [StatutCommande.EN_ATTENTE]: totalQty },
-                repartitionDetails: { [StatutCommande.EN_ATTENTE]: initialDetails },
-                paiements: (newOrderData.avance || 0) > 0 ? [{ id: `P_${Date.now()}`, date: new Date().toISOString(), montant: newOrderData.avance || 0, moyenPaiement: 'ESPECE', note: 'Acompte' }] : [],
-                elements: newOrderItems.map(i => ({nom: i.nom.toUpperCase(), quantite: i.qte})), taches: []
-            };
-            onCreateOrder(order, consommations, 'ESPECE', initialAccountId);
-            alert("Commande créée et stock matières premières déduit !");
-        }
-        
-        setOrderModalOpen(false);
-        setIsEditingOrder(false);
-        setConsommations([]);
+    // --- AI ANALYSIS ---
+    const handleRunAIAnalysis = async () => {
+        setIsAiLoading(true);
+        const result = await analyzeProductionBottlenecks(commandes.filter(c => c.statut !== StatutCommande.LIVRE && !c.isDevis), tailleurs);
+        setAiAnalysis(result);
+        setIsAiLoading(false);
     };
 
-    const handleEditOrderRequest = (order: Commande) => {
-        setNewOrderData({...order});
-        setNewOrderItems(order.elements?.map(e => ({nom: e.nom, qte: e.quantite})) || [{nom: order.description, qte: order.quantite}]);
-        setIsEditingOrder(true);
-        setOrderModalOpen(true);
+    // --- PRINT WORKSHOP SLIP ---
+    const handlePrintWorkshopSlip = (order: Commande) => {
+        const client = clients.find(c => c.id === order.clientId);
+        const printWindow = window.open('', '', 'width=800,height=900');
+        if (!printWindow) return;
+
+        const logoUrl = companyAssets?.logoStr || `${window.location.origin}${COMPANY_CONFIG.logoUrl}`;
+        const measurementsHtml = client?.mesures ? Object.entries(client.mesures).map(([k, v]) => `<div><b>${k.toUpperCase()}:</b> ${v}</div>`).join('') : 'Pas de mesures';
+
+        const html = `
+            <html>
+                <head>
+                    <title>FICHE ATELIER #${order.id}</title>
+                    <style>
+                        body { font-family: 'Inter', sans-serif; padding: 40px; color: #1a1a1a; }
+                        .header { display: flex; justify-content: space-between; border-bottom: 4px solid #000; padding-bottom: 20px; }
+                        .section { margin-top: 30px; }
+                        .title { font-size: 24px; font-weight: 900; text-transform: uppercase; margin-bottom: 10px; }
+                        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 14px; }
+                        .elements { background: #f4f4f4; padding: 20px; border-radius: 10px; font-size: 18px; font-weight: bold; }
+                        .footer { margin-top: 50px; font-size: 10px; color: #888; text-align: center; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <div>
+                            <img src="${logoUrl}" style="height: 60px"/>
+                            <div style="font-size: 20px; font-weight: 900;">${COMPANY_CONFIG.name}</div>
+                        </div>
+                        <div style="text-align: right">
+                            <div class="title">FICHE D'ATELIER</div>
+                            <div style="font-size: 18px; font-weight: bold;">CMD #${order.id.slice(-6)}</div>
+                            <div>Livraison prévue: <b>${new Date(order.dateLivraisonPrevue).toLocaleDateString()}</b></div>
+                        </div>
+                    </div>
+                    <div class="section">
+                        <div class="title">Client: ${order.clientNom}</div>
+                        <div class="elements">Composition: ${order.description}</div>
+                    </div>
+                    <div class="section">
+                        <div class="title" style="font-size: 16px;">Mesures Techniques (CM)</div>
+                        <div class="grid">${measurementsHtml}</div>
+                    </div>
+                    <div class="section" style="border: 2px solid #000; padding: 20px; min-height: 150px;">
+                        <div class="title" style="font-size: 16px;">Notes de Coupe & Style</div>
+                        <p>${client?.stylePreferences || 'Aucune note particulière.'}</p>
+                    </div>
+                    <div class="footer">Document généré par BY TCHICO Manager v${COMPANY_CONFIG.version}</div>
+                    <script>window.print();</script>
+                </body>
+            </html>
+        `;
+        printWindow.document.write(html);
+        printWindow.document.close();
     };
 
-    const handleCancelOrder = (order: Commande) => {
-        if (window.confirm(`Voulez-vous vraiment annuler la commande de ${order.clientNom} ?`)) {
-            onUpdateOrder({ ...order, statut: StatutCommande.ANNULE });
-            setCancelModalOpen(null);
-        }
+    // --- DRAG & DROP ---
+    const onDragStart = (e: React.DragEvent, orderId: string, sourceStatus: string) => {
+        e.dataTransfer.setData("orderId", orderId);
+        e.dataTransfer.setData("sourceStatus", sourceStatus);
     };
 
-    // Glisser-Déposer (Kanban)
-    const handleDragStart = (e: React.DragEvent, orderId: string, fromStatus: string) => {
-        e.dataTransfer.setData('orderId', orderId);
-        e.dataTransfer.setData('fromStatus', fromStatus);
-    };
-
-    const handleDropOnColumn = (e: React.DragEvent, toStatus: StatutCommande) => {
+    const onDrop = (e: React.DragEvent, targetStatus: StatutCommande) => {
         e.preventDefault();
-        const orderId = e.dataTransfer.getData('orderId');
-        const fromStatus = e.dataTransfer.getData('fromStatus');
-        if (fromStatus === toStatus) return;
+        const orderId = e.dataTransfer.getData("orderId");
+        const sourceStatus = e.dataTransfer.getData("sourceStatus");
+        if (sourceStatus === targetStatus) return;
 
         const order = commandes.find(c => c.id === orderId);
         if (!order) return;
 
-        let currentDetails = order.repartitionDetails?.[fromStatus] || {};
-        const qtyInStatus = order.repartitionStatuts?.[fromStatus] || (order.statut === fromStatus ? order.quantite : 0);
-        
-        if (Object.keys(currentDetails).length === 0 && qtyInStatus > 0) {
-            if (order.elements && order.elements.length > 0) {
-                order.elements.forEach(el => { currentDetails[el.nom] = el.quantite; });
-            } else {
-                currentDetails["Articles"] = qtyInStatus;
-            }
+        const qtyToMove = order.repartitionStatuts?.[sourceStatus] || 0;
+        if (qtyToMove <= 0) return;
+
+        const newRepartition = { ...(order.repartitionStatuts || {}) };
+        newRepartition[sourceStatus] = 0;
+        newRepartition[targetStatus] = (newRepartition[targetStatus] || 0) + qtyToMove;
+
+        onUpdateOrder({ ...order, repartitionStatuts: newRepartition, statut: targetStatus === StatutCommande.PRET ? StatutCommande.PRET : targetStatus });
+    };
+
+    // --- LOGIQUE LIVRAISON ---
+    const handleDeliverParts = (order: Commande) => {
+        const qtyReady = order.repartitionStatuts?.[StatutCommande.PRET] || 0;
+        if (qtyReady <= 0) {
+            alert("Aucune pièce n'est prête pour la livraison.");
+            return;
         }
 
-        const movements: Record<string, number> = {};
-        Object.keys(currentDetails).forEach(k => movements[k] = 0);
+        if (!window.confirm(`Confirmer la livraison de ${qtyReady} pièce(s) prête(s) pour le client ${order.clientNom} ?`)) {
+            return;
+        }
 
-        setKanbanMoveModal({ order, fromStatus: fromStatus as StatutCommande, toStatus, movements, assignTailorId: '' });
-    };
+        if (order.reste > 0) {
+            alert(`Attention : Le client doit encore régler ${order.reste.toLocaleString()} F.`);
+        }
 
-    const executeKanbanMove = () => {
-        if (!kanbanMoveModal) return;
-        const { order, fromStatus, toStatus, movements, assignTailorId } = kanbanMoveModal;
-        
-        const newRepartition = { ...(order.repartitionStatuts || { [fromStatus]: order.quantite }) };
-        const newDetails = { ...(order.repartitionDetails || { [fromStatus]: {} }) };
-        
-        if (!newDetails[fromStatus]) newDetails[fromStatus] = {};
-        if (!newDetails[toStatus]) newDetails[toStatus] = {};
+        const newRepartition = { ...(order.repartitionStatuts || {}) };
+        newRepartition[StatutCommande.PRET] = 0;
+        newRepartition[StatutCommande.LIVRE] = (newRepartition[StatutCommande.LIVRE] || 0) + qtyReady;
 
-        let totalToMove = 0;
-        let updatedTaches = [...(order.taches || [])];
+        const deliveredOnly = newRepartition[StatutCommande.LIVRE] || 0;
+        const isFullyDelivered = deliveredOnly >= order.quantite;
 
-        (Object.entries(movements) as [string, number][]).forEach(([itemName, qty]) => {
-            if (qty <= 0) return;
-            totalToMove += qty;
-            
-            newDetails[fromStatus][itemName] = (newDetails[fromStatus][itemName] || 0) - qty;
-            if (newDetails[fromStatus][itemName] <= 0) delete newDetails[fromStatus][itemName];
-            
-            newDetails[toStatus][itemName] = (newDetails[toStatus][itemName] || 0) + qty;
-
-            if (assignTailorId) {
-                let action: ActionProduction = 'COUTURE';
-                if (toStatus === StatutCommande.EN_COUPE) action = 'COUPE';
-                else if (toStatus === StatutCommande.FINITION) action = 'FINITION';
-                else if (toStatus === StatutCommande.PRET) action = 'REPASSAGE';
-                
-                updatedTaches.push({ 
-                    id: `T_KB_${Date.now()}_${itemName}`, commandeId: order.id, elementNom: itemName, action, quantite: qty, tailleurId: assignTailorId, 
-                    date: new Date().toISOString().split('T')[0], statut: 'A_FAIRE' 
-                });
-            }
-        });
-
-        if (totalToMove === 0) return;
-
-        newRepartition[fromStatus] = (newRepartition[fromStatus] || 0) - totalToMove;
-        if (newRepartition[fromStatus] <= 0) delete newRepartition[fromStatus];
-        newRepartition[toStatus] = (newRepartition[toStatus] || 0) + totalToMove;
-
-        let mostAdvanced = StatutCommande.EN_ATTENTE;
-        KANBAN_STATUS_ORDER.forEach(s => { if ((newRepartition[s] || 0) > 0) mostAdvanced = s as StatutCommande; });
-
-        onUpdateOrder({ ...order, repartitionStatuts: newRepartition, repartitionDetails: newDetails, statut: mostAdvanced, taches: updatedTaches });
-        setKanbanMoveModal(null);
-    };
-
-    const handleTaskStatusChange = (order: Commande, task: TacheProduction, newStatut: 'A_FAIRE' | 'FAIT') => {
-        const updatedTaches = (order.taches || []).map(t => t.id === task.id ? { ...t, statut: newStatut } : t);
-        
-        let newRepartition = { ...(order.repartitionStatuts || { [StatutCommande.EN_ATTENTE]: order.quantite }) };
-        let newDetails = { ...(order.repartitionDetails || { [StatutCommande.EN_ATTENTE]: {} }) };
-
-        const transitions: Record<string, { from: StatutCommande, to: StatutCommande }> = { 
-            'COUPE': { from: StatutCommande.EN_ATTENTE, to: StatutCommande.EN_COUPE }, 
-            'COUTURE': { from: StatutCommande.EN_COUPE, to: StatutCommande.COUTURE }, 
-            'FINITION': { from: StatutCommande.COUTURE, to: StatutCommande.FINITION }, 
-            'REPASSAGE': { from: StatutCommande.FINITION, to: StatutCommande.PRET } 
+        const updatedOrder = {
+            ...order,
+            repartitionStatuts: newRepartition,
+            statut: isFullyDelivered ? StatutCommande.LIVRE : order.statut,
+            dateLivraisonEffective: isFullyDelivered ? new Date().toISOString() : order.dateLivraisonEffective
         };
-        const rule = transitions[task.action];
+
+        onUpdateOrder(updatedOrder);
+        if (orderDetailView && orderDetailView.id === order.id) setOrderDetailView(updatedOrder);
+        alert(`${qtyReady} pièce(s) marquée(s) comme LIVRÉES.`);
+    };
+
+    const handleToggleTaskStatus = (tk: TacheProduction) => {
+        const order = commandes.find(c => c.id === tk.commandeId);
+        if (!order) return;
         
-        if (rule) {
-            const itemName = task.elementNom || 'Standard';
-            if (!newDetails[rule.from]) newDetails[rule.from] = {};
-            if (!newDetails[rule.to]) newDetails[rule.to] = {};
-            
-            const availableInSource = newStatut === 'FAIT' ? (newDetails[rule.from][itemName] || 0) : (newDetails[rule.to][itemName] || 0);
-            const qtyToMove = (availableInSource > 0) ? Math.min(task.quantite, availableInSource) : task.quantite;
-            
-            if (qtyToMove > 0) {
-                if (newStatut === 'FAIT') { 
-                    if (newDetails[rule.from][itemName]) newDetails[rule.from][itemName] -= qtyToMove;
-                    if (newDetails[rule.from][itemName] <= 0) delete newDetails[rule.from][itemName];
-                    newDetails[rule.to][itemName] = (newDetails[rule.to][itemName] || 0) + qtyToMove;
+        const newStatutTache = tk.statut === 'A_FAIRE' ? 'FAIT' : 'A_FAIRE';
+        const updatedTaches = order.taches?.map(t => t.id === tk.id ? { ...t, statut: newStatutTache as 'A_FAIRE' | 'FAIT' } : t);
+        
+        let newRepartition = { ...(order.repartitionStatuts || {}) };
+        const qte = tk.quantite || 1;
 
-                    newRepartition[rule.from] -= qtyToMove;
-                    if (newRepartition[rule.from] <= 0) delete newRepartition[rule.from];
-                    newRepartition[rule.to] = (newRepartition[rule.to] || 0) + qtyToMove;
-                } else { 
-                    if (newDetails[rule.to][itemName]) newDetails[rule.to][itemName] -= qtyToMove;
-                    if (newDetails[rule.to][itemName] <= 0) delete newDetails[rule.to][itemName];
-                    newDetails[rule.from][itemName] = (newDetails[rule.from][itemName] || 0) + qtyToMove;
-
-                    newRepartition[rule.to] -= qtyToMove;
-                    if (newRepartition[rule.to] <= 0) delete newRepartition[rule.to];
-                    newRepartition[rule.from] = (newRepartition[rule.from] || 0) + qtyToMove;
-                }
-            }
+        if (newStatutTache === 'FAIT') {
+            let source = StatutCommande.EN_ATTENTE;
+            let target = StatutCommande.EN_COUPE;
+            if (tk.action === 'COUPE') { source = StatutCommande.EN_ATTENTE; target = StatutCommande.EN_COUPE; }
+            else if (tk.action === 'COUTURE') { source = StatutCommande.EN_COUPE; target = StatutCommande.COUTURE; }
+            else if (tk.action === 'FINITION') { source = StatutCommande.COUTURE; target = StatutCommande.FINITION; }
+            else if (tk.action === 'REPASSAGE') { source = StatutCommande.FINITION; target = StatutCommande.PRET; }
+            newRepartition[source] = Math.max(0, (newRepartition[source] || 0) - qte);
+            newRepartition[target] = (newRepartition[target] || 0) + qte;
+        } else {
+            let source = StatutCommande.EN_COUPE;
+            let target = StatutCommande.EN_ATTENTE;
+            if (tk.action === 'COUPE') { source = StatutCommande.EN_COUPE; target = StatutCommande.EN_ATTENTE; }
+            else if (tk.action === 'COUTURE') { source = StatutCommande.COUTURE; target = StatutCommande.EN_COUPE; }
+            else if (tk.action === 'FINITION') { source = StatutCommande.FINITION; target = StatutCommande.COUTURE; }
+            else if (tk.action === 'REPASSAGE') { source = StatutCommande.PRET; target = StatutCommande.FINITION; }
+            newRepartition[source] = Math.max(0, (newRepartition[source] || 0) - qte);
+            newRepartition[target] = (newRepartition[target] || 0) + qte;
         }
 
-        let mostAdvanced = StatutCommande.EN_ATTENTE;
-        KANBAN_STATUS_ORDER.forEach(s => { if ((newRepartition[s] || 0) > 0) mostAdvanced = s as StatutCommande; });
-        onUpdateOrder({ ...order, taches: updatedTaches, repartitionStatuts: newRepartition, repartitionDetails: newDetails, statut: mostAdvanced });
+        onUpdateOrder({ ...order, taches: updatedTaches, repartitionStatuts: newRepartition });
+    };
+
+    const handleAddTask = () => {
+        if (!newTaskData.orderId || !newTaskData.tailleurId || !newTaskData.elementNom) return;
+        const order = commandes.find(c => c.id === newTaskData.orderId);
+        if (!order) return;
+        const newTask: TacheProduction = {
+            id: `T_${Date.now()}`, commandeId: order.id, action: newTaskData.action, quantite: newTaskData.quantite,
+            tailleurId: newTaskData.tailleurId, date: newTaskData.date, statut: 'A_FAIRE', elementNom: newTaskData.elementNom
+        };
+        onUpdateOrder({ ...order, taches: [...(order.taches || []), newTask], tailleursIds: Array.from(new Set([...(order.tailleursIds || []), newTaskData.tailleurId])) });
+        setTaskModalOpen(false);
+    };
+
+    const handleOpenEditOrder = (order: Commande) => {
+        setNewOrderData({ ...order });
+        if (order.elements) setNewOrderItems(order.elements.map(e => ({ nom: e.nom, qte: e.quantite })));
+        else setNewOrderItems([{nom: '', qte: 1}]);
+        setIsEditingOrder(true);
+        setOrderModalOpen(true);
     };
 
     const handleConfirmPayment = () => {
-        if (!selectedOrderForPayment || payAmount <= 0 || !payAccount) return;
-        onAddPayment(selectedOrderForPayment.id, payAmount, payMethod, "Règlement solde production", payDate, payAccount);
-        setPaymentModalOpen(false); setSelectedOrderForPayment(null);
+        if (!paymentModalOpen || payAmount <= 0 || !payAccount) return;
+        onAddPayment(paymentModalOpen.id, payAmount, payMethod, "Règlement Production", payDate, payAccount);
+        setPaymentModalOpen(null);
     };
 
-    const handleFinalDelivery = () => {
-        if (!deliveryModal) return;
-        const { order, qty } = deliveryModal;
-        if (order.reste > 0 && !window.confirm(`⚠️ ATTENTION : Reste ${order.reste.toLocaleString()} F à payer. Livrer quand même ?`)) return;
+    const handleCreateOrUpdateOrder = () => {
+        if (!newOrderData.clientId || !newOrderData.prixTotal) return;
         
-        const newRepartition = { ...(order.repartitionStatuts || { [StatutCommande.PRET]: order.quantite }) };
-        const newDetails = { ...(order.repartitionDetails || { [StatutCommande.PRET]: {} }) };
-        
-        newRepartition[StatutCommande.PRET] = (newRepartition[StatutCommande.PRET] || 0) - qty;
-        if (newRepartition[StatutCommande.PRET] <= 0) delete newRepartition[StatutCommande.PRET];
-        newRepartition[StatutCommande.LIVRE] = (newRepartition[StatutCommande.LIVRE] || 0) + qty;
-        
-        let allDone = !KANBAN_STATUS_ORDER.some(s => (newRepartition[s] || 0) > 0);
-        onUpdateOrder({ ...order, repartitionStatuts: newRepartition, repartitionDetails: newDetails, statut: allDone ? StatutCommande.LIVRE : order.statut });
-        setDeliveryModal(null);
-    };
+        const totalQty = newOrderItems.reduce((acc, i) => acc + i.qte, 0);
+        const description = newOrderItems.map(i => `${i.nom} (x${i.qte})`).join(', ');
+        const prixTotal = newOrderData.prixTotal || 0;
+        const avance = newOrderData.avance || 0;
+        const reste = prixTotal - avance;
 
-    const getAssignableQtyForElement = (order: Commande, elementNom: string, action: ActionProduction) => {
-        if (!order.elements || order.elements.length === 0) {
-            const alreadyAssignedTotal = (order.taches || []).filter(t => t.action === action).reduce((acc, t) => acc + t.quantite, 0);
-            return Math.max(0, order.quantite - alreadyAssignedTotal);
+        if (isEditingOrder && newOrderData.id) {
+            const existing = commandes.find(c => c.id === newOrderData.id);
+            if (!existing) return;
+            onUpdateOrder({ ...existing, ...newOrderData, description, elements: newOrderItems.map(i => ({nom: i.nom.toUpperCase(), quantite: i.qte})), quantite: totalQty, reste: reste } as Commande);
+        } else {
+            if (avance > 0 && !initialAccountId) { alert("Veuillez choisir une caisse pour l'acompte."); return; }
+            const client = clients.find(c => c.id === newOrderData.clientId);
+            const order: Commande = {
+                id: `CMD_${Date.now()}`, clientId: newOrderData.clientId || '', clientNom: client?.nom || 'Client',
+                description, dateCommande: new Date().toISOString(), dateLivraisonPrevue: newOrderData.dateLivraisonPrevue || '',
+                statut: StatutCommande.EN_ATTENTE, tailleursIds: [], prixTotal: prixTotal,
+                avance: avance, reste: reste,
+                type: 'SUR_MESURE', quantite: totalQty, isDevis: newOrderData.isDevis || false,
+                repartitionStatuts: { [StatutCommande.EN_ATTENTE]: totalQty },
+                elements: newOrderItems.map(i => ({nom: i.nom.toUpperCase(), quantite: i.qte}))
+            };
+            onCreateOrder(order, [], 'ESPECE', initialAccountId);
         }
-        const totalOrdered = order.elements.find(e => e.nom === elementNom)?.quantite || 0;
-        const alreadyAssigned = (order.taches || []).filter(t => t.elementNom === elementNom && t.action === action).reduce((acc, t) => acc + t.quantite, 0);
-        return Math.max(0, totalOrdered - alreadyAssigned);
+        setOrderModalOpen(false);
     };
+
+    const planningDays = useMemo(() => {
+        const days = [];
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(planningStartDate);
+            d.setDate(planningStartDate.getDate() + i);
+            days.push(d);
+        }
+        return days;
+    }, [planningStartDate]);
+
+    const performanceStats = useMemo(() => {
+        return tailleurs.map(t => {
+            const finishedTasks = (commandes.flatMap(c => c.taches || [])).filter(tk => tk.tailleurId === t.id && tk.statut === 'FAIT').length;
+            const ongoingTasks = (commandes.flatMap(c => c.taches || [])).filter(tk => tk.tailleurId === t.id && tk.statut === 'A_FAIRE').length;
+            return { ...t, finishedTasks, ongoingTasks };
+        }).sort((a, b) => b.finishedTasks - a.finishedTasks);
+    }, [tailleurs, commandes]);
 
     return (
         <div className="space-y-6 h-[calc(100vh-8rem)] flex flex-col">
-            {/* Header Global */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                 <div className="flex items-center gap-3">
                     <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier & Flux</h2>
-                    <div className="flex gap-2">
-                        <button onClick={() => { setIsEditingOrder(false); setNewOrderData({clientId: '', description: '', prixTotal: 0, avance: 0, dateLivraisonPrevue: ''}); setNewOrderItems([{nom: '', qte: 1}]); setOrderModalOpen(true); setConsommations([]); }} className="bg-brand-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-black shadow-lg transition-all active:scale-95"><Plus size={16}/> Nouvelle Commande</button>
-                        <button onClick={() => { setNewTaskData({ orderId: '', elementNom: '', action: 'COUTURE', quantite: 1, note: '', tailleurId: '', date: new Date().toISOString().split('T')[0] }); setTaskModalOpen(true); }} className="bg-brand-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-brand-700 shadow-lg transition-all active:scale-95"><UserPlus size={16}/> Assigner Tâche</button>
-                    </div>
+                    <button onClick={() => { setIsEditingOrder(false); setOrderModalOpen(true); setNewOrderItems([{nom: '', qte: 1}]); setInitialAccountId(''); setNewOrderData({clientId: '', dateLivraisonPrevue: '', prixTotal: 0, avance: 0, isDevis: false}); }} className="bg-brand-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-black transition-all shadow-lg active:scale-95"><Plus size={16}/> Nouvelle Commande</button>
+                    <button onClick={() => setTaskModalOpen(true)} className="bg-orange-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-orange-700 transition-all shadow-lg active:scale-95"><UserPlus size={16}/> Assigner Tâche</button>
+                    <button onClick={handleRunAIAnalysis} disabled={isAiLoading} className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-purple-700 transition-all shadow-lg active:scale-95 disabled:opacity-50">
+                        {isAiLoading ? <Clock size={16} className="animate-spin"/> : <Sparkles size={16}/>} IA Analyse
+                    </button>
                 </div>
-                <div className="flex flex-wrap bg-white border p-1 rounded-xl shadow-sm">
-                    {[{id: 'PLANNING', label: 'Agenda', icon: Calendar},{id: 'KANBAN', label: 'Kanban', icon: Columns},{id: 'ORDERS', label: 'Commandes', icon: ClipboardList},{id: 'TAILORS', label: 'Artisans', icon: Users},{id: 'PERFORMANCE', label: 'Top Performance', icon: Trophy}].map((mode) => (
-                        <button key={mode.id} onClick={() => setViewMode(mode.id as any)} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg flex items-center gap-2 transition-all ${viewMode === mode.id ? 'bg-brand-900 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}><mode.icon size={14}/> <span>{mode.label}</span></button>
+                <div className="flex flex-wrap bg-white border p-1 rounded-xl shadow-sm gap-1">
+                    {[{id: 'PLANNING', label: 'Agenda', icon: Calendar}, {id: 'KANBAN', label: 'Kanban', icon: Columns}, {id: 'ORDERS', label: 'Commandes', icon: ClipboardList}, {id: 'TAILORS', label: 'Artisans', icon: Users}, {id: 'PERFORMANCE', label: 'Top Performance', icon: Trophy}].map((mode) => (
+                        <button key={mode.id} onClick={() => setViewMode(mode.id as any)} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg flex items-center gap-2 transition-all ${viewMode === mode.id ? 'bg-brand-900 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}><mode.icon size={14}/> {mode.label}</button>
                     ))}
                 </div>
             </div>
 
-            {/* Zone Contenu */}
+            {aiAnalysis && (
+                <div className="bg-purple-50 border-l-4 border-purple-500 p-4 rounded-r-xl shadow-sm animate-in slide-in-from-top-4 flex justify-between items-center">
+                    <div className="flex items-center gap-3">
+                        <Zap className="text-purple-600" size={24}/>
+                        <div>
+                            <p className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Conseil Stratégique Gemini</p>
+                            <p className="text-xs font-bold text-purple-900">{aiAnalysis}</p>
+                        </div>
+                    </div>
+                    <button onClick={() => setAiAnalysis(null)}><X size={16} className="text-purple-400"/></button>
+                </div>
+            )}
+
             <div className="flex-1 overflow-hidden">
-                {viewMode === 'PLANNING' && (
-                    <div className="bg-white border rounded-2xl shadow-sm h-full flex flex-col overflow-hidden animate-in fade-in duration-300">
-                        <div className="p-4 border-b bg-gray-50 flex justify-between items-center shrink-0">
-                            <div className="flex items-center gap-3"><button onClick={() => { const d = new Date(agendaBaseDate); d.setDate(d.getDate()-7); setAgendaBaseDate(d); }} className="p-2 hover:bg-gray-200 rounded-lg border bg-white"><ChevronLeft size={18}/></button><button onClick={() => { const d = new Date(agendaBaseDate); d.setDate(d.getDate()+7); setAgendaBaseDate(d); }} className="p-2 hover:bg-gray-200 rounded-lg border bg-white"><ChevronRight size={18}/></button><span className="font-black text-sm uppercase tracking-widest">{agendaBaseDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</span></div>
+                {viewMode === 'ORDERS' && (
+                    <div className="bg-white border rounded-2xl shadow-sm h-full flex flex-col overflow-hidden">
+                        <div className="p-4 bg-gray-50 border-b flex justify-between items-center shrink-0">
+                            <div className="flex bg-white border p-1 rounded-xl shadow-inner overflow-x-auto no-scrollbar">
+                                {[{id: 'ACTIVE', label: 'En cours', icon: Activity},{id: 'READY', label: 'Prêts', icon: CheckCircle},{id: 'DEVIS', label: 'Devis', icon: FileText},{id: 'ALL', label: 'Toutes', icon: ClipboardList}].map((f) => (
+                                    <button key={f.id} onClick={() => setListFilter(f.id as any)} className={`px-4 py-2 text-[10px] font-black uppercase rounded-lg transition-all flex items-center gap-2 whitespace-nowrap ${listFilter === f.id ? 'bg-brand-900 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><f.icon size={12}/> {f.label}</button>
+                                ))}
+                            </div>
+                            <div className="relative w-64 hidden md:block">
+                                <Search className="absolute left-3 top-2.5 text-gray-400" size={16}/>
+                                <input type="text" placeholder="Chercher client..." className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                            </div>
                         </div>
                         <div className="flex-1 overflow-auto custom-scrollbar">
-                            <table className="w-full border-collapse table-fixed min-w-[1000px]">
-                                <thead className="sticky top-0 z-20 bg-gray-100">
-                                    <tr><th className="w-44 p-4 border-b border-r text-left text-[10px] font-black text-gray-400 uppercase bg-gray-50 tracking-widest">Artisan</th>{Array.from({length: 7}, (_, i) => { const d = new Date(agendaBaseDate); d.setDate(d.getDate() + i); const isToday = d.toISOString().split('T')[0] === new Date().toISOString().split('T')[0]; return <th key={i} className={`p-3 border-b text-center text-[10px] font-black uppercase ${isToday ? 'bg-brand-50 text-brand-900 border-b-2 border-brand-600' : 'text-gray-500'}`}>{d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })}</th>; })}</tr>
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-gray-50 text-gray-400 font-black uppercase text-[9px] tracking-widest sticky top-0 z-10 border-b">
+                                    <tr><th className="p-4">Client & Artisans</th><th className="p-4 text-center">Finance</th><th className="p-4">État Production</th><th className="p-4 text-right">Actions</th></tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
-                                    {tailleurs.map(tailor => (
-                                        <tr key={tailor.id} className="group">
-                                            <td className="p-4 border-r bg-gray-50 font-black text-xs sticky left-0 z-10 shadow-sm uppercase">{tailor.nom}</td>
-                                            {Array.from({length: 7}, (_, i) => {
-                                                const d = new Date(agendaBaseDate); d.setDate(d.getDate() + i); const dateStr = d.toISOString().split('T')[0];
-                                                const tasks = commandes.flatMap(o => (o.taches || []).map(t => ({...t, order: o}))).filter(t => t.tailleurId === tailor.id && t.date === dateStr);
-                                                return <td key={i} className="p-1 border-r h-36 vertical-top relative cursor-pointer hover:bg-brand-50/10" onClick={() => { setNewTaskData({...newTaskData, tailleurId: tailor.id, date: dateStr}); setTaskModalOpen(true); }}><div className="space-y-1 h-full overflow-y-auto no-scrollbar">{tasks.map(t => <div key={t.id} onClick={(e) => { e.stopPropagation(); handleTaskStatusChange(t.order, t, t.statut === 'A_FAIRE' ? 'FAIT' : 'A_FAIRE'); }} className={`p-2 rounded border shadow-sm transition-all hover:scale-105 active:scale-95 ${t.statut === 'FAIT' ? 'bg-green-500 text-white border-green-600' : (t.date < new Date().toISOString().split('T')[0] ? 'bg-red-600 text-white border-red-700 animate-pulse' : 'bg-white text-gray-800 border-gray-200')}`}><div className="flex justify-between items-start gap-1"><span className="text-[9px] font-black uppercase">{t.action} x{t.quantite}</span>{t.statut === 'FAIT' ? <CheckCircle size={10}/> : <Clock size={10}/>}</div><div className="text-[8px] font-bold truncate opacity-90 mt-1 uppercase">{t.order.clientNom} {t.elementNom && `(${t.elementNom})`}</div></div>)}</div></td>;
-                                            })}
+                                    {filteredCommandes.map(order => (
+                                        <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                                            <td className="p-4">
+                                                <div className="font-black uppercase text-gray-900">{order.clientNom}</div>
+                                                <div className="flex flex-wrap gap-1 mt-1">
+                                                    {(order.tailleursIds || []).map(tid => (
+                                                        <span key={tid} className="px-1.5 py-0.5 bg-brand-50 text-brand-700 text-[8px] font-black uppercase rounded border border-brand-100">{employes.find(e => e.id === tid)?.nom}</span>
+                                                    ))}
+                                                </div>
+                                            </td>
+                                            <td className="p-4 text-center">
+                                                <div className="font-black text-gray-900">{order.prixTotal.toLocaleString()} F</div>
+                                                <div className={`text-[9px] font-black uppercase ${order.reste > 0 ? 'text-red-500' : 'text-green-600'}`}>{order.reste > 0 ? `Reste: ${order.reste.toLocaleString()} F` : 'Soldé'}</div>
+                                            </td>
+                                            <td className="p-4">
+                                                <div className="flex flex-wrap gap-2">
+                                                    {KANBAN_STATUS_ORDER.map(status => {
+                                                        const count = order.repartitionStatuts?.[status] || 0;
+                                                        if (count === 0) return null;
+                                                        return <span key={status} className={`px-2 py-1 border rounded shadow-sm text-[8px] font-black uppercase ${STATUS_COLORS[status]}`}>{status} ({count})</span>;
+                                                    })}
+                                                </div>
+                                            </td>
+                                            <td className="p-4 text-right relative">
+                                                <div className="flex justify-end gap-1.5 relative z-20">
+                                                    <button onClick={() => setOrderDetailView(order)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg border shadow-sm" title="Détails"><Eye size={16}/></button>
+                                                    <button onClick={() => handleOpenEditOrder(order)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg border shadow-sm" title="Modifier"><Edit2 size={16}/></button>
+                                                    {order.reste > 0 && <button onClick={() => setPaymentModalOpen(order)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg border shadow-sm" title="Encaisser"><DollarSign size={16}/></button>}
+                                                    {(order.repartitionStatuts?.[StatutCommande.PRET] || 0) > 0 && (
+                                                        <button onClick={() => handleDeliverParts(order)} className="px-3 py-1 bg-green-600 text-white rounded text-[9px] font-black uppercase flex items-center gap-1 shadow-sm hover:bg-green-700 transition-all"><Truck size={14}/> Livrer</button>
+                                                    )}
+                                                    <button onClick={() => { if(window.confirm("Annuler cette commande ?")) onUpdateStatus(order.id, StatutCommande.ANNULE) }} className="p-2 text-red-400 hover:bg-red-50 rounded-lg border shadow-sm" title="Annuler"><Ban size={16}/></button>
+                                                </div>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -397,94 +412,79 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 )}
 
                 {viewMode === 'KANBAN' && (
-                    <div className="flex gap-4 h-full overflow-x-auto pb-4 custom-scrollbar animate-in slide-in-from-bottom-4 duration-500">
-                        {KANBAN_STATUS_ORDER.map((status) => (
-                            <div 
-                                key={status} 
-                                className="flex-1 min-w-[300px] bg-gray-100/40 rounded-2xl flex flex-col border border-gray-200"
-                                onDragOver={(e) => e.preventDefault()}
-                                onDrop={(e) => handleDropOnColumn(e, status as StatutCommande)}
-                            >
-                                <div className="p-4 border-b flex justify-between items-center bg-white rounded-t-2xl shrink-0">
-                                    <h3 className="text-xs font-black text-gray-700 uppercase tracking-widest">{status}</h3>
-                                    <span className="bg-brand-900 text-white text-[10px] px-2.5 py-1 rounded-full font-black shadow-inner">
-                                        {filteredCommandes.reduce((acc, c) => acc + (c.repartitionStatuts?.[status] || (c.statut === status ? c.quantite : 0)), 0)} pcs
+                    <div className="flex-1 overflow-x-auto p-4 flex gap-6 bg-gray-50 h-full">
+                        {KANBAN_STATUS_ORDER.map(status => (
+                            <div key={status} onDragOver={e => e.preventDefault()} onDrop={e => onDrop(e, status)} className="w-80 flex flex-col h-full min-w-[20rem]">
+                                <div className="flex justify-between items-center mb-4 px-2">
+                                    <h4 className="font-black text-xs uppercase tracking-widest text-gray-700">{status}</h4>
+                                    <span className={`text-[10px] font-black px-3 py-1 rounded-full border shadow-sm ${STATUS_COLORS[status]}`}>
+                                        {commandes.reduce((acc, c) => acc + (c.repartitionStatuts?.[status] || 0), 0)} pcs
                                     </span>
                                 </div>
-                                <div className="flex-1 overflow-y-auto p-3 space-y-4">
-                                    {filteredCommandes.filter(c => (c.repartitionStatuts?.[status] || 0) > 0 || (!c.repartitionStatuts && c.statut === status)).map(order => {
-                                        const qtyInColumn = (order.repartitionStatuts?.[status]) || (order.statut === status ? order.quantite : 0);
-                                        const detailsInColumn = order.repartitionDetails?.[status] || {};
-                                        const detailsText = (Object.entries(detailsInColumn) as [string, number][]).map(([name, qty]) => `${name} (x${qty})`).join(', ');
-
-                                        return (
-                                            <div 
-                                                key={order.id} 
-                                                draggable 
-                                                onDragStart={(e) => handleDragStart(e, order.id, status)}
-                                                className="bg-white p-4 rounded-xl shadow-sm border-b-4 border-gray-200 cursor-grab hover:border-brand-500 active:cursor-grabbing group transition-all"
-                                            >
-                                                <div className="flex justify-between items-center mb-2 text-[10px] font-black text-gray-400">
-                                                    <span>#{order.id.slice(-6)}</span>
-                                                    <span className="bg-brand-50 text-brand-700 px-2 py-0.5 rounded-lg border border-brand-100">QTÉ: {qtyInColumn}</span>
-                                                </div>
-                                                <p className="font-black text-gray-800 text-sm mb-1 uppercase tracking-tight">{order.clientNom}</p>
-                                                <p className="text-[10px] text-brand-700 font-bold italic line-clamp-2 border-l-2 border-brand-200 pl-2 mb-3 bg-brand-50/50 p-1.5 rounded">
-                                                    {detailsText || order.description}
+                                <div className="flex-1 overflow-y-auto space-y-4 custom-scrollbar pr-2 pb-10">
+                                    {commandes.filter(c => (c.repartitionStatuts?.[status] || 0) > 0 && !c.isDevis && !c.archived).map(order => (
+                                        <div key={order.id} draggable onDragStart={e => onDragStart(e, order.id, status)} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 cursor-grab active:cursor-grabbing hover:shadow-md transition-all group">
+                                            <div className="flex justify-between items-start mb-3">
+                                                <span className="text-[9px] font-bold text-gray-300 font-mono">#{order.id.slice(-6)}</span>
+                                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg border uppercase ${STATUS_COLORS[status]}`}>QTÉ: {order.repartitionStatuts?.[status]}</span>
+                                            </div>
+                                            <h5 className="font-black text-sm uppercase text-gray-800 mb-2">{order.clientNom}</h5>
+                                            <div className="bg-orange-50/50 p-3 rounded-xl border border-orange-100">
+                                                <p className="text-[9px] font-bold text-orange-800 uppercase italic">
+                                                    {order.elements?.map(e => `${e.nom} (x${e.quantite})`).join(', ')}
                                                 </p>
                                             </div>
-                                        );
-                                    })}
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         ))}
                     </div>
                 )}
 
-                {viewMode === 'ORDERS' && (
-                    <div className="bg-white border rounded-2xl shadow-sm h-full flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
-                        <div className="p-4 bg-gray-50 border-b flex justify-between items-center shrink-0">
-                            <div className="flex bg-white border p-1 rounded-xl shadow-inner shrink-0">
-                                {[{id: 'ACTIVE', label: 'En cours', icon: Activity},{id: 'READY', label: 'Prêts', icon: CheckSquare},{id: 'DELIVERED', label: 'Livrées', icon: Truck},{id: 'ALL', label: 'Toutes', icon: ClipboardList}].map((f) => (
-                                    <button key={f.id} onClick={() => setListFilter(f.id as any)} className={`px-4 py-2 text-[10px] font-black uppercase rounded-lg transition-all flex items-center gap-2 ${listFilter === f.id ? 'bg-brand-900 text-white shadow-lg' : 'text-gray-500 hover:bg-gray-50'}`}><f.icon size={12}/> {f.label}</button>
-                                ))}
+                {viewMode === 'PLANNING' && (
+                    <div className="flex-1 bg-white border rounded-2xl h-full flex flex-col overflow-hidden">
+                        <div className="p-4 border-b bg-gray-50 flex items-center justify-between shrink-0">
+                            <div className="flex items-center gap-4">
+                                <div className="flex gap-1">
+                                    <button onClick={() => { const d = new Date(planningStartDate); d.setDate(d.getDate() - 7); setPlanningStartDate(d); }} className="p-2 bg-white border rounded-lg hover:bg-gray-100 transition-colors shadow-sm"><ChevronLeft size={18}/></button>
+                                    <button onClick={() => { const d = new Date(planningStartDate); d.setDate(d.getDate() + 7); setPlanningStartDate(d); }} className="p-2 bg-white border rounded-lg hover:bg-gray-100 transition-colors shadow-sm"><ChevronRight size={18}/></button>
+                                </div>
+                                <h3 className="font-black text-sm uppercase tracking-[0.2em] text-gray-700">{planningStartDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</h3>
                             </div>
-                            <div className="relative w-80"><Search className="absolute left-4 top-2.5 text-gray-400" size={18}/><input type="text" placeholder="Chercher client, réf..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-2 border-2 border-gray-100 rounded-xl text-sm font-bold bg-white focus:border-brand-600 outline-none"/></div>
                         </div>
                         <div className="flex-1 overflow-auto custom-scrollbar">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-white text-gray-400 font-black border-b sticky top-0 z-10 uppercase text-[9px] tracking-widest"><tr><th className="p-4">Client & Dates</th><th className="p-4 text-right">Finance</th><th className="p-4">État Production</th><th className="p-4 text-right">Actions</th></tr></thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {filteredCommandes.map(order => {
-                                        const qtyPret = order.repartitionStatuts?.[StatutCommande.PRET] || (order.statut === StatutCommande.PRET ? order.quantite : 0);
-                                        const isCancelled = order.statut === StatutCommande.ANNULE;
-                                        return (
-                                            <tr key={order.id} className={`hover:bg-gray-50 transition-colors group ${isCancelled ? 'bg-red-50/30' : ''}`}>
-                                                <td className="p-4"><div className={`font-black uppercase text-sm ${isCancelled ? 'line-through text-gray-400' : 'text-gray-900'}`}>{order.clientNom}</div><div className="text-[10px] text-gray-400 font-bold mt-1">CMD: {new Date(order.dateCommande).toLocaleDateString()} • LIV: <span className="text-brand-700">{new Date(order.dateLivraisonPrevue).toLocaleDateString()}</span></div></td>
-                                                <td className="p-4 text-right"><div className="font-black text-gray-900">{order.prixTotal.toLocaleString()} F</div><div className={`text-[10px] font-black ${order.reste > 0 ? 'text-red-600' : 'text-green-700'}`}>{order.reste > 0 ? `RESTE: ${order.reste.toLocaleString()} F` : 'SOLDÉ'}</div></td>
-                                                <td className="p-4">
-                                                    {isCancelled ? (
-                                                        <span className="px-2 py-0.5 bg-red-600 text-white rounded text-[8px] font-black uppercase">ANNULÉ</span>
-                                                    ) : (
-                                                        <div className="flex flex-wrap gap-1.5">{KANBAN_STATUS_ORDER.map(s => { const q = order.repartitionStatuts?.[s] || (order.statut === s ? order.quantite : 0); return q > 0 && (<span key={s} className="px-2 py-0.5 bg-white text-brand-900 rounded border border-brand-100 text-[8px] font-black uppercase shadow-sm">{s} ({q})</span>); })}</div>
-                                                    )}
-                                                </td>
-                                                <td className="p-4 text-right">
-                                                    <div className="flex justify-end gap-1.5">
-                                                        <button onClick={() => setOrderDetailView(order)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg border border-transparent hover:border-blue-100" title="Détails & Finance"><Eye size={18}/></button>
-                                                        {!isCancelled && (
-                                                            <>
-                                                                <button onClick={() => handleEditOrderRequest(order)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg border border-transparent hover:border-gray-200" title="Modifier"><Edit2 size={18}/></button>
-                                                                {qtyPret > 0 && (<button onClick={() => setDeliveryModal({ order, maxQty: qtyPret, qty: qtyPret })} className="px-3 py-1.5 text-white bg-green-600 hover:bg-green-700 rounded-lg text-[9px] font-black uppercase flex items-center gap-1 shadow-lg active:scale-95"><Truck size={12}/> Livrer</button>)}
-                                                                {order.reste > 0 && (<button onClick={() => {setSelectedOrderForPayment(order); setPayAmount(order.reste); setPaymentModalOpen(true);}} className="p-2 text-orange-600 hover:bg-orange-100 rounded-lg border border-transparent hover:border-orange-100"><DollarSign size={18}/></button>)}
-                                                                <button onClick={() => setCancelModalOpen(order)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg border border-transparent" title="Annuler"><Ban size={18}/></button>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
+                            <table className="w-full border-collapse">
+                                <thead className="sticky top-0 bg-gray-50 z-20 shadow-sm">
+                                    <tr>
+                                        <th className="p-4 text-left border-b border-r bg-gray-100 w-64 text-[10px] font-black text-gray-400 uppercase tracking-widest">ARTISAN</th>
+                                        {planningDays.map(day => (
+                                            <th key={day.toISOString()} className="p-4 text-center border-b border-r min-w-[150px]">
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{day.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })}</span>
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {tailleurs.map(t => (
+                                        <tr key={t.id} className="border-b group">
+                                            <td className="p-6 border-r font-black text-xs text-gray-800 uppercase bg-gray-50/30">{t.nom}</td>
+                                            {planningDays.map(day => {
+                                                const dateStr = day.toISOString().split('T')[0];
+                                                const tasks = (commandes.flatMap(c => c.taches || [])).filter(tk => tk.tailleurId === t.id && tk.date === dateStr);
+                                                return (
+                                                    <td key={dateStr} onClick={() => { setNewTaskData({...newTaskData, tailleurId: t.id, date: dateStr, orderId: '', elementNom: ''}); setTaskModalOpen(true); }} className="p-2 border-r min-h-[100px] align-top bg-white group-hover:bg-gray-50/50 cursor-pointer">
+                                                        {tasks.map(tk => (
+                                                            <div key={tk.id} onClick={e => { e.stopPropagation(); handleToggleTaskStatus(tk); }} className={`mb-2 p-2 rounded-lg text-[9px] font-bold uppercase shadow-sm border-l-4 transition-all hover:scale-105 ${tk.statut === 'FAIT' ? 'bg-green-600 text-white border-green-400' : 'bg-brand-900 text-white border-brand-400'}`}>
+                                                                <div className="flex justify-between"><span>{tk.elementNom}</span>{tk.statut === 'FAIT' && <CheckCircle size={10} />}</div>
+                                                                <div className="mt-1 opacity-60">{tk.action}</div>
+                                                            </div>
+                                                        ))}
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
+                                    ))}
                                 </tbody>
                             </table>
                         </div>
@@ -492,36 +492,21 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 )}
 
                 {viewMode === 'TAILORS' && (
-                    <div className="bg-white border rounded-2xl shadow-sm h-full flex flex-col overflow-hidden animate-in fade-in duration-300">
-                        <div className="p-4 bg-gray-50 border-b flex justify-between items-center shrink-0">
-                            <h3 className="font-black text-xs uppercase tracking-widest text-gray-500">Liste des Artisans & Tâches</h3>
-                            <div className="text-[10px] font-black text-brand-700 bg-brand-50 px-3 py-1 rounded-full uppercase">{tailleurs.length} Artisans Actifs</div>
-                        </div>
-                        <div className="flex-1 overflow-auto p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 align-content-start custom-scrollbar">
-                            {tailleurs.map(tailor => {
-                                const activeTasks = commandes.flatMap(o => (o.taches || []).map(t => ({...t, order: o}))).filter(t => t.tailleurId === tailor.id && t.statut === 'A_FAIRE');
+                    <div className="bg-white border rounded-2xl shadow-sm h-full flex flex-col p-6 overflow-y-auto custom-scrollbar">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {tailleurs.map(t => {
+                                const stats = performanceStats.find(p => p.id === t.id);
+                                const loadPercent = Math.min(100, ((stats?.ongoingTasks || 0) / 5) * 100);
                                 return (
-                                    <div key={tailor.id} className="bg-white border rounded-2xl p-5 shadow-sm hover:shadow-md transition-all group border-b-4 border-b-gray-200 hover:border-b-brand-500">
-                                        <div className="flex items-center gap-3 mb-4">
-                                            <div className="w-12 h-12 bg-brand-100 text-brand-900 rounded-full flex items-center justify-center font-black text-lg uppercase shadow-inner">{tailor.nom.charAt(0)}</div>
-                                            <div>
-                                                <h4 className="font-black text-gray-800 uppercase text-sm leading-none">{tailor.nom}</h4>
-                                                <p className="text-[10px] text-brand-600 font-bold mt-1 uppercase tracking-widest">{tailor.role}</p>
-                                            </div>
+                                    <div key={t.id} className="bg-gray-50 border rounded-2xl p-6 border-gray-100 flex flex-col gap-4 hover:shadow-md transition-all">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 bg-brand-900 text-white rounded-full flex items-center justify-center font-black text-xl">{t.nom.charAt(0)}</div>
+                                            <div><p className="font-black text-gray-800 uppercase text-sm">{t.nom}</p><p className="text-[10px] font-bold text-orange-600 uppercase">{t.role}</p></div>
                                         </div>
-                                        <div className="space-y-2">
-                                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest border-b pb-1">Tâches en cours ({activeTasks.length})</p>
-                                            <div className="max-h-[200px] overflow-y-auto no-scrollbar space-y-1.5">
-                                                {activeTasks.map(t => (
-                                                    <div key={t.id} className="bg-gray-50 p-2 rounded-lg border border-gray-100 flex justify-between items-center">
-                                                        <div>
-                                                            <p className="text-[10px] font-black text-gray-800 uppercase truncate max-w-[120px]">{t.order.clientNom}</p>
-                                                            <p className="text-[8px] text-gray-400 font-bold uppercase">{t.action} x{t.quantite} {t.elementNom && `(${t.elementNom})`}</p>
-                                                        </div>
-                                                        <span className="text-[8px] font-black bg-white px-2 py-0.5 rounded border border-gray-200">J-{(new Date(t.date).getTime() - new Date().getTime()) / (1000*3600*24) | 0}</span>
-                                                    </div>
-                                                ))}
-                                                {activeTasks.length === 0 && <p className="text-[10px] text-gray-400 italic py-2 text-center">Aucune tâche assignée.</p>}
+                                        <div className="space-y-1">
+                                            <div className="flex justify-between text-[8px] font-black uppercase text-gray-400"><span>Charge Actuelle</span><span>{stats?.ongoingTasks} tâches</span></div>
+                                            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden shadow-inner">
+                                                <div className={`h-full transition-all duration-1000 ${loadPercent > 80 ? 'bg-red-500' : loadPercent > 50 ? 'bg-orange-400' : 'bg-green-500'}`} style={{ width: `${loadPercent}%` }}></div>
                                             </div>
                                         </div>
                                     </div>
@@ -532,311 +517,208 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 )}
 
                 {viewMode === 'PERFORMANCE' && (
-                    <div className="bg-white border rounded-2xl shadow-sm h-full flex flex-col overflow-hidden animate-in fade-in duration-300">
-                        <div className="p-8 bg-gray-50 border-b shrink-0 text-center">
-                            <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tighter flex justify-center items-center gap-3"><Trophy className="text-brand-600" size={32}/> Classement Performance Artisans</h3>
-                            <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em] mt-2">Basé sur les pièces terminées (FAIT)</p>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                            <div className="max-w-2xl mx-auto space-y-6">
-                                {performanceStats.map((stat, idx) => (
-                                    <div key={stat.id} className="relative group">
-                                        <div className="flex justify-between items-end mb-2">
-                                            <div className="flex items-center gap-3">
-                                                <span className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm shadow-sm ${idx === 0 ? 'bg-yellow-400 text-white animate-bounce' : idx === 1 ? 'bg-gray-300 text-white' : idx === 2 ? 'bg-orange-300 text-white' : 'bg-gray-100 text-gray-400'}`}>{idx + 1}</span>
-                                                <span className="font-black text-gray-800 uppercase text-sm">{stat.nom}</span>
-                                            </div>
-                                            <div className="text-right">
-                                                <span className="text-xl font-black text-brand-900">{stat.done}</span>
-                                                <span className="text-[10px] text-gray-400 font-bold uppercase ml-1">Pièces Terminées</span>
-                                            </div>
-                                        </div>
-                                        <div className="w-full h-4 bg-gray-100 rounded-full overflow-hidden shadow-inner border">
-                                            <div 
-                                                className={`h-full transition-all duration-1000 ease-out rounded-full ${idx === 0 ? 'bg-yellow-400' : 'bg-brand-600'}`} 
-                                                style={{ width: `${stat.ratio}%` }}
-                                            ></div>
-                                        </div>
-                                        <div className="flex justify-between mt-1 px-1">
-                                            <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Taux de Complétion: {stat.ratio}%</span>
-                                            <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{stat.pending} En attente</span>
-                                        </div>
+                    <div className="bg-white border rounded-2xl shadow-sm h-full flex flex-col p-10 overflow-y-auto custom-scrollbar">
+                        <div className="text-center mb-10"><h3 className="text-2xl font-black text-brand-900 uppercase tracking-tight flex items-center justify-center gap-3"><Trophy className="text-orange-500" size={32}/> Podium des Artisans</h3></div>
+                        <div className="max-w-2xl mx-auto w-full space-y-6">
+                            {performanceStats.map((t, idx) => (
+                                <div key={t.id} className="bg-gray-50 p-6 rounded-2xl border border-gray-100 shadow-sm flex justify-between items-center group hover:bg-brand-50 transition-all">
+                                    <div className="flex items-center gap-6">
+                                        <span className={`w-10 h-10 flex items-center justify-center rounded-full font-black text-lg ${idx === 0 ? 'bg-yellow-400 text-white' : idx === 1 ? 'bg-slate-300 text-white' : idx === 2 ? 'bg-orange-300 text-white' : 'bg-gray-100 text-gray-400'}`}>{idx + 1}</span>
+                                        <div><p className="font-black text-gray-800 uppercase text-lg">{t.nom}</p><div className="flex gap-2"> {Array.from({length: Math.min(5, Math.ceil(t.finishedTasks/2))}).map((_, i) => <Star key={i} size={10} className="fill-yellow-400 text-yellow-400"/>)} </div></div>
                                     </div>
-                                ))}
-                            </div>
+                                    <div className="text-right">
+                                        <p className="text-3xl font-black text-brand-900">{t.finishedTasks}</p>
+                                        <p className="text-[8px] font-black uppercase text-gray-400">Pièces Terminées</p>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 )}
             </div>
 
-            {/* MODAL NOUVELLE COMMANDE OU MODIFICATION */}
+            {/* MODALS REQUIS */}
             {orderModalOpen && (
-                <div className="fixed inset-0 bg-brand-900/80 z-[250] flex items-center justify-center p-4 backdrop-blur-md">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl p-8 flex flex-col max-h-[95vh] animate-in zoom-in duration-300 border border-brand-100">
-                        <div className="flex justify-between items-center mb-6 border-b pb-4 shrink-0">
-                            <h3 className="text-2xl font-black text-gray-800 flex items-center gap-3 uppercase tracking-tighter"><Scissors className="text-brand-600" size={32}/> {isEditingOrder ? 'Modifier la Commande' : 'Nouvelle Commande Sur-Mesure'}</h3>
-                            <button onClick={() => { setOrderModalOpen(false); setIsEditingOrder(false); }} className="hover:bg-gray-100 p-2 rounded-full"><X size={32}/></button>
-                        </div>
-                        
-                        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                                <div className="space-y-4">
-                                    <div><label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Sélectionner Client</label><select className="w-full p-3 border-2 border-gray-100 rounded-2xl text-sm font-bold bg-gray-50 focus:border-brand-600 outline-none transition-all" value={newOrderData.clientId} onChange={e => setNewOrderData({...newOrderData, clientId: e.target.value})}><option value="">-- Choisir un client --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.telephone})</option>)}</select></div>
-                                    <div className="space-y-3">
-                                        <div className="flex justify-between items-center"><label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Détails articles</label><button onClick={handleAddItemRow} className="p-1 bg-brand-50 text-brand-600 rounded hover:bg-brand-100 transition-colors"><Plus size={14}/></button></div>
-                                        {newOrderItems.map((item, idx) => (
-                                            <div key={idx} className="flex gap-2 items-center">
-                                                <input type="text" placeholder="Nom (ex: Ensemble Bazin)" className="flex-1 p-3 border-2 border-gray-100 rounded-xl text-xs font-bold bg-gray-50 focus:border-brand-600 outline-none uppercase" value={item.nom} onChange={e => { const list = [...newOrderItems]; list[idx].nom = e.target.value.toUpperCase(); setNewOrderItems(list); }} />
-                                                <input type="number" min="1" className="w-16 p-3 border-2 border-gray-100 rounded-xl text-center font-black bg-gray-50" value={item.qte} onChange={e => { const list = [...newOrderItems]; list[idx].qte = parseInt(e.target.value)||1; setNewOrderItems(list); }} />
-                                                {newOrderItems.length > 1 && <button onClick={() => handleRemoveItemRow(idx)} className="text-red-400 p-1"><Minus size={18}/></button>}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div className="bg-gray-50 p-4 rounded-3xl border border-gray-200">
-                                    <div className="flex justify-between items-center mb-3">
-                                        <label className="text-[10px] font-black text-brand-800 uppercase tracking-widest ml-1 flex items-center gap-2"><Box size={14}/> {isEditingOrder ? 'Matières liées (Lecture seule)' : 'Fournitures / Matières'}</label>
-                                        {!isEditingOrder && <button onClick={handleAddConsommationRow} className="p-1 bg-brand-600 text-white rounded shadow-sm hover:bg-brand-700 transition-all"><Plus size={14}/></button>}
-                                    </div>
-                                    <div className="space-y-2 max-h-[250px] overflow-y-auto no-scrollbar">
-                                        {isEditingOrder ? (
-                                             <p className="text-[10px] text-gray-400 italic text-center py-4">Modification du stock consommé impossible après création.</p>
-                                        ) : consommations.map((usage, idx) => (
-                                            <div key={idx} className="p-3 bg-white rounded-xl border border-gray-100 shadow-sm space-y-2">
-                                                <select className="w-full p-2 border-b text-[10px] font-bold outline-none" value={usage.articleId} onChange={e => {
-                                                    const list = [...consommations];
-                                                    list[idx].articleId = e.target.value;
-                                                    list[idx].variante = articles.find(a => a.id === e.target.value)?.variantes[0] || 'Standard';
-                                                    setConsommations(list);
-                                                }}>
-                                                    <option value="">-- Choisir Matière --</option>
-                                                    {articles.filter(a => a.typeArticle === 'MATIERE_PREMIERE').map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}
-                                                </select>
-                                                <div className="flex gap-2 items-center">
-                                                    <select className="flex-1 p-2 bg-gray-50 rounded-lg text-[9px] font-black uppercase" value={usage.variante} onChange={e => { const list = [...consommations]; list[idx].variante = e.target.value; setConsommations(list); }}>
-                                                        {articles.find(a => a.id === usage.articleId)?.variantes.map(v => <option key={v} value={v}>{v}</option>)}
-                                                    </select>
-                                                    <input type="number" step="0.1" placeholder="Qté" className="w-16 p-2 bg-gray-50 rounded-lg text-[10px] font-black text-center" value={usage.quantite || ''} onChange={e => { const list = [...consommations]; list[idx].quantite = parseFloat(e.target.value)||0; setConsommations(list); }} />
-                                                    <button onClick={() => handleRemoveConsommationRow(idx)} className="text-red-400 p-1"><Trash2 size={14}/></button>
-                                                </div>
-                                            </div>
-                                        ))}
-                                        {!isEditingOrder && consommations.length === 0 && <p className="text-[10px] text-gray-400 italic text-center py-4">Aucune fourniture liée.</p>}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-brand-50 p-6 rounded-3xl border border-brand-100 shadow-inner">
-                                <div className="space-y-4">
-                                    <div><label className="text-[10px] font-black text-brand-800 uppercase tracking-widest ml-1">Prix Total Estimé (F)</label><input type="number" className="w-full p-4 border-2 border-white rounded-2xl text-2xl font-black text-brand-900 bg-white" value={newOrderData.prixTotal || ''} onChange={e => setNewOrderData({...newOrderData, prixTotal: parseInt(e.target.value)||0})} /></div>
-                                    {!isEditingOrder && <div><label className="text-[10px] font-black text-brand-800 uppercase tracking-widest ml-1">Acompte Reçu (F)</label><input type="number" className="w-full p-4 border-2 border-white rounded-2xl text-2xl font-black text-green-600 bg-white" value={newOrderData.avance || ''} onChange={e => setNewOrderData({...newOrderData, avance: parseInt(e.target.value)||0})} /></div>}
-                                </div>
-                                <div className="space-y-4">
-                                    <div><label className="text-[10px] font-black text-brand-800 uppercase tracking-widest ml-1">Date Livraison Prévue</label><input type="date" className="w-full p-4 border-2 border-white rounded-2xl text-sm font-bold bg-white" value={newOrderData.dateLivraisonPrevue} onChange={e => setNewOrderData({...newOrderData, dateLivraisonPrevue: e.target.value})} /></div>
-                                    {!isEditingOrder && <div><label className="text-[10px] font-black text-brand-800 uppercase tracking-widest ml-1">Caisse d'Encaissement</label><select className="w-full p-4 border-2 border-white rounded-2xl text-sm font-bold bg-white" value={initialAccountId} onChange={e => setInitialAccountId(e.target.value)}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="flex justify-end gap-4 mt-8 shrink-0 pt-4 border-t">
-                            <button onClick={() => { setOrderModalOpen(false); setIsEditingOrder(false); }} className="px-8 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button>
-                            <button onClick={handleCreateOrUpdateCustomOrder} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-2xl hover:bg-black transition-all transform active:scale-95">{isEditingOrder ? 'Mettre à jour' : 'Valider la Commande'}</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* MODAL ASSIGNATION TACHE */}
-            {taskModalOpen && (
-                <div className="fixed inset-0 bg-brand-900/70 z-[200] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-300 border border-brand-100">
-                        <div className="flex justify-between items-center mb-8 border-b pb-4"><h3 className="font-black text-gray-800 flex items-center gap-3 uppercase tracking-tighter text-lg"><UserPlus size={24} className="text-brand-600"/> Nouvelle Assignation</h3><button onClick={() => setTaskModalOpen(false)} className="hover:bg-gray-100 p-2 rounded-full transition-colors"><X size={24}/></button></div>
-                        <div className="space-y-6">
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Commande Client</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl text-sm font-bold bg-gray-50 focus:border-brand-600 transition-all outline-none" value={newTaskData.orderId} onChange={e => {
-                                const cmdId = e.target.value;
-                                const cmd = commandes.find(c => c.id === cmdId);
-                                setNewTaskData({...newTaskData, orderId: cmdId, elementNom: cmd?.elements?.[0]?.nom || 'Articles'});
-                            }}><option value="">-- Sélectionner Commande --</option>{commandes.filter(c => !c.archived && c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE).map(c => <option key={c.id} value={c.id}>{c.clientNom} (#{c.id.slice(-6)})</option>)}</select></div>
-                            
-                            {newTaskData.orderId && (
-                                <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Article spécifique</label><select className="w-full p-4 border-2 border-brand-50 rounded-2xl text-sm font-black bg-brand-50/20 text-brand-900 focus:border-brand-600 transition-all outline-none" value={newTaskData.elementNom} onChange={e => setNewTaskData({...newTaskData, elementNom: e.target.value})}><option value="">-- Choisir Article --</option>{(commandes.find(c => c.id === newTaskData.orderId)?.elements || [{nom: "Articles", quantite: 0}]).map(el => <option key={el.nom} value={el.nom}>{el.nom} (Total: {el.quantite || "Général"})</option>)}</select></div>
-                            )}
-
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Étape de Production</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl text-sm font-bold bg-gray-50" value={newTaskData.action} onChange={e => setNewTaskData({...newTaskData, action: e.target.value as any})}><option value="COUPE">Coupe (Départ)</option><option value="COUTURE">Couture / Montage</option><option value="FINITION">Finition / Broderie</option><option value="REPASSAGE">Repassage / Prêt</option></select></div>
-                            
+                <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl p-8 flex flex-col max-h-[95vh] animate-in zoom-in duration-200 border border-brand-100">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4 shrink-0"><h3 className="text-2xl font-black text-gray-800 uppercase tracking-tighter flex items-center gap-3"><Plus size={32} className="text-brand-600"/> {isEditingOrder ? 'Modifier Commande' : 'Nouvelle Commande'}</h3><button onClick={() => setOrderModalOpen(false)}><X size={28}/></button></div>
+                        <div className="flex-1 overflow-y-auto space-y-6 pr-2 custom-scrollbar">
                             <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Qté à assigner</label><input type="number" min="1" className="w-full p-4 border-2 border-gray-100 rounded-2xl text-lg font-black bg-gray-50 text-center" value={newTaskData.quantite} onChange={e => setNewTaskData({...newTaskData, quantite: parseInt(e.target.value)||1})}/></div>
-                                <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Date Prévue</label><input type="date" className="w-full p-4 border-2 border-gray-100 rounded-2xl text-xs font-bold bg-gray-50" value={newTaskData.date} onChange={e => setNewTaskData({...newTaskData, date: e.target.value})}/></div>
+                                <div><label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Client</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50" value={newOrderData.clientId} onChange={e => setNewOrderData({...newOrderData, clientId: e.target.value})}><option value="">-- Choisir un client --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div>
+                                <div><label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Livraison Prévue</label><input type="date" className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50" value={newOrderData.dateLivraisonPrevue} onChange={e => setNewOrderData({...newOrderData, dateLivraisonPrevue: e.target.value})} /></div>
                             </div>
-
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Artisan</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl text-sm font-bold bg-gray-50" value={newTaskData.tailleurId} onChange={e => setNewTaskData({...newTaskData, tailleurId: e.target.value})}><option value="">-- Choisir Artisan --</option>{tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}</select></div>
-                        </div>
-                        <div className="flex justify-end gap-3 mt-10"><button onClick={() => setTaskModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest hover:text-gray-600">Annuler</button><button disabled={!newTaskData.tailleurId || !newTaskData.orderId} onClick={() => {
-                                const order = commandes.find(c => c.id === newTaskData.orderId);
-                                if (order && newTaskData.tailleurId) {
-                                    const maxAssign = getAssignableQtyForElement(order, newTaskData.elementNom, newTaskData.action);
-                                    if (newTaskData.quantite > maxAssign) {
-                                        alert(`⚠️ QUANTITÉ TROP ÉLEVÉE !\nIl ne reste que ${maxAssign} ${newTaskData.elementNom} à assigner pour cette étape.`);
-                                        return;
-                                    }
-                                    const newTask: TacheProduction = { id: `T_${Date.now()}`, commandeId: order.id, elementNom: newTaskData.elementNom, action: newTaskData.action, quantite: newTaskData.quantite, tailleurId: newTaskData.tailleurId, date: newTaskData.date, statut: 'A_FAIRE' };
-                                    onUpdateOrder({ ...order, taches: [...(order.taches || []), newTask] }); setTaskModalOpen(false); alert("Assignation réussie.");
-                                }
-                        }} className="px-10 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-30 active:scale-95 transition-all">Confirmer</button></div>
-                    </div>
-                </div>
-            )}
-
-            {/* MODAL KANBAN MOVE */}
-            {kanbanMoveModal && (
-                <div className="fixed inset-0 bg-brand-900/70 z-[320] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200 border border-brand-100">
-                        <h3 className="text-xl font-black text-gray-800 mb-6 flex items-center gap-3 uppercase tracking-tighter border-b pb-4"><ArrowRightLeft className="text-brand-600"/> Déplacer Articles</h3>
-                        <div className="space-y-4">
-                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">De <span className="text-gray-900">{kanbanMoveModal.fromStatus}</span> → <span className="text-brand-600">{kanbanMoveModal.toStatus}</span></p>
-                            
                             <div className="space-y-3">
-                                {(Object.entries(kanbanMoveModal.order.repartitionDetails?.[kanbanMoveModal.fromStatus] || { "Articles": kanbanMoveModal.order.repartitionStatuts?.[kanbanMoveModal.fromStatus] || kanbanMoveModal.order.quantite }) as [string, number][]).map(([itemName, maxQty]) => (
-                                    <div key={itemName} className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                                        <label className="block text-xs font-black text-gray-700 uppercase mb-2">{itemName} (Max: {maxQty})</label>
-                                        <div className="flex items-center gap-3">
-                                            <input 
-                                                type="number" 
-                                                min="0" 
-                                                max={maxQty} 
-                                                className="w-full p-2 border-2 border-white rounded-xl text-xl font-black bg-white text-center shadow-sm" 
-                                                value={kanbanMoveModal.movements[itemName] || 0} 
-                                                onChange={e => {
-                                                    const val = Math.min(maxQty, parseInt(e.target.value) || 0);
-                                                    setKanbanMoveModal({
-                                                        ...kanbanMoveModal,
-                                                        movements: { ...kanbanMoveModal.movements, [itemName]: val }
-                                                    });
-                                                }}
-                                            />
-                                        </div>
+                                <div className="flex justify-between items-center"><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Composition</label><button onClick={() => setNewOrderItems([...newOrderItems, {nom: '', qte: 1}])} className="p-1 bg-brand-50 text-brand-600 rounded"><Plus size={14}/></button></div>
+                                {newOrderItems.map((it, idx) => (
+                                    <div key={idx} className="flex gap-2 items-center animate-in slide-in-from-left-2">
+                                        <input type="text" placeholder="Désignation" className="flex-1 p-3 border-2 border-gray-100 rounded-xl text-xs font-bold bg-gray-50 uppercase" value={it.nom} onChange={e => { const list = [...newOrderItems]; list[idx].nom = e.target.value.toUpperCase(); setNewOrderItems(list); }} />
+                                        <input type="number" className="w-16 p-3 border-2 border-gray-100 rounded-xl text-center font-black" value={it.qte} onChange={e => { const list = [...newOrderItems]; list[idx].qte = parseInt(e.target.value)||1; setNewOrderItems(list); }} />
                                     </div>
                                 ))}
                             </div>
-
-                            <div className="bg-brand-50 p-4 rounded-2xl border border-brand-100 mt-4">
-                                <label className="block text-[10px] font-black text-brand-800 uppercase mb-2 tracking-widest">Assigner un artisan ?</label>
-                                <select className="w-full p-3 border-2 border-white rounded-xl text-xs font-bold" value={kanbanMoveModal.assignTailorId} onChange={e => setKanbanMoveModal({...kanbanMoveModal, assignTailorId: e.target.value})}><option value="">-- Sans assignation --</option>{tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}</select>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-[10px] font-black text-brand-800 uppercase mb-1 ml-1">Prix Total (F)</label><input type="number" className="w-full p-3 border-2 border-brand-100 rounded-xl text-xl font-black text-brand-900 bg-brand-50/30" value={newOrderData.prixTotal || ''} onChange={e => setNewOrderData({...newOrderData, prixTotal: parseInt(e.target.value)||0})} /></div>
+                                <div className="space-y-2">
+                                    <label className="block text-[10px] font-black text-green-700 uppercase mb-1 ml-1">Acompte (F)</label>
+                                    <input type="number" className="w-full p-3 border-2 border-green-100 rounded-xl text-xl font-black text-green-600 bg-green-50/30" value={newOrderData.avance || ''} onChange={e => setNewOrderData({...newOrderData, avance: parseInt(e.target.value)||0})} />
+                                    {newOrderData.avance !== undefined && newOrderData.avance > 0 && !isEditingOrder && (
+                                        <div className="animate-in fade-in">
+                                            <label className="block text-[8px] font-black text-red-600 uppercase mb-1 ml-1 font-black">Caisse OBLIGATOIRE pour l'acompte *</label>
+                                            <select className="w-full p-2 border-2 border-brand-200 rounded-lg text-[10px] font-bold" value={initialAccountId} onChange={e => setInitialAccountId(e.target.value)}>
+                                                <option value="">-- Sélectionner Caisse --</option>
+                                                {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
+                                            </select>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                        <div className="flex justify-end gap-3 mt-8 shrink-0"><button onClick={() => setKanbanMoveModal(null)} className="px-6 py-4 text-gray-400 font-bold uppercase text-[10px] tracking-widest">Annuler</button><button onClick={executeKanbanMove} className="px-10 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95">Confirmer</button></div>
+                        <div className="flex justify-end gap-3 mt-8 pt-4 border-t shrink-0"><button onClick={() => setOrderModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-xs tracking-widest">Annuler</button><button onClick={handleCreateOrUpdateOrder} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 hover:bg-black transition-all">Valider Commande</button></div>
                     </div>
                 </div>
             )}
 
-            {/* MODAL DETAILS & FINANCE & ARTISANS */}
-            {orderDetailView && (
-                <div className="fixed inset-0 bg-brand-900/90 z-[300] flex items-center justify-center p-4 backdrop-blur-md">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col h-[85vh] animate-in slide-in-from-bottom-8 duration-300">
-                        <div className="p-8 border-b bg-gray-50 flex justify-between items-center rounded-t-3xl shrink-0">
-                            <div><h3 className="text-2xl font-black text-gray-800 uppercase tracking-tighter">Fiche Commande</h3><p className="text-[10px] text-gray-400 font-mono tracking-widest mt-1">REF: #{orderDetailView.id}</p></div>
-                            <button onClick={() => setOrderDetailView(null)} className="hover:bg-gray-200 p-3 rounded-full transition-colors"><X size={32}/></button>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
-                            <div className="grid grid-cols-2 gap-8 border-b pb-8">
-                                <div><h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Composition</h4><div className="space-y-2">{(orderDetailView.elements || [{nom: "Pièces", quantite: orderDetailView.quantite}]).map((e, i) => (<div key={i} className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-100"><span className="text-sm font-bold text-gray-800 uppercase">{e.nom}</span><span className="font-black text-brand-600">x{e.quantite}</span></div>))}</div></div>
-                                <div><h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Dates Clés</h4><div className="space-y-3"><div className="flex justify-between text-sm"><span className="text-gray-500 font-bold uppercase">Commande :</span><span className="font-bold">{new Date(orderDetailView.dateCommande).toLocaleDateString()}</span></div><div className="flex justify-between text-sm"><span className="text-gray-500 font-bold uppercase">Livraison :</span><span className="font-black text-brand-700 underline decoration-2">{new Date(orderDetailView.dateLivraisonPrevue).toLocaleDateString()}</span></div></div></div>
-                            </div>
-
-                            {/* SECTION ARTISANS AYANT INTERVENUS */}
-                            <div>
-                                <h4 className="text-[10px] font-black text-brand-600 uppercase tracking-widest mb-4 flex items-center gap-2"><UserCheck size={14}/> Artisans intervenus</h4>
-                                <div className="flex flex-wrap gap-3">
-                                    {(() => {
-                                        const workersIds = Array.from(new Set(orderDetailView.taches?.map(t => t.tailleurId) || []));
-                                        return workersIds.length > 0 ? workersIds.map(id => {
-                                            const tailor = employes.find(e => e.id === id);
-                                            const tasksCount = orderDetailView.taches?.filter(t => t.tailleurId === id).length || 0;
-                                            const completedCount = orderDetailView.taches?.filter(t => t.tailleurId === id && t.statut === 'FAIT').length || 0;
-                                            return (
-                                                <div key={id} className="bg-gray-50 border border-gray-200 p-3 rounded-2xl flex items-center gap-3 shadow-sm min-w-[180px]">
-                                                    <div className="w-8 h-8 bg-brand-900 text-white rounded-full flex items-center justify-center font-black text-xs">{tailor?.nom.charAt(0)}</div>
-                                                    <div>
-                                                        <p className="text-[10px] font-black text-gray-800 uppercase">{tailor?.nom}</p>
-                                                        <p className="text-[8px] font-bold text-gray-400 uppercase">{completedCount}/{tasksCount} tâches terminées</p>
-                                                    </div>
-                                                </div>
-                                            );
-                                        }) : <p className="text-[10px] text-gray-400 italic">Aucun artisan assigné pour le moment.</p>;
-                                    })()}
-                                </div>
-                            </div>
-
-                            <div>
-                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Historique des Règlements</h4>
-                                <div className="space-y-3">
-                                    <div className="flex justify-between items-center p-4 bg-brand-900 text-white rounded-2xl shadow-lg mb-6"><span className="text-xs font-black uppercase tracking-widest">Total TTC</span><span className="text-2xl font-black">{orderDetailView.prixTotal.toLocaleString()} F</span></div>
-                                    <div className="space-y-2">
-                                        {orderDetailView.paiements?.map((p, i) => (
-                                            <div key={i} className="flex justify-between items-center bg-green-50 p-4 rounded-2xl border-l-4 border-green-600">
-                                                <div><p className="text-xs font-black text-green-900 uppercase">{p.note || 'Versement'}</p><p className="text-[10px] text-green-700 font-bold">{new Date(p.date).toLocaleDateString()} à {new Date(p.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} • {p.moyenPaiement}</p></div>
-                                                <span className="font-black text-green-700">+{p.montant.toLocaleString()} F</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    <div className={`mt-6 p-6 rounded-3xl border-2 flex justify-between items-center ${orderDetailView.reste > 0 ? 'bg-red-50 border-red-100 text-red-700' : 'bg-green-50 border-green-100 text-green-700'}`}><span className="font-black uppercase text-xs tracking-widest">Reste à Payer</span><span className="text-3xl font-black">{orderDetailView.reste.toLocaleString()} F</span></div>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="p-8 border-t bg-gray-50 flex justify-end shrink-0 rounded-b-3xl"><button onClick={() => setOrderDetailView(null)} className="px-10 py-4 bg-gray-800 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest">Fermer</button></div>
-                    </div>
-                </div>
-            )}
-
-            {/* MODAL PAIEMENT SOLDE */}
-            {paymentModalOpen && selectedOrderForPayment && (
-                <div className="fixed inset-0 bg-brand-900/70 z-[180] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8">
-                        <div className="flex justify-between items-center mb-8 border-b pb-4"><h3 className="text-xl font-black flex items-center gap-3 text-gray-800 uppercase tracking-tighter"><Wallet size={24} className="text-green-600"/> Encaissement Solde</h3><button onClick={() => setPaymentModalOpen(false)}><X size={24} className="text-gray-400"/></button></div>
+            {paymentModalOpen && (
+                <div className="fixed inset-0 bg-black/90 z-[500] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-8 border-b pb-4"><h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg tracking-tighter"><DollarSign className="text-green-600" /> Encaisser Solde</h3><button onClick={() => setPaymentModalOpen(null)}><X size={28}/></button></div>
                         <div className="space-y-6">
-                            <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 flex justify-between items-center"><span className="text-xs font-black text-orange-800 uppercase tracking-widest">Reste Dû</span><span className="text-xl font-black text-orange-900">{selectedOrderForPayment.reste.toLocaleString()} F</span></div>
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Montant perçu</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-2xl bg-gray-50 focus:border-orange-500 outline-none transition-all" value={payAmount} onChange={e => setPayAmount(Math.min(selectedOrderForPayment.reste, parseInt(e.target.value) || 0))} /></div>
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Caisse de Destination</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl bg-gray-50 text-sm font-bold" value={payAccount} onChange={e => setPayAccount(e.target.value)}><option value="">-- Choisir un compte --</option>{comptes.map(acc => (<option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>))}</select></div>
-                        </div>
-                        <div className="flex justify-end gap-3 mt-10"><button onClick={() => setPaymentModalOpen(false)} className="px-6 py-4 text-gray-400 font-bold uppercase text-[10px] tracking-widest">Annuler</button><button onClick={handleConfirmPayment} disabled={!payAccount || payAmount <= 0} className="px-10 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-30 active:scale-95">Valider</button></div>
-                    </div>
-                </div>
-            )}
-
-            {/* MODAL ANNULATION COMMANDE */}
-            {cancelModalOpen && (
-                <div className="fixed inset-0 bg-brand-900/90 z-[350] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-10 text-center border-t-8 border-red-500 animate-in zoom-in duration-200">
-                        <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6"><Ban size={40}/></div>
-                        <h3 className="text-2xl font-black text-gray-800 mb-2 uppercase tracking-tighter">Annulation Commande</h3>
-                        <p className="text-sm text-gray-500 mb-8 font-bold">Voulez-vous vraiment annuler la commande de <span className="text-gray-900 uppercase">{cancelModalOpen.clientNom}</span> ? Cette action passera le statut en "Annulé".</p>
-                        <div className="flex flex-col gap-3">
-                            <button onClick={() => handleCancelOrder(cancelModalOpen)} className="w-full py-5 bg-red-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95">Confirmer l'Annulation</button>
-                            <button onClick={() => setCancelModalOpen(null)} className="w-full py-4 text-gray-400 font-bold uppercase text-[10px] tracking-widest">Garder la Commande</button>
+                            <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 flex justify-between"><span className="text-[10px] font-black uppercase text-orange-400">Reste Dû</span><span className="text-xl font-black text-orange-900">{paymentModalOpen.reste.toLocaleString()} F</span></div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Date</label><input type="date" className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold" value={payDate} onChange={e => setPayDate(e.target.value)}/></div>
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Mode</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold" value={payMethod} onChange={e => setPayMethod(e.target.value as any)}><option value="ESPECE">Espèce</option><option value="WAVE">Wave</option><option value="ORANGE_MONEY">Orange Money</option></select></div>
+                            </div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Caisse de destination</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold" value={payAccount} onChange={e => setPayAccount(e.target.value)}><option value="">-- Choisir --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                            <input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-2xl" value={payAmount} onChange={e => setPayAmount(parseInt(e.target.value)||0)}/>
+                            <button onClick={handleConfirmPayment} disabled={!payAccount || payAmount <= 0} className="w-full py-5 bg-green-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl disabled:opacity-50 active:scale-95 transition-all">Valider Paiement</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* MODAL LIVRAISON */}
-            {deliveryModal && (
-                <div className="fixed inset-0 bg-brand-900/80 z-[350] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-10 text-center border-t-8 border-green-500 animate-in zoom-in duration-200">
-                        <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6"><Truck size={40}/></div>
-                        <h3 className="text-2xl font-black text-gray-800 mb-2 uppercase tracking-tighter">Confirmation Livraison</h3>
-                        <p className="text-sm text-gray-500 mb-8 font-bold">Confirmer la sortie de <span className="text-gray-900 uppercase">{deliveryModal.order.clientNom}</span> ?</p>
-                        <div className="mb-8 text-left bg-gray-50 p-6 rounded-2xl border border-gray-100">
-                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 text-center">Quantité à livrer</label>
-                            <input type="number" min="1" max={deliveryModal.maxQty} className="w-full p-4 border-2 border-white rounded-xl text-3xl font-black text-brand-900 text-center shadow-sm" value={deliveryModal.qty} onChange={e => setDeliveryModal({...deliveryModal, qty: Math.min(deliveryModal.maxQty, parseInt(e.target.value)||1)})}/>
+            {taskModalOpen && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-8 animate-in zoom-in duration-200 border border-brand-100">
+                        <div className="flex justify-between items-center mb-8 border-b pb-4"><h3 className="text-xl font-black text-gray-800 flex items-center gap-3 uppercase tracking-tighter"><UserPlus size={28} className="text-orange-600"/> Assigner une Tâche</h3><button onClick={() => setTaskModalOpen(false)}><X size={28}/></button></div>
+                        <div className="space-y-6">
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Commande</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50" value={newTaskData.orderId} onChange={e => { const order = commandes.find(c => c.id === e.target.value); setNewTaskData({...newTaskData, orderId: e.target.value, elementNom: order?.elements?.[0]?.nom || ''}); }}><option value="">-- Choisir --</option>{commandes.filter(c => !c.isDevis && c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE).map(c => <option key={c.id} value={c.id}>{c.clientNom} - {c.description.slice(0, 20)}...</option>)}</select></div>
+                            {newTaskData.orderId && (
+                                <div className="grid grid-cols-2 gap-4 animate-in fade-in">
+                                    <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Élément</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50" value={newTaskData.elementNom} onChange={e => setNewTaskData({...newTaskData, elementNom: e.target.value})}>{commandes.find(c => c.id === newTaskData.orderId)?.elements?.map(el => <option key={el.nom} value={el.nom}>{el.nom}</option>)}</select></div>
+                                    <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Action</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50" value={newTaskData.action} onChange={e => setNewTaskData({...newTaskData, action: e.target.value as ActionProduction})}><option value="COUPE">Coupe</option><option value="COUTURE">Couture</option><option value="FINITION">Finition</option><option value="REPASSAGE">Repassage</option></select></div>
+                                </div>
+                            )}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Artisan</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50" value={newTaskData.tailleurId} onChange={e => setNewTaskData({...newTaskData, tailleurId: e.target.value})}><option value="">-- Sélectionner --</option>{tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}</select></div>
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Quantité</label><input type="number" className="w-full p-3 border-2 border-gray-100 rounded-xl font-black text-center" value={newTaskData.quantite} onChange={e => setNewTaskData({...newTaskData, quantite: parseInt(e.target.value)||1})}/></div>
+                            </div>
                         </div>
-                        <div className="flex flex-col gap-3">
-                            <button onClick={handleFinalDelivery} className="w-full py-5 bg-green-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95">Valider la Sortie</button>
-                            <button onClick={() => setDeliveryModal(null)} className="w-full py-4 text-gray-400 font-bold uppercase text-[10px] tracking-widest">Annuler</button>
+                        <div className="flex justify-end gap-3 mt-10 pt-4 border-t"><button onClick={() => setTaskModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-[10px]">Annuler</button><button onClick={handleAddTask} className="px-12 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-xl hover:bg-orange-700 transition-all active:scale-95">Valider</button></div>
+                    </div>
+                </div>
+            )}
+
+            {orderDetailView && (
+                <div className="fixed inset-0 bg-black/60 z-[300] flex items-center justify-center p-4 backdrop-blur-sm animate-in zoom-in duration-200">
+                    <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg p-10 animate-in zoom-in duration-200 flex flex-col max-h-[95vh] border border-brand-100">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4 shrink-0">
+                            <h3 className="font-black text-2xl text-gray-800 uppercase tracking-tighter">Détails de Production</h3>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => handlePrintWorkshopSlip(orderDetailView)} className="p-2 text-gray-400 hover:text-brand-600 rounded-lg transition-all" title="Imprimer fiche atelier"><Printer size={24}/></button>
+                                <button onClick={() => setOrderDetailView(null)} className="p-2 text-gray-400 hover:text-red-500 rounded-lg transition-all"><X size={32}/></button>
+                            </div>
+                        </div>
+                        
+                        <div className="space-y-6 overflow-y-auto pr-2 custom-scrollbar flex-1">
+                            <div className="bg-brand-50 p-6 rounded-2xl border border-brand-100 relative overflow-hidden group">
+                                <p className="text-[10px] font-black text-brand-600 uppercase tracking-widest mb-1 relative z-10">Client</p>
+                                <p className="text-xl font-black text-brand-900 uppercase relative z-10">{orderDetailView.clientNom}</p>
+                                <Scissors size={80} className="absolute -right-4 -bottom-4 text-brand-900/5 rotate-12 transition-transform group-hover:scale-110"/>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center gap-3">
+                                    <Calendar size={18} className="text-brand-400"/>
+                                    <div><p className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Date Commande</p><p className="text-xs font-black text-gray-700">{new Date(orderDetailView.dateCommande).toLocaleDateString()}</p></div>
+                                </div>
+                                <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 flex items-center gap-3">
+                                    <Clock size={18} className="text-orange-400"/>
+                                    <div><p className="text-[8px] font-black text-orange-400 uppercase tracking-widest">Livraison Prévue</p><p className="text-xs font-black text-orange-900">{new Date(orderDetailView.dateLivraisonPrevue).toLocaleDateString()}</p></div>
+                                </div>
+                            </div>
+
+                            {/* TIMELINE VISUELLE */}
+                            <div className="py-4">
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 border-b pb-1">Progression Chronologique</p>
+                                <div className="flex justify-between relative px-2">
+                                    <div className="absolute top-1/2 left-0 w-full h-1 bg-gray-100 -translate-y-1/2 z-0"></div>
+                                    {KANBAN_STATUS_ORDER.map((s, idx) => {
+                                        const count = orderDetailView.repartitionStatuts?.[s] || 0;
+                                        const isDone = idx < KANBAN_STATUS_ORDER.indexOf(orderDetailView.statut as StatutCommande) || orderDetailView.statut === StatutCommande.LIVRE;
+                                        const isCurrent = orderDetailView.statut === s;
+                                        return (
+                                            <div key={s} className="relative z-10 flex flex-col items-center gap-2 group">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center border-4 transition-all duration-500 ${isDone ? 'bg-green-500 border-green-200' : isCurrent ? 'bg-brand-900 border-brand-200 scale-125' : 'bg-white border-gray-100'}`}>
+                                                    {isDone ? <CheckCircle size={14} className="text-white"/> : <span className={`text-[10px] font-black ${isCurrent ? 'text-white' : 'text-gray-300'}`}>{idx+1}</span>}
+                                                </div>
+                                                <span className={`text-[8px] font-black uppercase text-center max-w-[50px] transition-colors ${isCurrent ? 'text-brand-900' : 'text-gray-400'}`}>{s}</span>
+                                                {count > 0 && <span className="absolute -top-4 bg-brand-900 text-white text-[8px] px-1.5 py-0.5 rounded-full font-black animate-bounce">{count}</span>}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            <div>
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b pb-1">Artisans sur la commande</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {(orderDetailView.tailleursIds || []).map(tid => (
+                                        <span key={tid} className="px-3 py-1.5 bg-white border border-brand-100 rounded-xl text-[10px] font-black uppercase text-brand-700 shadow-sm flex items-center gap-2"><div className="w-2 h-2 bg-brand-400 rounded-full animate-pulse"></div> {employes.find(e => e.id === tid)?.nom}</span>
+                                    ))}
+                                    {(!orderDetailView.tailleursIds || orderDetailView.tailleursIds.length === 0) && <span className="text-[10px] italic text-gray-400 uppercase font-black">Aucun artisan assigné</span>}
+                                </div>
+                            </div>
+
+                            <div>
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b pb-1">Versements & Solde</p>
+                                <div className="space-y-2">
+                                    <div className="flex justify-between text-xs font-bold p-3 bg-gray-50 rounded-xl border border-gray-100 italic"><span>Initial (Avance)</span><span>{orderDetailView.avance.toLocaleString()} F</span></div>
+                                    {orderDetailView.paiements?.map((p, idx) => (
+                                        <div key={idx} className="flex justify-between text-xs font-black p-3 bg-green-50 rounded-xl border border-green-100 text-green-700 animate-in slide-in-from-left-2">
+                                            <span>{new Date(p.date).toLocaleDateString()} ({p.moyenPaiement})</span>
+                                            <span>+{p.montant.toLocaleString()} F</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4 pt-4 border-t-2 border-dashed border-gray-100">
+                                <div className="p-4 rounded-2xl bg-gray-900 text-white flex flex-col justify-center">
+                                    <p className="text-[8px] font-black opacity-50 uppercase tracking-widest mb-1">Prix Total</p>
+                                    <p className="text-2xl font-black tracking-tight">{orderDetailView.prixTotal.toLocaleString()} F</p>
+                                </div>
+                                <div className={`p-4 rounded-2xl flex flex-col justify-center border-2 ${orderDetailView.reste > 0 ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'}`}>
+                                    <p className={`text-[8px] font-black uppercase tracking-widest mb-1 ${orderDetailView.reste > 0 ? 'text-red-400' : 'text-green-400'}`}>{orderDetailView.reste > 0 ? 'Reste à payer' : 'Statut Paiement'}</p>
+                                    <p className={`text-2xl font-black tracking-tight ${orderDetailView.reste > 0 ? 'text-red-700' : 'text-green-700'}`}>{orderDetailView.reste > 0 ? `${orderDetailView.reste.toLocaleString()} F` : 'SOLDÉ'}</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div className="flex gap-3 shrink-0 mt-8">
+                             {(orderDetailView.repartitionStatuts?.[StatutCommande.PRET] || 0) > 0 && (
+                                <button onClick={() => handleDeliverParts(orderDetailView)} className="flex-1 py-5 bg-green-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-green-100 hover:bg-green-700 transition-all flex items-center justify-center gap-3 active:scale-95"><Truck size={20}/> Livrer Pièces</button>
+                            )}
+                            <button onClick={() => setOrderDetailView(null)} className="flex-1 py-5 bg-gray-800 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg hover:bg-black transition-all">Fermer la vue</button>
                         </div>
                     </div>
                 </div>
             )}
+            
+            {/* STYLES ADDITIONNELS POUR LES ANIMATIONS */}
+            <style>{`
+                @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+                .animate-bounce { animation: bounce 1s infinite; }
+            `}</style>
         </div>
     );
 };

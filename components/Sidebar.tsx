@@ -1,7 +1,7 @@
 
-import React from 'react';
-import { LayoutDashboard, Scissors, Users, ShoppingBag, Wallet, Store, Menu, Truck, Tag, Box, Briefcase, ShoppingCart, CreditCard, LogOut, Settings, Grid, Image, Wifi, WifiOff } from 'lucide-react';
-import { SessionUser, RoleEmploye } from '../types';
+import React, { useMemo } from 'react';
+import { LayoutDashboard, Scissors, Users, ShoppingBag, Wallet, Store, Menu, Truck, Tag, Box, Briefcase, ShoppingCart, CreditCard, LogOut, Settings, Grid, Image, Wifi, WifiOff, AlertCircle, Bell } from 'lucide-react';
+import { SessionUser, RoleEmploye, Commande, Article, StatutCommande } from '../types';
 import { COMPANY_CONFIG } from '../config';
 import app from '../services/firebase';
 
@@ -13,9 +13,11 @@ interface SidebarProps {
     availableViews: string[]; 
     user: SessionUser | null;
     onLogout: () => void;
+    commandes: Commande[];
+    articles: Article[];
 }
 
-const Sidebar: React.FC<SidebarProps> = React.memo(({ currentView, setView, isOpen, setIsOpen, availableViews, user, onLogout }) => {
+const Sidebar: React.FC<SidebarProps> = React.memo(({ currentView, setView, isOpen, setIsOpen, availableViews, user, onLogout, commandes, articles }) => {
     
     const allMenuItems = [
         { id: 'dashboard', label: 'Tableau de Bord', icon: LayoutDashboard, permKey: 'dashboard' },
@@ -32,18 +34,32 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({ currentView, setView, isOp
         { id: 'finance', label: 'Finance & Rentabilité', icon: Wallet, permKey: 'finance' },
     ];
 
-    // Filtrage dynamique selon les permissions de l'utilisateur
+    const urgentCount = useMemo(() => {
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        
+        const lateOrders = commandes.filter(c => {
+            if (c.statut === StatutCommande.LIVRE || c.statut === StatutCommande.ANNULE || c.archived) return false;
+            return new Date(c.dateLivraisonPrevue) < today;
+        }).length;
+
+        const lowStock = articles.filter(a => {
+            const total = Object.values(a.stockParLieu).reduce((acc: number, place) => 
+                acc + Object.values(place).reduce((acc2: number, qty: any) => acc2 + Number(qty), 0)
+            , 0);
+            return total <= a.seuilAlerte;
+        }).length;
+
+        return lateOrders + lowStock;
+    }, [commandes, articles]);
+
     const visibleItems = allMenuItems.filter(item => {
         if (user?.role === RoleEmploye.ADMIN) return true;
-        
-        // Vérification des permissions granulaires
         const perm = user?.permissions?.[item.permKey as keyof typeof user.permissions];
         if (perm === 'NONE') return false;
-        
         return availableViews.includes(item.id);
     });
 
-    // Autorise l'accès aux réglages si Admin, Gérant ou si la permission 'settings' n'est pas 'NONE'
     const showSettings = user?.role === RoleEmploye.ADMIN || 
                        user?.role === RoleEmploye.GERANT || 
                        (user?.permissions?.settings && user.permissions.settings !== 'NONE');
@@ -65,20 +81,21 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({ currentView, setView, isOp
                     
                     <div className={`mt-2 flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border ${isConnected ? 'bg-green-900/30 border-green-700 text-green-400' : 'bg-red-900/30 border-red-700 text-red-400'}`}>
                         {isConnected ? <Wifi size={10} /> : <WifiOff size={10} />}
-                        {isConnected ? 'EN LIGNE (SYNC)' : 'HORS LIGNE'}
+                        {isConnected ? 'EN LIGNE' : 'HORS LIGNE'}
                     </div>
-
-                    {user && (
-                        <div className="mt-2 flex flex-col items-center">
-                            <span className="text-[10px] bg-brand-800 px-2 py-0.5 rounded text-brand-200 border border-brand-700 uppercase">
-                                {user.role}
-                            </span>
-                            <span className="text-[9px] text-brand-400 mt-1 font-black uppercase">{user.nom}</span>
-                        </div>
-                    )}
                 </div>
 
-                <nav className="flex-1 px-3 py-2 space-y-1 overflow-y-auto custom-scrollbar">
+                {urgentCount > 0 && (
+                    <div className="mx-3 mt-4 p-3 bg-red-600 rounded-xl flex items-center gap-3 animate-pulse shadow-lg">
+                        <AlertCircle size={20} className="shrink-0"/>
+                        <div>
+                            <p className="text-[10px] font-black uppercase tracking-tighter">Centre d'Urgences</p>
+                            <p className="text-xs font-bold">{urgentCount} alertes détectées</p>
+                        </div>
+                    </div>
+                )}
+
+                <nav className="flex-1 px-3 py-2 mt-2 space-y-1 overflow-y-auto custom-scrollbar">
                     {visibleItems.map((item) => {
                         const Icon = item.icon;
                         const isActive = currentView === item.id;
@@ -89,14 +106,19 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({ currentView, setView, isOp
                                     setView(item.id);
                                     setIsOpen(false);
                                 }}
-                                className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-colors ${
+                                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors ${
                                     isActive 
                                     ? 'bg-brand-700 text-white shadow-md' 
                                     : 'text-brand-200 hover:bg-brand-800 hover:text-white'
                                 }`}
                             >
-                                <Icon size={18} />
-                                <span className="font-medium text-sm">{item.label}</span>
+                                <div className="flex items-center space-x-3">
+                                    <Icon size={18} />
+                                    <span className="font-medium text-sm">{item.label}</span>
+                                </div>
+                                {item.id === 'production' && urgentCount > 0 && (
+                                    <span className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center text-[10px] font-bold">{urgentCount}</span>
+                                )}
                             </button>
                         );
                     })}
@@ -116,24 +138,24 @@ const Sidebar: React.FC<SidebarProps> = React.memo(({ currentView, setView, isOp
                                 }`}
                             >
                                 <Settings size={18} />
-                                <span className="font-medium text-sm">Paramètres & Exports</span>
+                                <span className="font-medium text-sm">Paramètres</span>
                             </button>
                         </>
                     )}
                 </nav>
 
                 <div className="p-3 border-t border-brand-800 space-y-2 shrink-0">
-                    <button 
-                        onClick={onLogout}
-                        className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-red-200 hover:bg-red-900/30 hover:text-red-100 transition-colors"
-                    >
-                        <LogOut size={18} />
-                        <span className="font-medium text-sm">Déconnexion</span>
-                    </button>
-                    
-                    <div className="bg-brand-800 rounded-lg p-2 text-[10px] text-brand-200 text-center opacity-80">
-                        <p>v{COMPANY_CONFIG.version}</p>
-                    </div>
+                    {user && (
+                        <div className="flex items-center gap-3 px-3 py-2 bg-brand-800 rounded-xl border border-brand-700">
+                             <div className="w-8 h-8 bg-brand-600 rounded-full flex items-center justify-center font-black text-xs">{user.nom.charAt(0)}</div>
+                             <div className="flex-1 min-w-0">
+                                 <p className="text-[10px] font-black text-brand-300 uppercase truncate">{user.nom}</p>
+                                 <p className="text-[8px] text-brand-500 uppercase">{user.role}</p>
+                             </div>
+                             <button onClick={onLogout} className="text-brand-400 hover:text-red-400"><LogOut size={16}/></button>
+                        </div>
+                    )}
+                    <div className="text-[8px] text-brand-400 text-center uppercase tracking-widest opacity-50">v{COMPANY_CONFIG.version} BY TCHICO</div>
                 </div>
             </div>
         </>

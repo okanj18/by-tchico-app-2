@@ -125,6 +125,11 @@ export interface Pointage {
     statut: 'PRESENT' | 'RETARD' | 'ABSENT' | 'CONGE';
 }
 
+export interface MesureHistorique {
+    date: string;
+    valeurs: any;
+}
+
 export interface Client {
     id: string;
     nom: string;
@@ -132,6 +137,8 @@ export interface Client {
     email?: string;
     dateAnniversaire?: string;
     mesures: any;
+    mesuresHistorique?: MesureHistorique[];
+    stylePreferences?: string;
     notes?: string;
     ville?: string;
     orderCount?: number;
@@ -188,6 +195,7 @@ export interface Commande {
     description: string;
     dateCommande: string;
     dateLivraisonPrevue: string;
+    dateLivraisonEffective?: string;
     statut: StatutCommande | string;
     tailleursIds: string[];
     prixTotal: number;
@@ -209,6 +217,8 @@ export interface Commande {
     cancelledAt?: string;
     archived?: boolean;
     taches?: TacheProduction[];
+    isDevis?: boolean;
+    signatureClient?: string;
 }
 
 export interface Depense {
