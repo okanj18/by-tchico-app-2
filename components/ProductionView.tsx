@@ -15,6 +15,7 @@ interface ProductionViewProps {
     onUpdateStatus: (id: string, status: StatutCommande) => void;
     onCreateOrder: (order: Commande, consommations: any[], paymentMethod?: ModePaiement, accountId?: string) => void;
     onUpdateOrder: (order: Commande) => void;
+    /* Fixed: Removed duplicate onAddPayment property from interface */
     onAddPayment: (orderId: string, amount: number, method: ModePaiement, note: string, date: string, accountId?: string) => void;
     onArchiveOrder: (orderId: string) => void;
     comptes: CompteFinancier[];
@@ -565,7 +566,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         <div className="animate-in fade-in">
                                             <label className="block text-[8px] font-black text-red-600 uppercase mb-1 ml-1 font-black">Caisse OBLIGATOIRE pour l'acompte *</label>
                                             <select className="w-full p-2 border-2 border-brand-200 rounded-lg text-[10px] font-bold" value={initialAccountId} onChange={e => setInitialAccountId(e.target.value)}>
-                                                <option value="">-- Sélectionner Caisse --</option>
+                                                <option value="">-- Sélectionner --</option>
                                                 {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
                                             </select>
                                         </div>
@@ -597,7 +598,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             )}
 
             {taskModalOpen && (
-                <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-md">
+                <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-8 animate-in zoom-in duration-200 border border-brand-100">
                         <div className="flex justify-between items-center mb-8 border-b pb-4"><h3 className="text-xl font-black text-gray-800 flex items-center gap-3 uppercase tracking-tighter"><UserPlus size={28} className="text-orange-600"/> Assigner une Tâche</h3><button onClick={() => setTaskModalOpen(false)}><X size={28}/></button></div>
                         <div className="space-y-6">
@@ -633,6 +634,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             <div className="bg-brand-50 p-6 rounded-2xl border border-brand-100 relative overflow-hidden group">
                                 <p className="text-[10px] font-black text-brand-600 uppercase tracking-widest mb-1 relative z-10">Client</p>
                                 <p className="text-xl font-black text-brand-900 uppercase relative z-10">{orderDetailView.clientNom}</p>
+                                <div className="mt-2 relative z-10 bg-white/50 p-2 rounded-lg border border-brand-100">
+                                    <p className="text-[9px] font-black text-brand-600 uppercase tracking-widest mb-0.5">Désignation</p>
+                                    <p className="text-xs font-bold text-brand-900">{orderDetailView.description}</p>
+                                </div>
                                 <Scissors size={80} className="absolute -right-4 -bottom-4 text-brand-900/5 rotate-12 transition-transform group-hover:scale-110"/>
                             </div>
 
@@ -644,6 +649,18 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 flex items-center gap-3">
                                     <Clock size={18} className="text-orange-400"/>
                                     <div><p className="text-[8px] font-black text-orange-400 uppercase tracking-widest">Livraison Prévue</p><p className="text-xs font-black text-orange-900">{new Date(orderDetailView.dateLivraisonPrevue).toLocaleDateString()}</p></div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b pb-1">Composition (Articles)</p>
+                                <div className="bg-gray-50/50 rounded-xl p-3 border border-gray-100 space-y-2">
+                                    {orderDetailView.elements?.map((el, i) => (
+                                        <div key={i} className="flex justify-between items-center text-xs">
+                                            <span className="font-bold text-gray-700 uppercase">{el.nom}</span>
+                                            <span className="font-black text-brand-600 px-2 py-0.5 bg-white rounded border border-brand-50 shadow-sm">x {el.quantite}</span>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
 
@@ -682,7 +699,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             <div>
                                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b pb-1">Versements & Solde</p>
                                 <div className="space-y-2">
-                                    <div className="flex justify-between text-xs font-bold p-3 bg-gray-50 rounded-xl border border-gray-100 italic"><span>Initial (Avance)</span><span>{orderDetailView.avance.toLocaleString()} F</span></div>
+                                    <div className="flex justify-between text-xs font-bold p-3 bg-gray-50 rounded-xl border border-gray-100 italic"><span>Initial (Acompte)</span><span>{orderDetailView.avance.toLocaleString()} F</span></div>
                                     {orderDetailView.paiements?.map((p, idx) => (
                                         <div key={idx} className="flex justify-between text-xs font-black p-3 bg-green-50 rounded-xl border border-green-100 text-green-700 animate-in slide-in-from-left-2">
                                             <span>{new Date(p.date).toLocaleDateString()} ({p.moyenPaiement})</span>
@@ -699,7 +716,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 </div>
                                 <div className={`p-4 rounded-2xl flex flex-col justify-center border-2 ${orderDetailView.reste > 0 ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'}`}>
                                     <p className={`text-[8px] font-black uppercase tracking-widest mb-1 ${orderDetailView.reste > 0 ? 'text-red-400' : 'text-green-400'}`}>{orderDetailView.reste > 0 ? 'Reste à payer' : 'Statut Paiement'}</p>
-                                    <p className={`text-2xl font-black tracking-tight ${orderDetailView.reste > 0 ? 'text-red-700' : 'text-green-700'}`}>{orderDetailView.reste > 0 ? `${orderDetailView.reste.toLocaleString()} F` : 'SOLDÉ'}</p>
+                                    <p className={`text-2xl font-black tracking-tight ${orderDetailView.reste > 0 ? `${orderDetailView.reste.toLocaleString()} F` : 'SOLDÉ'}`}>{orderDetailView.reste > 0 ? `${orderDetailView.reste.toLocaleString()} F` : 'SOLDÉ'}</p>
                                 </div>
                             </div>
                         </div>

@@ -13,23 +13,49 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ commandes, employes, depenses, clients }) => {
+    // Fixed: Removed duplicate declaration of aiAdvice and setAiAdvice
     const [aiAdvice, setAiAdvice] = useState<string | null>(null);
     const [loadingAI, setLoadingAI] = useState(false);
     const [showSyncHelp, setShowSyncHelp] = useState(false);
 
     const isOfflineMode = !app;
 
-    const pendingOrders = commandes.filter(c => c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE).length;
+    const pendingOrders = commandes.filter(c => c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE && !c.archived && !c.isDevis).length;
     const activeTailors = employes.filter(e => e.actif !== false).length; 
     
     const productionStats = useMemo(() => {
-        return {
-            attente: commandes.filter(c => c.statut === StatutCommande.EN_ATTENTE).length,
-            coupe: commandes.filter(c => c.statut === StatutCommande.EN_COUPE).length,
-            couture: commandes.filter(c => c.statut === StatutCommande.COUTURE).length,
-            finition: commandes.filter(c => c.statut === StatutCommande.FINITION).length,
-            pret: commandes.filter(c => c.statut === StatutCommande.PRET).length
+        // CORRECTION: On compte maintenant le nombre de PIÈCES (articles) et non le nombre de commandes
+        const stats = {
+            attente: 0,
+            coupe: 0,
+            couture: 0,
+            finition: 0,
+            pret: 0
         };
+
+        commandes
+            .filter(c => !c.archived && c.statut !== StatutCommande.ANNULE && !c.isDevis)
+            .forEach(c => {
+                if (c.repartitionStatuts) {
+                    // Utilisation de la répartition précise par pièce
+                    stats.attente += (c.repartitionStatuts[StatutCommande.EN_ATTENTE] || 0);
+                    stats.coupe += (c.repartitionStatuts[StatutCommande.EN_COUPE] || 0);
+                    stats.couture += (c.repartitionStatuts[StatutCommande.COUTURE] || 0);
+                    stats.finition += (c.repartitionStatuts[StatutCommande.FINITION] || 0);
+                    stats.pret += (c.repartitionStatuts[StatutCommande.PRET] || 0);
+                } else {
+                    // Fallback pour les anciennes commandes ou sans répartition détaillée
+                    const s = c.statut;
+                    const q = c.quantite || 1;
+                    if (s === StatutCommande.EN_ATTENTE) stats.attente += q;
+                    else if (s === StatutCommande.EN_COUPE) stats.coupe += q;
+                    else if (s === StatutCommande.COUTURE) stats.couture += q;
+                    else if (s === StatutCommande.FINITION) stats.finition += q;
+                    else if (s === StatutCommande.PRET) stats.pret += q;
+                }
+            });
+
+        return stats;
     }, [commandes]);
 
     const upcomingBirthdays = useMemo(() => {
@@ -69,14 +95,15 @@ const Dashboard: React.FC<DashboardProps> = ({ commandes, employes, depenses, cl
         setLoadingAI(true);
         const context = JSON.stringify({
             commandesEnCours: pendingOrders,
+            piecesEnProduction: productionStats.attente + productionStats.coupe + productionStats.couture + productionStats.finition,
             commandesUrgentes: urgentOrders.length,
             chiffreAffaires: commandes.reduce((acc, c) => acc + c.prixTotal, 0),
             depensesTotales: depenses.reduce((acc, d) => acc + d.montant, 0),
             tailleursDisponibles: activeTailors,
-            statutCommandes: productionStats,
+            statutPieces: productionStats,
             anniversairesProchains: upcomingBirthdays.length
         });
-        const prompt = "Analyse la performance de BY TCHICO. Donne moi une recommandation stratégique très courte.";
+        const prompt = "Analyse la performance de BY TCHICO basée sur le volume de pièces en cours. Donne moi une recommandation stratégique très courte.";
         const response = await getAIAnalysis(context, prompt);
         setAiAdvice(response);
         setLoadingAI(false);
@@ -153,12 +180,13 @@ const Dashboard: React.FC<DashboardProps> = ({ commandes, employes, depenses, cl
                 </div>
             </div>
 
-            {/* FLUX ATELIER REVISITÉ */}
+            {/* FLUX ATELIER REVISITÉ - MAINTENANT BASÉ SUR LES PIÈCES REELLES */}
             <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
                 <div className="flex justify-between items-center mb-8">
                     <h3 className="font-black text-gray-800 uppercase text-xs tracking-[0.2em] flex items-center gap-2">
-                        <TrendingUp size={16} className="text-brand-600"/> Performance de l'Atelier
+                        <TrendingUp size={16} className="text-brand-600"/> Flux de Production (Nombre de pièces)
                     </h3>
+                    <span className="text-[10px] font-black text-gray-400 uppercase bg-gray-50 px-3 py-1 rounded-full border">Total en cours : {productionStats.attente + productionStats.coupe + productionStats.couture + productionStats.finition} pcs</span>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                     {[
@@ -168,9 +196,10 @@ const Dashboard: React.FC<DashboardProps> = ({ commandes, employes, depenses, cl
                         { label: 'Finition', val: productionStats.finition, color: 'bg-purple-50 text-purple-600' },
                         { label: 'Prêt', val: productionStats.pret, color: 'bg-green-50 text-green-600' },
                     ].map((s, i) => (
-                        <div key={i} className={`${s.color} p-6 rounded-2xl flex flex-col items-center justify-center border border-white shadow-sm`}>
+                        <div key={i} className={`${s.color} p-6 rounded-2xl flex flex-col items-center justify-center border border-white shadow-sm transition-transform hover:scale-105`}>
                             <span className="text-[10px] font-black uppercase tracking-widest mb-1 opacity-70">{s.label}</span>
                             <span className="text-3xl font-black">{s.val}</span>
+                            <span className="text-[9px] font-bold uppercase mt-1 opacity-50">pièces</span>
                         </div>
                     ))}
                 </div>
@@ -222,6 +251,20 @@ const Dashboard: React.FC<DashboardProps> = ({ commandes, employes, depenses, cl
                     </div>
                 </div>
             </div>
+
+            {showSyncHelp && (
+                <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white p-8 rounded-3xl max-w-md shadow-2xl relative animate-in zoom-in duration-200">
+                        <button onClick={() => setShowSyncHelp(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X size={24}/></button>
+                        <h3 className="text-xl font-black text-gray-800 mb-4 uppercase">Mode Local vs Cloud</h3>
+                        <p className="text-sm text-gray-600 leading-relaxed mb-6">
+                            L'application fonctionne actuellement en <strong>Mode Local</strong> car aucune instance Firebase n'est détectée. Vos données sont stockées uniquement dans la mémoire de cet appareil (Navigateur).<br/><br/>
+                            Pour une synchronisation multi-appareils, une configuration Cloud est nécessaire.
+                        </p>
+                        <button onClick={() => setShowSyncHelp(false)} className="w-full py-4 bg-brand-900 text-white rounded-xl font-black uppercase text-xs tracking-widest shadow-lg">J'ai compris</button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
