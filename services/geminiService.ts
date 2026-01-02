@@ -3,124 +3,115 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { COMPANY_CONFIG } from "../config";
 
 /**
- * Fonction interne pour obtenir l'instance GenAI avec la clé d'environnement.
- * On crée une nouvelle instance à chaque appel comme recommandé.
+ * Initialisation du client GenAI.
+ * L'API Key est récupérée depuis process.env.API_KEY comme requis.
  */
-const getClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+const getAiClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const getAIAnalysis = async (contextData: string, userPrompt: string): Promise<string> => {
     try {
-        const ai = getClient();
-        const model = 'gemini-3-flash-preview';
+        const ai = getAiClient();
+        const modelName = 'gemini-3-flash-preview';
         
-        const systemInstruction = `Tu es un assistant expert en gestion d'entreprise pour "${COMPANY_CONFIG.name}", ${COMPANY_CONFIG.aiContext}.
-Ta mission est d'aider le gérant à optimiser la production, suivre les ventes, et gérer les dépenses.
-Réponds toujours de manière professionnelle, concise et en Français.
-La devise est le ${COMPANY_CONFIG.currency}.`;
+        const systemInstruction = `Tu es l'assistant expert de BY TCHICO, un atelier de couture de luxe au Sénégal.
+Ta mission : Analyser les données et donner des conseils stratégiques courts (2 phrases max).
+Donne des chiffres si possible. Réponds en Français.`;
 
-        const fullPrompt = `CONTEXTE DONNÉES ENTREPRISE (JSON):
+        const fullPrompt = `DONNÉES DU MOMENT:
 ${contextData}
 
-QUESTION UTILISATEUR:
+DEMANDE DU GÉRANT:
 ${userPrompt}`;
 
         const response = await ai.models.generateContent({
-            model: model,
-            contents: [{ parts: [{ text: fullPrompt }] }],
+            model: modelName,
+            contents: fullPrompt,
             config: {
                 systemInstruction: systemInstruction,
                 temperature: 0.7,
             }
         });
 
-        return response.text || "L'IA n'a pas retourné de réponse. Veuillez réessayer dans quelques instants.";
+        // Utilisation de la propriété .text directe
+        return response.text || "Analyse indisponible.";
     } catch (error) {
-        console.error("Erreur Gemini Analysis:", error);
-        return "Erreur de connexion avec l'intelligence artificielle. Merci de vérifier votre connexion internet ou de réessayer plus tard.";
+        console.error("Erreur Critique Gemini Analysis:", error);
+        return "Erreur réseau avec l'IA. Vérifiez votre connexion ou les quotas d'API.";
     }
 };
 
 export const analyzeProductionBottlenecks = async (commandes: any[], artisans: any[]): Promise<string> => {
     try {
-        const ai = getClient();
+        const ai = getAiClient();
         const summary = commandes.map(c => ({
             id: c.id,
             statut: c.statut,
-            artisans: c.tailleursIds,
-            datePrevue: c.dateLivraisonPrevue
+            qte: c.quantite,
+            tailleurs: c.tailleursIds
         }));
         
-        const prompt = `Analyse ce flux de production pour l'atelier de couture BY TCHICO :
-Commandes en cours : ${JSON.stringify(summary)}
-Artisans disponibles : ${artisans.length}
+        const prompt = `Voici l'état actuel de l'atelier BY TCHICO :
+${JSON.stringify(summary)}
+Nombre de tailleurs : ${artisans.length}
 
-Identifie s'il y a un goulot d'étranglement (ex: trop de commandes en "Couture") ou si un artisan est surchargé. 
-Donne une recommandation d'action immédiate en 2 phrases maximum.`;
+Identifie le blocage majeur en production et donne une solution en une seule phrase.`;
 
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: [{ parts: [{ text: prompt }] }],
+            contents: prompt,
         });
-        return response.text || "Flux de production stable.";
+        return response.text || "Production fluide.";
     } catch (e) {
         console.error("Erreur Gemini Bottlenecks:", e);
-        return "Analyse de production momentanément indisponible.";
+        return "Analyse de production temporairement indisponible.";
     }
 };
 
 export const recommendFabricMeterage = async (measurements: any, garmentType: string): Promise<string> => {
     try {
-        if (!garmentType || garmentType.trim() === '') return "Veuillez préciser le type de vêtement.";
+        if (!garmentType) return "Précisez le vêtement.";
         
-        const ai = getClient();
-        const prompt = `En tant qu'expert tailleur sénégalais, recommande le métrage de tissu nécessaire (en mètres et yards) pour confectionner un(e) "${garmentType}".
-Mesures du client (en cm) : ${JSON.stringify(measurements)}.
-Prends en compte la largeur standard du tissu au Sénégal (généralement 150cm ou 120cm).
-Donne une réponse courte, précise et explique brièvement pourquoi ce métrage.`;
+        const ai = getAiClient();
+        const prompt = `Expert tailleur sénégalais, dis-moi combien de mètres de tissu (Largeur 150cm) il faut pour un(e) "${garmentType}".
+Mesures du client : ${JSON.stringify(measurements)}.
+Réponse courte uniquement (ex: "3 mètres de Bazin car...")`;
 
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: [{ parts: [{ text: prompt }] }],
+            contents: prompt,
         });
-        return response.text || "Impossible de calculer le métrage pour le moment.";
+        return response.text || "Impossible de calculer.";
     } catch (e) {
         console.error("Erreur Gemini Meterage:", e);
-        return "Le service Assistant Tailleur est temporairement indisponible. Réessayez dans un moment.";
+        return "Service de calcul indisponible.";
     }
 };
 
 export const draftClientMessage = async (clientName: string, orderDescription: string, status: string): Promise<string> => {
      try {
-        const ai = getClient();
-        const prompt = `Rédige un message WhatsApp court et poli pour le client ${clientName}.
-Sa commande "${orderDescription}" est actuellement au statut : "${status}".
-Si c'est "Prêt", invite-le à passer à la boutique ${COMPANY_CONFIG.name}.
-Utilise un ton chaleureux.`;
+        const ai = getAiClient();
+        const prompt = `Rédige un petit message WhatsApp pour ${clientName} concernant sa commande "${orderDescription}" qui est maintenant au stade "${status}".
+Ton poli et professionnel.`;
 
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: [{ parts: [{ text: prompt }] }],
+            contents: prompt,
         });
         return response.text || "";
      } catch (e) {
-         return `Bonjour ${clientName}, votre commande chez ${COMPANY_CONFIG.name} est passée au statut : ${status}.`;
+         return `Bonjour ${clientName}, votre commande est passée au statut ${status}.`;
      }
 }
 
 export const parseMeasurementsFromText = async (text: string): Promise<Record<string, string | number>> => {
     try {
-        if (!text || text.trim() === '') return {};
-        const ai = getClient();
-        const prompt = `Analyse le texte suivant qui contient des mesures de couture dictées vocalement.
-Texte : "${text}"
-
-Extrais les valeurs et associe-les aux clés JSON correspondantes.
-RÈGLE CRITIQUE POUR LES MESURES MULTIPLES :
-Si l'utilisateur énonce deux chiffres (ex: "épaule 38 42"), renvoie "38/42".`;
+        if (!text) return {};
+        const ai = getAiClient();
+        const prompt = `Extrais les mesures de couture de ce texte : "${text}"`;
 
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: [{ parts: [{ text: prompt }] }],
+            contents: prompt,
             config: {
                 responseMimeType: 'application/json',
                 responseSchema: {
@@ -151,8 +142,10 @@ Si l'utilisateur énonce deux chiffres (ex: "épaule 38 42"), renvoie "38/42".`;
             }
         });
         
-        const jsonText = response.text || "{}";
-        return JSON.parse(jsonText);
+        const rawJson = response.text || "{}";
+        // Nettoyage au cas où l'IA renverrait des balises ```json
+        const cleanedJson = rawJson.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(cleanedJson);
     } catch (error) {
         console.error("Erreur parsing mesures IA:", error);
         return {};
