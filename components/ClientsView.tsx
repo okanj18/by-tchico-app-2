@@ -15,7 +15,8 @@ interface ClientsViewProps {
 }
 
 const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClient, onUpdateClient, onDeleteClient }) => {
-    const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+    // Utilisation de l'ID au lieu de l'objet complet pour éviter les bugs de synchronisation
+    const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
@@ -24,6 +25,11 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
     const [activeDetailTab, setActiveDetailTab] = useState<'MESURES' | 'STYLE' | 'HISTO' | 'MODELES'>('MESURES');
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Récupération du client sélectionné à partir de la liste source
+    const selectedClient = useMemo(() => 
+        clients.find(c => c.id === selectedClientId) || null
+    , [clients, selectedClientId]);
 
     // States pour l'ajout de modèle (Photo + Description)
     const [isAddingModeleModal, setIsAddingModeleModal] = useState(false);
@@ -89,7 +95,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
     const handleSave = () => {
         if (!clientFormData.nom || !clientFormData.telephone) { alert("Le nom et le téléphone sont obligatoires."); return; }
         
-        let finalClient: Client;
         if (isEditing && selectedClient) {
             const oldMesures = JSON.stringify(selectedClient.mesures);
             const newMesures = JSON.stringify(clientFormData.mesures);
@@ -102,7 +107,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 ].slice(0, 10);
             }
 
-            finalClient = { 
+            const finalClient = { 
                 ...selectedClient, 
                 ...clientFormData, 
                 mesuresHistorique: updatedHistory,
@@ -110,7 +115,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
             } as Client;
             onUpdateClient(finalClient);
         } else {
-            finalClient = { 
+            const finalClient = { 
                 ...clientFormData, 
                 id: `C${Date.now()}`, 
                 lastOrderDate: Date.now(),
@@ -118,8 +123,8 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 modelesCousus: []
             } as Client;
             onAddClient(finalClient);
+            setSelectedClientId(finalClient.id);
         }
-        setSelectedClient(finalClient);
         setIsModalOpen(false);
     };
 
@@ -194,12 +199,13 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 description: pendingDescription.trim()
             };
 
+            // Utilisation systématique de la version la plus fraîche du client depuis les props
             const updatedClient = {
                 ...selectedClient,
                 modelesCousus: [nouveauModele, ...(selectedClient.modelesCousus || [])]
             };
+            
             onUpdateClient(updatedClient);
-            setSelectedClient(updatedClient);
             setIsAddingModeleModal(false);
             setPendingModeleFile(null);
             setPendingModelePreview(null);
@@ -218,7 +224,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         setEditingModeleIdx(idx);
         setPendingModelePreview(mod.url);
         setPendingDescription(mod.description || '');
-        setPendingModeleFile(null); // On ne change pas le fichier ici
+        setPendingModeleFile(null);
         setIsAddingModeleModal(true);
     };
 
@@ -231,9 +237,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
             description: pendingDescription.trim()
         };
 
-        const updatedClient = { ...selectedClient, modelesCousus: newList };
-        onUpdateClient(updatedClient);
-        setSelectedClient(updatedClient);
+        onUpdateClient({ ...selectedClient, modelesCousus: newList });
         setIsAddingModeleModal(false);
         setEditingModeleIdx(null);
     };
@@ -242,16 +246,14 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         if (!selectedClient || !window.confirm("Supprimer cette réalisation de l'historique ?")) return;
         const newList = [...(selectedClient.modelesCousus || [])];
         newList.splice(idx, 1);
-        const updatedClient = { ...selectedClient, modelesCousus: newList };
-        onUpdateClient(updatedClient);
-        setSelectedClient(updatedClient);
+        onUpdateClient({ ...selectedClient, modelesCousus: newList });
     };
 
     return (
         <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-8rem)]">
             {/* SIDEBAR RÉPERTOIRE */}
             <div className="w-full lg:w-1/3 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
-                <div className="p-4 border-b bg-gray-50 flex justify-between items-center shrink-0">
+                <div className="p-4 bg-gray-50 border-b flex justify-between items-center shrink-0">
                     <div>
                         <h3 className="font-black text-gray-700 uppercase text-[10px] tracking-widest">Répertoire Clients</h3>
                         <p className="text-[10px] font-bold text-brand-600 uppercase flex items-center gap-1 mt-0.5"><Users size={12}/> {clients.length} au total</p>
@@ -268,7 +270,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                     {filteredClients.map(c => {
                         const rank = getClientRank(c.id);
                         return (
-                            <div key={c.id} onClick={() => { setSelectedClient(c); setActiveDetailTab('MESURES'); }} className={`p-4 border-b cursor-pointer transition-colors hover:bg-brand-50 flex items-center justify-between ${selectedClient?.id === c.id ? 'bg-brand-50 border-l-4 border-brand-600' : ''}`}>
+                            <div key={c.id} onClick={() => { setSelectedClientId(c.id); setActiveDetailTab('MESURES'); }} className={`p-4 border-b cursor-pointer transition-colors hover:bg-brand-50 flex items-center justify-between ${selectedClientId === c.id ? 'bg-brand-50 border-l-4 border-brand-600' : ''}`}>
                                 <div>
                                     <p className="font-bold text-gray-800 uppercase text-xs">{c.nom}</p>
                                     <p className="text-[10px] text-gray-400 mt-1 font-mono">{c.telephone}</p>
@@ -310,7 +312,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                                 </div>
                                 <div className="flex gap-2">
                                     <button onClick={() => { setClientFormData({ ...selectedClient }); setIsEditing(true); setIsModalOpen(true); }} className="p-2 bg-white text-gray-400 border border-gray-200 rounded-lg hover:text-brand-600 transition-all shadow-sm"><Edit2 size={16}/></button>
-                                    <button onClick={() => { if(window.confirm("Supprimer ce client ?")) { onDeleteClient(selectedClient.id); setSelectedClient(null); } }} className="p-2 bg-red-50 text-red-600 border border-red-100 rounded-lg hover:bg-red-100 transition-all shadow-sm"><Trash2 size={16}/></button>
+                                    <button onClick={() => { if(window.confirm("Supprimer ce client ?")) { onDeleteClient(selectedClient.id); setSelectedClientId(null); } }} className="p-2 bg-red-50 text-red-600 border border-red-100 rounded-lg hover:bg-red-100 transition-all shadow-sm"><Trash2 size={16}/></button>
                                 </div>
                             </div>
 

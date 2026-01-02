@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Article, TypeArticle } from '../types';
-import { Search, Plus, Tag, Edit2, X, Save, Box, Layers, DollarSign, Scissors, ShoppingBag, ArrowRightLeft, Trash2, Image as ImageIcon, Upload, CheckSquare, Square, LayoutGrid, List, QrCode, Archive, RotateCcw, AlertTriangle, Loader } from 'lucide-react';
+import { Search, Plus, Tag, Edit2, X, Save, Box, Layers, DollarSign, Scissors, ShoppingBag, ArrowRightLeft, Trash2, Image as ImageIcon, Upload, CheckSquare, Square, LayoutGrid, List, QrCode, Archive, RotateCcw, AlertTriangle, Loader, Star } from 'lucide-react';
 import { QRGeneratorModal } from './QRTools';
 import { uploadImageToCloud } from '../services/storageService'; 
 
@@ -125,7 +125,6 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                 const fileList = Array.from(files) as File[];
                 const uploadedUrls: string[] = [];
 
-                // Traitement séquentiel pour ne pas figer le navigateur
                 for (const file of fileList) {
                     try {
                         const url = await uploadImageToCloud(file, 'articles');
@@ -156,6 +155,14 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                 images: prev.images?.filter((_, i) => i !== index)
             }));
         }
+    };
+
+    const handleSetMainImage = (index: number) => {
+        if (!formData.images) return;
+        const newImages = [...formData.images];
+        const [target] = newImages.splice(index, 1);
+        newImages.unshift(target);
+        setFormData(prev => ({ ...prev, images: newImages }));
     };
 
     const triggerFileInput = () => {
@@ -382,9 +389,16 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                         {filteredArticles.map(article => (
                             <div key={article.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:shadow-md transition-shadow group relative flex flex-col h-full">
                                 <div className="flex items-start gap-4 mb-3 flex-1">
-                                    <div className={`p-1 rounded-lg w-20 h-20 flex items-center justify-center overflow-hidden border border-gray-100 ${(!article.images || article.images.length === 0) ? (article.typeArticle === 'MATIERE_PREMIERE' ? 'bg-amber-50 text-amber-600' : 'bg-purple-50 text-purple-600') : 'bg-gray-50'} shrink-0`}>
+                                    <div className={`p-1 rounded-lg w-20 h-20 flex items-center justify-center overflow-hidden border border-gray-100 ${(!article.images || article.images.length === 0) ? (article.typeArticle === 'MATIERE_PREMIERE' ? 'bg-amber-50 text-amber-600' : 'bg-purple-50 text-purple-600') : 'bg-gray-50'} shrink-0 relative`}>
                                         {article.images && article.images.length > 0 ? (
-                                            <img src={article.images[0]} alt={article.nom} className="w-full h-full object-cover rounded-md" />
+                                            <>
+                                                <img src={article.images[0]} alt={article.nom} className="w-full h-full object-cover rounded-md" />
+                                                {article.images.length > 1 && (
+                                                    <div className="absolute bottom-1 right-1 bg-brand-900/80 text-white text-[8px] font-black px-1 rounded-sm shadow-sm">
+                                                        +{article.images.length - 1}
+                                                    </div>
+                                                )}
+                                            </>
                                         ) : (
                                             article.typeArticle === 'MATIERE_PREMIERE' ? <Scissors size={24} /> : <ShoppingBag size={24} />
                                         )}
@@ -499,9 +513,16 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                                 {filteredArticles.map(article => (
                                     <tr key={article.id} className="hover:bg-gray-50 transition-colors">
                                         <td className="py-3 px-4">
-                                            <div className={`w-10 h-10 rounded overflow-hidden flex items-center justify-center border border-gray-200 ${(!article.images || article.images.length === 0) ? 'bg-gray-100' : ''}`}>
+                                            <div className={`w-10 h-10 rounded overflow-hidden flex items-center justify-center border border-gray-200 relative ${(!article.images || article.images.length === 0) ? 'bg-gray-100' : ''}`}>
                                                 {article.images && article.images.length > 0 ? (
-                                                    <img src={article.images[0]} alt="" className="w-full h-full object-cover" />
+                                                    <>
+                                                        <img src={article.images[0]} alt="" className="w-full h-full object-cover" />
+                                                        {article.images.length > 1 && (
+                                                            <div className="absolute top-0 right-0 bg-brand-900 text-white text-[6px] px-0.5 rounded-bl shadow-sm">
+                                                                +{article.images.length - 1}
+                                                            </div>
+                                                        )}
+                                                    </>
                                                 ) : (
                                                     article.typeArticle === 'MATIERE_PREMIERE' ? <Scissors size={16} className="text-amber-600"/> : <ShoppingBag size={16} className="text-purple-600"/>
                                                 )}
@@ -833,9 +854,11 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
 
                             {/* Section 3: Images Uploader (OPTIMIZED) */}
                             <div className="mb-4">
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Images du produit</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-2 flex justify-between items-center">
+                                    Images du produit <span className="text-[10px] font-black text-brand-600 uppercase tracking-widest">(Plusieurs sélections possibles)</span>
+                                </label>
                                 
-                                <div className="grid grid-cols-4 gap-4 mb-4">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-4">
                                     {/* Upload Button */}
                                     <div 
                                         className={`w-full aspect-square bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 hover:bg-brand-50 hover:border-brand-300 hover:text-brand-600 transition-colors cursor-pointer ${isUploading ? 'opacity-50 cursor-wait' : ''}`}
@@ -844,34 +867,42 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                                         {isUploading ? (
                                             <>
                                                 <Loader className="animate-spin mb-2" size={24} />
-                                                <span className="text-xs font-bold text-center px-1">Traitement...<br/>(Ne fermez pas)</span>
-                                                <button 
-                                                    className="mt-2 text-xs text-red-500 hover:underline" 
-                                                    onClick={(e) => { e.stopPropagation(); setIsUploading(false); }}
-                                                >
-                                                    Annuler
-                                                </button>
+                                                <span className="text-[10px] font-bold text-center px-1">Traitement...</span>
                                             </>
                                         ) : (
                                             <>
-                                                <ImageIcon size={24} className="mb-2" />
-                                                <span className="text-xs font-bold">Ajouter</span>
+                                                <div className="p-3 bg-white rounded-full shadow-sm mb-2"><Plus size={24} /></div>
+                                                <span className="text-[10px] font-black uppercase">Ajouter Photo</span>
                                             </>
                                         )}
                                     </div>
 
                                     {/* Existing Images */}
                                     {formData.images?.map((img, index) => (
-                                        <div key={index} className="relative w-full aspect-square rounded-lg overflow-hidden border border-gray-200 group">
+                                        <div key={index} className={`relative w-full aspect-square rounded-lg overflow-hidden border-2 group transition-all ${index === 0 ? 'border-brand-600 shadow-md ring-2 ring-brand-50' : 'border-gray-100'}`}>
                                             <img src={img} alt={`Produit ${index + 1}`} className="w-full h-full object-cover" />
-                                            <button 
-                                                onClick={() => handleRemoveImage(index)}
-                                                className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                                            >
-                                                <X size={12} />
-                                            </button>
+                                            
+                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                                                {index !== 0 && (
+                                                    <button 
+                                                        onClick={() => handleSetMainImage(index)}
+                                                        className="p-1.5 bg-white text-brand-600 rounded-lg hover:bg-brand-600 hover:text-white transition-colors"
+                                                        title="Définir comme principale"
+                                                    >
+                                                        <Star size={14} fill="currentColor" />
+                                                    </button>
+                                                )}
+                                                <button 
+                                                    onClick={() => handleRemoveImage(index)}
+                                                    className="p-1.5 bg-white text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-colors"
+                                                    title="Supprimer"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+
                                             {index === 0 && (
-                                                <div className="absolute bottom-0 left-0 w-full bg-black/50 text-white text-[10px] text-center py-1">
+                                                <div className="absolute top-0 left-0 bg-brand-600 text-white text-[8px] font-black px-2 py-1 uppercase tracking-tighter rounded-br-lg shadow-sm">
                                                     Couverture
                                                 </div>
                                             )}
@@ -887,9 +918,6 @@ const ArticlesView: React.FC<ArticlesViewProps> = ({ articles, onAddArticle, onU
                                     accept="image/*"
                                     multiple 
                                 />
-                                <p className="text-xs text-gray-500">
-                                    Les images sont compressées automatiquement (Max 600px).
-                                </p>
                             </div>
                         </div>
 

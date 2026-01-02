@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie, NiveauAcces, PermissionsUtilisateur } from '../types';
-import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock, Truck, CheckSquare, Square, Save, Image as ImageIcon, Upload, Shield, Eye, AlertTriangle, Calendar, CreditCard, BarChart3, ChevronLeft, ChevronRight, UserX } from 'lucide-react';
+import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock, Truck, CheckSquare, Square, Save, Image as ImageIcon, Upload, Shield, Eye, AlertTriangle, Calendar, CreditCard, BarChart3, ChevronLeft, ChevronRight, UserX, FileText, Landmark } from 'lucide-react';
 import { QRScannerModal, QRGeneratorModal } from './QRTools';
 import { uploadImageToCloud } from '../services/storageService';
 
@@ -243,16 +243,19 @@ const HRView: React.FC<HRViewProps> = ({
         const periodDate = new Date(transactionData.period + "-01");
         const monthLabel = periodDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
 
-        // IMPORTANT : La date dans l'historique employé est forcée au mois de salaire
-        // pour que les calculs de solde de ce mois-là soient corrects (Arriérés).
+        // Date fictive dans le mois concerné pour les rapports RH
         const hrEntryDate = transactionData.period + "-28"; 
+
+        const finalDescription = transactionData.note.trim() 
+            ? `${transactionData.note} (${monthLabel})`
+            : `${transactionData.type} (${monthLabel}) - Payé le ${new Date(transactionData.date).toLocaleDateString()}`;
 
         const entry: TransactionPaie = { 
             id:`TP_${Date.now()}`, 
             date: hrEntryDate, 
             type: transactionData.type, 
             montant: transactionData.montant, 
-            description: `${transactionData.type} (${monthLabel}) - Payé le ${new Date(transactionData.date).toLocaleDateString()}`, 
+            description: finalDescription, 
             createdBy: currentUser?.nom 
         };
 
@@ -265,14 +268,14 @@ const HRView: React.FC<HRViewProps> = ({
                 type: 'DECAISSEMENT', 
                 montant: transactionData.montant, 
                 compteId: paymentAccountId, 
-                description: `Paie ${selectedEmployeeForPay.nom} - ${monthLabel}`, 
+                description: `Paie ${selectedEmployeeForPay.nom} - ${transactionData.note || monthLabel}`, 
                 categorie: 'SALAIRE' 
             });
             onUpdateComptes(comptes.map(c => c.id === paymentAccountId ? {...c, solde: c.solde - transactionData.montant} : c));
         }
 
         setPayModalOpen(false);
-        alert(`Paiement de ${monthLabel} validé le ${new Date(transactionData.date).toLocaleDateString()} !`);
+        alert(`Paiement enregistré avec succès !`);
     };
 
     const getPointageStatusColor = (status: string) => {
@@ -604,25 +607,100 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
-            {/* Modal Paiement Paie */}
+            {/* --- MODAL PAIEMENT PAIE (REFONT UI) --- */}
             {payModalOpen && selectedEmployeeForPay && (
-                <div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200">
-                        <div className="flex justify-between items-center mb-8 border-b pb-4"><h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg tracking-tighter"><DollarSign className="text-green-600" size={28}/> Règlement Paie</h3><button onClick={() => setPayModalOpen(false)}><X size={28}/></button></div>
-                        <div className="space-y-6">
-                            <div className="text-center bg-gray-50 p-4 rounded-2xl border-2 border-dashed border-gray-200"><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Bénéficiaire</p><p className="text-lg font-black text-gray-900 uppercase">{selectedEmployeeForPay.nom}</p></div>
-                            <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                                <label className="block text-[10px] font-black text-blue-400 mb-1 ml-1 uppercase">Période (Mois Salaire)</label>
-                                <input type="month" className="w-full p-2 border-2 border-white rounded-lg font-bold text-blue-900 bg-white shadow-sm" value={transactionData.period} onChange={e => setTransactionData({...transactionData, period: e.target.value})} />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-[10px] font-black text-gray-400 mb-1 ml-1 uppercase">Action</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={transactionData.type} onChange={e => setTransactionData({...transactionData, type: e.target.value as any})}><option value="ACOMPTE">Acompte</option><option value="SALAIRE_NET">Solde Salaire</option><option value="PRIME">Prime</option></select></div>
-                                <div><label className="block text-[10px] font-black text-gray-400 mb-1 ml-1 uppercase">Date Réelle Paiement</label><input type="date" className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={transactionData.date} onChange={e => setTransactionData({...transactionData, date: e.target.value})} /></div>
-                            </div>
-                            <div><label className="block text-[10px] font-black text-gray-400 mb-1 ml-1 uppercase">Montant (F)</label><input type="number" className="w-full p-4 border-2 border-brand-900/10 rounded-2xl text-2xl font-black bg-brand-50 text-brand-900" value={transactionData.montant || ''} onChange={e => setTransactionData({...transactionData, montant: parseInt(e.target.value)||0})} placeholder="0" /></div>
-                            {transactionData.type !== 'PRIME' && (<div className="animate-in fade-in duration-300"><label className="block text-[10px] font-black text-gray-400 mb-1 ml-1 uppercase">Caisse Source</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl text-xs font-bold" value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>)}
+                <div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh] animate-in zoom-in duration-300 border border-brand-100 overflow-hidden">
+                        {/* Header Modal - Fixe */}
+                        <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-white shrink-0">
+                            <h3 className="text-xl font-black text-gray-800 uppercase tracking-tighter flex items-center gap-4">
+                                <div className="p-3 bg-green-50 rounded-2xl text-green-600 shadow-sm">
+                                    <DollarSign size={28} strokeWidth={3}/>
+                                </div>
+                                Règlement Paie
+                            </h3>
+                            <button onClick={() => setPayModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400"><X size={28}/></button>
                         </div>
-                        <div className="flex justify-end gap-3 mt-10 pt-4 border-t"><button onClick={() => setPayModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={handleConfirmPayment} className="px-10 py-4 bg-green-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Valider</button></div>
+                        
+                        {/* Contenu - Scrollable */}
+                        <div className="p-8 space-y-8 overflow-y-auto flex-1 custom-scrollbar">
+                            {/* Bénéficiaire */}
+                            <div className="bg-gray-50/80 p-6 rounded-3xl border border-gray-100 text-center relative overflow-hidden group">
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 relative z-10">Bénéficiaire</p>
+                                <p className="text-2xl font-black text-gray-900 uppercase tracking-tight relative z-10">{selectedEmployeeForPay.nom}</p>
+                                <User className="absolute -right-4 -bottom-4 opacity-5 text-gray-900 rotate-12 group-hover:rotate-0 transition-transform" size={100}/>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Période */}
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-2 ml-1">
+                                        <Calendar size={14} className="text-brand-600"/> Mois de Salaire
+                                    </label>
+                                    <input type="month" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white focus:border-brand-600 outline-none transition-all shadow-sm" value={transactionData.period} onChange={e => setTransactionData({...transactionData, period: e.target.value})} />
+                                </div>
+
+                                {/* Date Réelle */}
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-2 ml-1">
+                                        <Clock size={14} className="text-brand-600"/> Date de Paiement
+                                    </label>
+                                    <input type="date" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white focus:border-brand-600 outline-none transition-all shadow-sm" value={transactionData.date} onChange={e => setTransactionData({...transactionData, date: e.target.value})} />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Action */}
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-2 ml-1">
+                                        <TrendingUp size={14} className="text-brand-600"/> Type de Règlement
+                                    </label>
+                                    <select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white focus:border-brand-600 outline-none transition-all shadow-sm" value={transactionData.type} onChange={e => setTransactionData({...transactionData, type: e.target.value as any})}>
+                                        <option value="ACOMPTE">ACOMPTE / AVANCE</option>
+                                        <option value="SALAIRE_NET">SOLDE SALAIRE (NET)</option>
+                                        <option value="PRIME">PRIME / GRATIFICATION</option>
+                                    </select>
+                                </div>
+
+                                {/* Caisse */}
+                                {transactionData.type !== 'PRIME' && (
+                                    <div className="space-y-2 animate-in fade-in slide-in-from-right-2">
+                                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-2 ml-1">
+                                            <Landmark size={14} className="text-brand-600"/> Caisse de Sortie
+                                        </label>
+                                        <select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white focus:border-brand-600 outline-none transition-all shadow-sm" value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)}>
+                                            <option value="">-- Choisir Caisse --</option>
+                                            {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
+                                        </select>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Libellé Optionnel */}
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-2 ml-1">
+                                    <FileText size={14} className="text-brand-600"/> Libellé / Détail (Optionnel)
+                                </label>
+                                <input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white focus:border-brand-600 outline-none transition-all shadow-sm" value={transactionData.note} onChange={e => setTransactionData({...transactionData, note: e.target.value})} placeholder="Ex: Avance Tabaski, Heures supplémentaires..." />
+                            </div>
+
+                            {/* Montant - Impact Visuel */}
+                            <div className="space-y-2 pt-4">
+                                <label className="text-[11px] font-black text-green-700 uppercase tracking-[0.2em] ml-2 flex items-center gap-2">
+                                    <DollarSign size={16}/> Montant du Versement (F)
+                                </label>
+                                <div className="relative group">
+                                    <input type="number" className="w-full p-6 border-4 border-green-50 rounded-[2rem] text-4xl font-black bg-green-50/30 text-green-700 focus:border-green-600 focus:bg-white outline-none transition-all shadow-inner placeholder:text-green-200" value={transactionData.montant || ''} onChange={e => setTransactionData({...transactionData, montant: parseInt(e.target.value)||0})} placeholder="0" />
+                                    <span className="absolute right-6 top-1/2 -translate-y-1/2 text-2xl font-black text-green-200">FCFA</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer - Fixe */}
+                        <div className="p-8 bg-gray-50 border-t flex justify-end gap-3 shrink-0">
+                            <button onClick={() => setPayModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-xs tracking-widest hover:text-gray-600">Annuler</button>
+                            <button onClick={handleConfirmPayment} disabled={transactionData.montant <= 0 || (transactionData.type !== 'PRIME' && !paymentAccountId)} className="px-14 py-4 bg-green-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-2xl shadow-green-100 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed">Valider le Paiement</button>
+                        </div>
                     </div>
                 </div>
             )}
