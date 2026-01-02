@@ -1,10 +1,10 @@
 
-import React, { useState, useMemo } from 'react';
-import { Client, Commande, MesureHistorique } from '../types';
-/* Added Scissors to imports */
-import { User, Ruler, Plus, X, Save, Edit2, Copy, Check, Search, Mic, Trash2, Mail, ClipboardList, Send, Trophy, Medal, Award, Users, AlertCircle, Calendar, Sparkles, BookOpen, History, Scissors } from 'lucide-react';
+import React, { useState, useMemo, useRef } from 'react';
+import { Client, Commande, MesureHistorique, ModeleRealise } from '../types';
+import { User, Ruler, Plus, X, Save, Edit2, Copy, Check, Search, Mic, Trash2, Mail, ClipboardList, Send, Trophy, Medal, Award, Users, AlertCircle, Calendar, Sparkles, BookOpen, History, Scissors, Camera, Image as ImageIcon, Loader, Download, FileText } from 'lucide-react';
 import { parseMeasurementsFromText, recommendFabricMeterage } from '../services/geminiService';
 import { COMPANY_CONFIG } from '../config';
+import { uploadImageToCloud } from '../services/storageService';
 
 interface ClientsViewProps {
     clients: Client[];
@@ -21,7 +21,16 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
     const [isEditing, setIsEditing] = useState(false);
     const [isListening, setIsListening] = useState(false);
     const [copySuccess, setCopySuccess] = useState(false);
-    const [activeDetailTab, setActiveDetailTab] = useState<'MESURES' | 'STYLE' | 'HISTO'>('MESURES');
+    const [activeDetailTab, setActiveDetailTab] = useState<'MESURES' | 'STYLE' | 'HISTO' | 'MODELES'>('MESURES');
+    const [isUploading, setIsUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // States pour l'ajout de modèle (Photo + Description)
+    const [isAddingModeleModal, setIsAddingModeleModal] = useState(false);
+    const [pendingModeleFile, setPendingModeleFile] = useState<File | null>(null);
+    const [pendingModelePreview, setPendingModelePreview] = useState<string | null>(null);
+    const [pendingDescription, setPendingDescription] = useState('');
+    const [editingModeleIdx, setEditingModeleIdx] = useState<number | null>(null);
 
     // AI Meterage State
     const [aiGarmentType, setAiGarmentType] = useState('');
@@ -105,7 +114,8 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 ...clientFormData, 
                 id: `C${Date.now()}`, 
                 lastOrderDate: Date.now(),
-                mesuresHistorique: [] 
+                mesuresHistorique: [],
+                modelesCousus: []
             } as Client;
             onAddClient(finalClient);
         }
@@ -121,7 +131,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         setIsAiLoading(false);
     };
 
-    // --- RE-INTEGRATED FUNCTIONS ---
     const handleCopyMeasurements = () => {
         if (!selectedClient) return;
         const measurementsText = MEASUREMENT_FIELDS
@@ -153,6 +162,89 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         const message = `Bonjour ${selectedClient.nom}, voici votre fiche de mesures chez *${COMPANY_CONFIG.name}* :\n\n${measurementsText}`;
         const phone = selectedClient.telephone.replace(/\D/g, '');
         window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+    };
+
+    // --- GESTION DES MODÈLES AMÉLIORÉE ---
+
+    const handleFileSelection = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setPendingModeleFile(file);
+        setPendingDescription('');
+        setEditingModeleIdx(null);
+        
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setPendingModelePreview(reader.result as string);
+            setIsAddingModeleModal(true);
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleSaveNewModele = async () => {
+        if (!pendingModeleFile || !selectedClient) return;
+
+        setIsUploading(true);
+        try {
+            const url = await uploadImageToCloud(pendingModeleFile, `clients/${selectedClient.id}/modeles`);
+            const nouveauModele: ModeleRealise = {
+                url,
+                date: new Date().toISOString(),
+                description: pendingDescription.trim()
+            };
+
+            const updatedClient = {
+                ...selectedClient,
+                modelesCousus: [nouveauModele, ...(selectedClient.modelesCousus || [])]
+            };
+            onUpdateClient(updatedClient);
+            setSelectedClient(updatedClient);
+            setIsAddingModeleModal(false);
+            setPendingModeleFile(null);
+            setPendingModelePreview(null);
+        } catch (error) {
+            console.error("Erreur upload modèle:", error);
+            alert("Erreur lors de l'enregistrement de la photo.");
+        } finally {
+            setIsUploading(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    const handleOpenEditDescription = (idx: number) => {
+        if (!selectedClient?.modelesCousus) return;
+        const mod = selectedClient.modelesCousus[idx];
+        setEditingModeleIdx(idx);
+        setPendingModelePreview(mod.url);
+        setPendingDescription(mod.description || '');
+        setPendingModeleFile(null); // On ne change pas le fichier ici
+        setIsAddingModeleModal(true);
+    };
+
+    const handleUpdateDescription = () => {
+        if (!selectedClient?.modelesCousus || editingModeleIdx === null) return;
+        
+        const newList = [...selectedClient.modelesCousus];
+        newList[editingModeleIdx] = {
+            ...newList[editingModeleIdx],
+            description: pendingDescription.trim()
+        };
+
+        const updatedClient = { ...selectedClient, modelesCousus: newList };
+        onUpdateClient(updatedClient);
+        setSelectedClient(updatedClient);
+        setIsAddingModeleModal(false);
+        setEditingModeleIdx(null);
+    };
+
+    const deleteModele = (idx: number) => {
+        if (!selectedClient || !window.confirm("Supprimer cette réalisation de l'historique ?")) return;
+        const newList = [...(selectedClient.modelesCousus || [])];
+        newList.splice(idx, 1);
+        const updatedClient = { ...selectedClient, modelesCousus: newList };
+        onUpdateClient(updatedClient);
+        setSelectedClient(updatedClient);
     };
 
     return (
@@ -223,10 +315,11 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                             </div>
 
                             {/* Tabs Détails */}
-                            <div className="flex gap-4 mt-6">
-                                <button onClick={() => setActiveDetailTab('MESURES')} className={`pb-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${activeDetailTab === 'MESURES' ? 'border-brand-600 text-brand-900' : 'border-transparent text-gray-400'}`}>Fiche Technique</button>
-                                <button onClick={() => setActiveDetailTab('STYLE')} className={`pb-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${activeDetailTab === 'STYLE' ? 'border-brand-600 text-brand-900' : 'border-transparent text-gray-400'}`}>Carnet de Style</button>
-                                <button onClick={() => setActiveDetailTab('HISTO')} className={`pb-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${activeDetailTab === 'HISTO' ? 'border-brand-600 text-brand-900' : 'border-transparent text-gray-400'}`}>Historique Mesures</button>
+                            <div className="flex gap-4 mt-6 overflow-x-auto no-scrollbar">
+                                <button onClick={() => setActiveDetailTab('MESURES')} className={`pb-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap ${activeDetailTab === 'MESURES' ? 'border-brand-600 text-brand-900' : 'border-transparent text-gray-400'}`}>Fiche Technique</button>
+                                <button onClick={() => setActiveDetailTab('MODELES')} className={`pb-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap ${activeDetailTab === 'MODELES' ? 'border-brand-600 text-brand-900' : 'border-transparent text-gray-400'}`}>Modèles Réalisés</button>
+                                <button onClick={() => setActiveDetailTab('STYLE')} className={`pb-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap ${activeDetailTab === 'STYLE' ? 'border-brand-600 text-brand-900' : 'border-transparent text-gray-400'}`}>Carnet de Style</button>
+                                <button onClick={() => setActiveDetailTab('HISTO')} className={`pb-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap ${activeDetailTab === 'HISTO' ? 'border-brand-600 text-brand-900' : 'border-transparent text-gray-400'}`}>Historique Mesures</button>
                             </div>
                         </div>
 
@@ -289,6 +382,50 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                                 </div>
                             )}
 
+                            {activeDetailTab === 'MODELES' && (
+                                <div className="space-y-6 animate-in fade-in duration-300">
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <h4 className="text-xs font-black text-gray-800 uppercase tracking-widest flex items-center gap-2"><Camera size={16} className="text-brand-600"/> Album des créations</h4>
+                                            <p className="text-[10px] text-gray-400 mt-1 uppercase font-bold">Pour éviter les doublons et suivre l'évolution du style</p>
+                                        </div>
+                                        <button 
+                                            onClick={() => fileInputRef.current?.click()} 
+                                            className="bg-brand-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-lg active:scale-95 transition-all"
+                                        >
+                                            <Plus size={14}/>
+                                            Ajouter une photo
+                                        </button>
+                                        <input type="file" ref={fileInputRef} onChange={handleFileSelection} className="hidden" accept="image/*" />
+                                    </div>
+
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                        {(selectedClient.modelesCousus || []).length > 0 ? (
+                                            selectedClient.modelesCousus?.map((m, idx) => (
+                                                <div key={idx} className="group relative aspect-[3/4] bg-gray-100 rounded-2xl overflow-hidden border border-gray-200 shadow-sm hover:shadow-md transition-all">
+                                                    <img src={m.url} alt={m.description} className="w-full h-full object-cover" />
+                                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
+                                                        <p className="text-[10px] text-white font-bold mb-1">{new Date(m.date).toLocaleDateString()}</p>
+                                                        <p className="text-xs text-white font-black uppercase truncate">{m.description || 'Sans description'}</p>
+                                                        <div className="flex gap-2 mt-3">
+                                                            <button onClick={() => window.open(m.url, '_blank')} className="p-2 bg-white/20 hover:bg-white/40 rounded-lg text-white transition-colors" title="Agrandir"><ImageIcon size={14}/></button>
+                                                            <button onClick={() => handleOpenEditDescription(idx)} className="p-2 bg-brand-500/50 hover:bg-brand-500/80 rounded-lg text-white transition-colors" title="Modifier description"><Edit2 size={14}/></button>
+                                                            <button onClick={() => deleteModele(idx)} className="p-2 bg-red-500/50 hover:bg-red-500/80 rounded-lg text-white transition-colors" title="Supprimer"><Trash2 size={14}/></button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="col-span-full py-20 flex flex-col items-center justify-center text-gray-300 border-2 border-dashed rounded-3xl">
+                                                <Camera size={48} className="opacity-10 mb-4"/>
+                                                <p className="text-[10px] font-black uppercase tracking-widest">Aucun modèle enregistré pour ce client</p>
+                                                <button onClick={() => fileInputRef.current?.click()} className="mt-4 text-[10px] text-brand-600 font-bold underline">Ajouter le premier modèle</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
                             {activeDetailTab === 'STYLE' && (
                                 <div className="space-y-6 animate-in fade-in duration-300">
                                     <div className="bg-amber-50 p-6 rounded-2xl border-l-8 border-amber-400 shadow-sm">
@@ -300,7 +437,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                                                 <div className="h-full flex flex-col items-center justify-center text-amber-200">
                                                     <ClipboardList size={40} className="mb-2"/>
                                                     <p className="text-xs font-black uppercase">Carnet de style vide</p>
-                                                    {/* Removed non-existent setModalSubTab call */}
                                                     <button onClick={() => { setClientFormData({ ...selectedClient }); setIsEditing(true); setIsModalOpen(true); }} className="mt-2 text-[10px] underline">Ajouter des préférences</button>
                                                 </div>
                                             )}
@@ -351,7 +487,66 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 )}
             </div>
 
-            {/* MODAL AJOUT / MODIF */}
+            {/* MODAL AJOUT / MODIF DESCRIPTION MODÈLE - AFFICHAGE REVU */}
+            {isAddingModeleModal && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-300 max-h-[90vh] flex flex-col border border-brand-100">
+                        {/* Header Modal - Fixe */}
+                        <div className="bg-white p-6 border-b flex justify-between items-center shrink-0">
+                            <h3 className="text-xl font-black text-gray-800 uppercase tracking-tighter flex items-center gap-3">
+                                <FileText className="text-brand-600" /> 
+                                {editingModeleIdx !== null ? 'Modifier Description' : 'Nouveau Modèle'}
+                            </h3>
+                            <button onClick={() => { setIsAddingModeleModal(false); setPendingModeleFile(null); setEditingModeleIdx(null); }} className="p-1 hover:bg-gray-100 rounded-full"><X size={28}/></button>
+                        </div>
+                        
+                        {/* Contenu - Scrollable */}
+                        <div className="p-8 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
+                            <div className="w-full aspect-square md:aspect-[3/4] bg-gray-50 rounded-2xl overflow-hidden border border-gray-100 shadow-inner flex items-center justify-center">
+                                {pendingModelePreview ? (
+                                    <img src={pendingModelePreview} className="w-full h-full object-cover" alt="Aperçu" />
+                                ) : (
+                                    <Loader className="animate-spin text-brand-600" size={32}/>
+                                )}
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                    Description du modèle
+                                </label>
+                                <textarea 
+                                    rows={3} 
+                                    value={pendingDescription}
+                                    onChange={e => setPendingDescription(e.target.value)}
+                                    className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-gray-50 focus:border-brand-600 outline-none transition-all resize-none shadow-sm"
+                                    placeholder="Ex: Ensemble Bazin Bleu avec broderies blanches..."
+                                    autoFocus
+                                />
+                            </div>
+                        </div>
+
+                        {/* Footer - Fixe */}
+                        <div className="p-6 bg-gray-50 border-t flex justify-end gap-3 shrink-0">
+                            <button 
+                                onClick={() => { setIsAddingModeleModal(false); setPendingModeleFile(null); setEditingModeleIdx(null); }} 
+                                className="px-6 py-3 text-gray-400 font-black uppercase text-xs tracking-widest"
+                            >
+                                Annuler
+                            </button>
+                            <button 
+                                onClick={editingModeleIdx !== null ? handleUpdateDescription : handleSaveNewModele}
+                                disabled={isUploading || (!pendingModeleFile && editingModeleIdx === null)}
+                                className="px-10 py-3 bg-brand-900 text-white rounded-xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all flex items-center gap-2"
+                            >
+                                {isUploading ? <Loader className="animate-spin" size={14}/> : <Save size={14}/>}
+                                {isUploading ? 'Enregistrement...' : 'Enregistrer'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL AJOUT / MODIF CLIENT */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden animate-in zoom-in duration-300 border border-gray-200">
@@ -367,7 +562,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                                     <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Nom Complet</label><input type="text" value={clientFormData.nom} onChange={e => setClientFormData({...clientFormData, nom: e.target.value.toUpperCase()})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none uppercase shadow-sm" /></div>
                                     <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Téléphone</label><input type="text" value={clientFormData.telephone} onChange={e => setClientFormData({...clientFormData, telephone: e.target.value})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 shadow-sm" /></div>
                                     <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Email</label><input type="email" value={clientFormData.email} onChange={e => setClientFormData({...clientFormData, email: e.target.value})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 shadow-sm" /></div>
-                                    <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Anniversaire</label><input type="date" value={clientFormData.dateAnniversaire} onChange={e => setClientFormData({...clientFormData, dateAnniversaire: e.target.value})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 shadow-sm" /></div>
+                                    <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase">Anniversaire</label><input type="date" value={clientFormData.dateAnniversaire} onChange={e => setClientFormData({...clientFormData, dateAnniversaire: e.target.value})} className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 shadow-sm" /></div>
                                 </div>
                             </section>
 

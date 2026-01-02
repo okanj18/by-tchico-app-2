@@ -130,6 +130,12 @@ export interface MesureHistorique {
     valeurs: any;
 }
 
+export interface ModeleRealise {
+    url: string;
+    date: string;
+    description?: string;
+}
+
 export interface Client {
     id: string;
     nom: string;
@@ -138,6 +144,7 @@ export interface Client {
     dateAnniversaire?: string;
     mesures: any;
     mesuresHistorique?: MesureHistorique[];
+    modelesCousus?: ModeleRealise[];
     stylePreferences?: string;
     notes?: string;
     ville?: string;
