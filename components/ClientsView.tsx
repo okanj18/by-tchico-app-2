@@ -121,6 +121,40 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         setIsAiLoading(false);
     };
 
+    // --- RE-INTEGRATED FUNCTIONS ---
+    const handleCopyMeasurements = () => {
+        if (!selectedClient) return;
+        const measurementsText = MEASUREMENT_FIELDS
+            .map(f => {
+                const val = selectedClient.mesures?.[f.key];
+                return val ? `${f.label}: ${val} cm` : null;
+            })
+            .filter(x => x !== null)
+            .join('\n');
+        
+        const fullText = `FICHE DE MESURES - ${COMPANY_CONFIG.name}\nClient: ${selectedClient.nom}\n\n${measurementsText}`;
+        
+        navigator.clipboard.writeText(fullText).then(() => {
+            setCopySuccess(true);
+            setTimeout(() => setCopySuccess(false), 2000);
+        });
+    };
+
+    const handleSendToWhatsApp = () => {
+        if (!selectedClient) return;
+        const measurementsText = MEASUREMENT_FIELDS
+            .map(f => {
+                const val = selectedClient.mesures?.[f.key];
+                return val ? `*${f.label}*: ${val} cm` : null;
+            })
+            .filter(x => x !== null)
+            .join('\n');
+
+        const message = `Bonjour ${selectedClient.nom}, voici votre fiche de mesures chez *${COMPANY_CONFIG.name}* :\n\n${measurementsText}`;
+        const phone = selectedClient.telephone.replace(/\D/g, '');
+        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+    };
+
     return (
         <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-8rem)]">
             {/* SIDEBAR RÉPERTOIRE */}
@@ -203,7 +237,17 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                                     {/* AI METERAGE TOOL */}
                                     <div className="bg-brand-900 text-white p-6 rounded-2xl shadow-xl border-b-4 border-brand-700 relative overflow-hidden">
                                         <div className="relative z-10">
-                                            <h4 className="text-xs font-black uppercase tracking-widest mb-3 flex items-center gap-2"><Sparkles size={16} className="text-brand-300"/> Assistant Tailleur IA</h4>
+                                            <div className="flex justify-between items-center mb-3">
+                                                <h4 className="text-xs font-black uppercase tracking-widest flex items-center gap-2"><Sparkles size={16} className="text-brand-300"/> Assistant Tailleur IA</h4>
+                                                <div className="flex gap-2">
+                                                    <button onClick={handleCopyMeasurements} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-all" title="Copier les mesures">
+                                                        {copySuccess ? <Check size={16} className="text-green-400"/> : <Copy size={16}/>}
+                                                    </button>
+                                                    <button onClick={handleSendToWhatsApp} className="p-2 bg-green-600/50 hover:bg-green-600 rounded-lg transition-all" title="Envoyer par WhatsApp">
+                                                        <Send size={16}/>
+                                                    </button>
+                                                </div>
+                                            </div>
                                             <div className="flex gap-2">
                                                 <input 
                                                     type="text" 
