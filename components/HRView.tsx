@@ -338,7 +338,18 @@ const HRView: React.FC<HRViewProps> = ({
                                                     {canManageFullHR && (
                                                         <>
                                                             <button onClick={() => { setEditingEmployee(emp); setFormData({...emp, permissions: emp.permissions || {...DEFAULT_PERMISSIONS}}); setModalSubTab('INFOS'); setIsModalOpen(true); }} className="p-2 text-gray-400 hover:text-brand-600 rounded-lg" title="Editer"><Edit2 size={16}/></button>
-                                                            <button onClick={() => onArchiveEmploye?.(emp.id)} className={`p-2 rounded-lg transition-colors ${isArchived ? 'text-green-500' : 'text-orange-500'}`} title={isArchived ? "Restaurer" : "Archiver"}>{isArchived ? <RotateCcw size={16}/> : <UserMinus size={16}/>}</button>
+                                                            <button 
+                                                                onClick={() => {
+                                                                    const msg = isArchived 
+                                                                        ? `Voulez-vous restaurer le profil de ${emp.nom} ?` 
+                                                                        : `Voulez-vous vraiment archiver ${emp.nom} ?\nL'employé ne figurera plus dans les listes actives mais ses données seront conservées.`;
+                                                                    if (window.confirm(msg)) onArchiveEmploye?.(emp.id);
+                                                                }} 
+                                                                className={`p-2 rounded-lg transition-colors ${isArchived ? 'text-green-500' : 'text-orange-500'}`} 
+                                                                title={isArchived ? "Restaurer" : "Archiver"}
+                                                            >
+                                                                {isArchived ? <RotateCcw size={16}/> : <UserMinus size={16}/>}
+                                                            </button>
                                                             <button onClick={() => { if(window.confirm(`Supprimer définitivement ${emp.nom} ?`)) onDeleteEmploye(emp.id) }} className="p-2 text-red-300 hover:text-red-600 rounded-lg" title="Supprimer"><Trash2 size={16}/></button>
                                                         </>
                                                     )}
