@@ -2,9 +2,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { COMPANY_CONFIG } from "../config";
 
+/**
+ * Fonction interne pour obtenir l'instance GenAI avec la clé d'environnement.
+ * On crée une nouvelle instance à chaque appel comme recommandé.
+ */
+const getClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+
 export const getAIAnalysis = async (contextData: string, userPrompt: string): Promise<string> => {
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = getClient();
         const model = 'gemini-3-flash-preview';
         
         const systemInstruction = `Tu es un assistant expert en gestion d'entreprise pour "${COMPANY_CONFIG.name}", ${COMPANY_CONFIG.aiContext}.
@@ -20,23 +26,23 @@ ${userPrompt}`;
 
         const response = await ai.models.generateContent({
             model: model,
-            contents: fullPrompt,
+            contents: [{ parts: [{ text: fullPrompt }] }],
             config: {
                 systemInstruction: systemInstruction,
                 temperature: 0.7,
             }
         });
 
-        return response.text || "Désolé, je n'ai pas pu générer une analyse pour le moment.";
+        return response.text || "L'IA n'a pas retourné de réponse. Veuillez réessayer dans quelques instants.";
     } catch (error) {
         console.error("Erreur Gemini Analysis:", error);
-        return "Erreur de connexion à l'IA. Veuillez vérifier votre connexion internet ou réessayer plus tard.";
+        return "Erreur de connexion avec l'intelligence artificielle. Merci de vérifier votre connexion internet ou de réessayer plus tard.";
     }
 };
 
 export const analyzeProductionBottlenecks = async (commandes: any[], artisans: any[]): Promise<string> => {
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = getClient();
         const summary = commandes.map(c => ({
             id: c.id,
             statut: c.statut,
@@ -53,18 +59,20 @@ Donne une recommandation d'action immédiate en 2 phrases maximum.`;
 
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: prompt,
+            contents: [{ parts: [{ text: prompt }] }],
         });
         return response.text || "Flux de production stable.";
     } catch (e) {
         console.error("Erreur Gemini Bottlenecks:", e);
-        return "Analyse indisponible.";
+        return "Analyse de production momentanément indisponible.";
     }
 };
 
 export const recommendFabricMeterage = async (measurements: any, garmentType: string): Promise<string> => {
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        if (!garmentType || garmentType.trim() === '') return "Veuillez préciser le type de vêtement.";
+        
+        const ai = getClient();
         const prompt = `En tant qu'expert tailleur sénégalais, recommande le métrage de tissu nécessaire (en mètres et yards) pour confectionner un(e) "${garmentType}".
 Mesures du client (en cm) : ${JSON.stringify(measurements)}.
 Prends en compte la largeur standard du tissu au Sénégal (généralement 150cm ou 120cm).
@@ -72,18 +80,18 @@ Donne une réponse courte, précise et explique brièvement pourquoi ce métrage
 
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: prompt,
+            contents: [{ parts: [{ text: prompt }] }],
         });
-        return response.text || "Erreur de calcul IA.";
+        return response.text || "Impossible de calculer le métrage pour le moment.";
     } catch (e) {
         console.error("Erreur Gemini Meterage:", e);
-        return "Impossible d'obtenir une recommandation pour le moment.";
+        return "Le service Assistant Tailleur est temporairement indisponible. Réessayez dans un moment.";
     }
 };
 
 export const draftClientMessage = async (clientName: string, orderDescription: string, status: string): Promise<string> => {
      try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = getClient();
         const prompt = `Rédige un message WhatsApp court et poli pour le client ${clientName}.
 Sa commande "${orderDescription}" est actuellement au statut : "${status}".
 Si c'est "Prêt", invite-le à passer à la boutique ${COMPANY_CONFIG.name}.
@@ -91,28 +99,28 @@ Utilise un ton chaleureux.`;
 
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: prompt,
+            contents: [{ parts: [{ text: prompt }] }],
         });
         return response.text || "";
      } catch (e) {
-         return "Bonjour, votre commande est mise à jour.";
+         return `Bonjour ${clientName}, votre commande chez ${COMPANY_CONFIG.name} est passée au statut : ${status}.`;
      }
 }
 
 export const parseMeasurementsFromText = async (text: string): Promise<Record<string, string | number>> => {
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        if (!text || text.trim() === '') return {};
+        const ai = getClient();
         const prompt = `Analyse le texte suivant qui contient des mesures de couture dictées vocalement.
 Texte : "${text}"
 
 Extrais les valeurs et associe-les aux clés JSON correspondantes.
-
 RÈGLE CRITIQUE POUR LES MESURES MULTIPLES :
 Si l'utilisateur énonce deux chiffres (ex: "épaule 38 42"), renvoie "38/42".`;
 
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: prompt,
+            contents: [{ parts: [{ text: prompt }] }],
             config: {
                 responseMimeType: 'application/json',
                 responseSchema: {
