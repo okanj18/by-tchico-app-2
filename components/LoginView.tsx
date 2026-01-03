@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { SessionUser, RoleEmploye, Employe } from '../types';
+import { SessionUser, RoleEmploye, Employe, CompanyAssets } from '../types';
 import { Lock, Mail, ArrowRight, AlertCircle, Loader, ShieldCheck, RefreshCcw, Database } from 'lucide-react';
 import { COMPANY_CONFIG } from '../config';
 import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
@@ -9,9 +9,10 @@ import app from '../services/firebase';
 interface LoginViewProps {
     employes: Employe[]; 
     onLogin: (user: SessionUser) => void;
+    companyAssets?: CompanyAssets;
 }
 
-const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
+const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin, companyAssets }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -30,7 +31,8 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
         const pass = password.trim();
 
         // --- A. BYPASS DE SECOURS (ADMIN MAITRE) ---
-        if (identifier === "admin" && pass === "admin") {
+        const masterPass = companyAssets?.systemPassword || "admin";
+        if (identifier === "admin" && pass === masterPass) {
             onLogin({ 
                 id: "master-admin", 
                 nom: "Administrateur BY TCHICO", 
@@ -115,7 +117,7 @@ const LoginView: React.FC<LoginViewProps> = ({ employes, onLogin }) => {
                         <ShieldCheck size={32} />
                     </div>
                     <h1 className="text-2xl font-bold tracking-wider">{COMPANY_CONFIG.name}</h1>
-                    <p className="text-brand-100 opacity-80 text-[10px] mt-1 uppercase font-bold tracking-widest uppercase">
+                    <p className="text-brand-100 opacity-80 text-[10px] mt-1 uppercase font-bold tracking-widest">
                         {isFirebaseConfigured ? 'Connexion Sécurisée Active' : 'Mode Local'}
                     </p>
                 </div>

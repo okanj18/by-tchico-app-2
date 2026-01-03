@@ -1,8 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
-import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction } from '../types';
-/* Added Star to the lucide-react import list to fix the "Cannot find name 'Star'" error on line 526 */
-import { Scissors, Search, X, Activity, Clock, Calendar, CheckCircle, Columns, Eye, Plus, Edit2, UserPlus, Trophy, DollarSign, Ban, Truck, Users, ChevronLeft, ChevronRight, ClipboardList, FileText, Sparkles, Printer, Zap, TrendingUp, AlertCircle, Star } from 'lucide-react';
+import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction, Consommation } from '../types';
+import { Scissors, Search, X, Activity, Clock, Calendar, CheckCircle, Columns, Eye, Plus, Edit2, UserPlus, Trophy, DollarSign, Ban, Truck, Users, ChevronLeft, ChevronRight, ClipboardList, FileText, Sparkles, Printer, Zap, TrendingUp, AlertCircle, Star, Box, Trash2 } from 'lucide-react';
 import { analyzeProductionBottlenecks } from '../services/geminiService';
 import { COMPANY_CONFIG } from '../config';
 
@@ -13,9 +12,8 @@ interface ProductionViewProps {
     articles: Article[];
     userRole: RoleEmploye;
     onUpdateStatus: (id: string, status: StatutCommande) => void;
-    onCreateOrder: (order: Commande, consommations: any[], paymentMethod?: ModePaiement, accountId?: string) => void;
+    onCreateOrder: (order: Commande, consommations: Consommation[], paymentMethod?: ModePaiement, accountId?: string) => void;
     onUpdateOrder: (order: Commande) => void;
-    /* Fixed: Removed duplicate onAddPayment property from interface */
     onAddPayment: (orderId: string, amount: number, method: ModePaiement, note: string, date: string, accountId?: string) => void;
     onArchiveOrder: (orderId: string) => void;
     comptes: CompteFinancier[];
@@ -60,6 +58,13 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
     // Form Data
     const [newOrderItems, setNewOrderItems] = useState<{nom: string, qte: number}[]>([{nom: '', qte: 1}]);
+    const [newOrderConsommations, setNewOrderConsommations] = useState<Consommation[]>([]);
+    
+    // Temp states for adding consumption
+    const [tempConsMatiere, setTempConsMatiere] = useState('');
+    const [tempConsVariante, setTempConsVariante] = useState('');
+    const [tempConsQty, setTempConsQty] = useState(0);
+
     const [newOrderData, setNewOrderData] = useState<Partial<Commande>>({
         clientId: '', dateLivraisonPrevue: '', prixTotal: 0, avance: 0, isDevis: false
     });
@@ -76,6 +81,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [planningStartDate, setPlanningStartDate] = useState(new Date());
 
     const tailleurs = useMemo(() => employes.filter(e => e.actif !== false && (e.role === 'TAILLEUR' || e.role === 'CHEF_ATELIER' || e.role === 'STAGIAIRE')), [employes]);
+
+    // Filtrage des matières premières pour la sélection
+    const matieresPremieres = useMemo(() => articles.filter(a => a.typeArticle === 'MATIERE_PREMIERE' && !a.archived), [articles]);
 
     const filteredCommandes = useMemo(() => {
         return commandes.filter(c => {
@@ -104,6 +112,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
         const logoUrl = companyAssets?.logoStr || `${window.location.origin}${COMPANY_CONFIG.logoUrl}`;
         const measurementsHtml = client?.mesures ? Object.entries(client.mesures).map(([k, v]) => `<div><b>${k.toUpperCase()}:</b> ${v}</div>`).join('') : 'Pas de mesures';
+        const consHtml = order.consommations?.map(c => {
+            const art = articles.find(a => a.id === c.articleId);
+            return `<li>${art?.nom || 'Inconnu'} (${c.variante}) : <b>${c.quantite} ${art?.unite || ''}</b></li>`;
+        }).join('') || 'Aucune matière déduite';
 
         const html = `
             <html>
@@ -113,7 +125,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         body { font-family: 'Inter', sans-serif; padding: 40px; color: #1a1a1a; }
                         .header { display: flex; justify-content: space-between; border-bottom: 4px solid #000; padding-bottom: 20px; }
                         .section { margin-top: 30px; }
-                        .title { font-size: 24px; font-weight: 900; text-transform: uppercase; margin-bottom: 10px; }
+                        .title { font-size: 20px; font-weight: 900; text-transform: uppercase; margin-bottom: 10px; border-bottom: 2px solid #eee; padding-bottom: 5px; }
                         .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 14px; }
                         .elements { background: #f4f4f4; padding: 20px; border-radius: 10px; font-size: 18px; font-weight: bold; }
                         .footer { margin-top: 50px; font-size: 10px; color: #888; text-align: center; }
@@ -126,21 +138,26 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             <div style="font-size: 20px; font-weight: 900;">${COMPANY_CONFIG.name}</div>
                         </div>
                         <div style="text-align: right">
-                            <div class="title">FICHE D'ATELIER</div>
+                            <div style="font-size: 24px; font-weight: 900;">FICHE D'ATELIER</div>
                             <div style="font-size: 18px; font-weight: bold;">CMD #${order.id.slice(-6)}</div>
                             <div>Livraison prévue: <b>${new Date(order.dateLivraisonPrevue).toLocaleDateString()}</b></div>
                         </div>
                     </div>
                     <div class="section">
-                        <div class="title">Client: ${order.clientNom}</div>
-                        <div class="elements">Composition: ${order.description}</div>
+                        <div class="title">Client & Commande</div>
+                        <div style="font-size: 18px; margin-bottom: 10px;"><b>NOM: ${order.clientNom}</b></div>
+                        <div class="elements">COMPOSITION: ${order.description}</div>
                     </div>
                     <div class="section">
-                        <div class="title" style="font-size: 16px;">Mesures Techniques (CM)</div>
+                        <div class="title">Matières à utiliser</div>
+                        <ul>${consHtml}</ul>
+                    </div>
+                    <div class="section">
+                        <div class="title">Mesures Techniques (CM)</div>
                         <div class="grid">${measurementsHtml}</div>
                     </div>
                     <div class="section" style="border: 2px solid #000; padding: 20px; min-height: 150px;">
-                        <div class="title" style="font-size: 16px;">Notes de Coupe & Style</div>
+                        <div class="title">Notes de Coupe & Style</div>
                         <p>${client?.stylePreferences || 'Aucune note particulière.'}</p>
                     </div>
                     <div class="footer">Document généré par BY TCHICO Manager v${COMPANY_CONFIG.version}</div>
@@ -152,7 +169,27 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         printWindow.document.close();
     };
 
-    // --- DRAG & DROP ---
+    // --- ACTIONS ---
+    const handleAddConsommation = () => {
+        if (!tempConsMatiere || tempConsQty <= 0) return;
+        const art = articles.find(a => a.id === tempConsMatiere);
+        if (!art) return;
+
+        const newCons: Consommation = {
+            articleId: tempConsMatiere,
+            variante: tempConsVariante || 'Standard',
+            quantite: tempConsQty
+        };
+        setNewOrderConsommations([...newOrderConsommations, newCons]);
+        setTempConsMatiere('');
+        setTempConsVariante('');
+        setTempConsQty(0);
+    };
+
+    const handleRemoveConsommation = (idx: number) => {
+        setNewOrderConsommations(newOrderConsommations.filter((_, i) => i !== idx));
+    };
+
     const onDragStart = (e: React.DragEvent, orderId: string, sourceStatus: string) => {
         e.dataTransfer.setData("orderId", orderId);
         e.dataTransfer.setData("sourceStatus", sourceStatus);
@@ -175,41 +212,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         newRepartition[targetStatus] = (newRepartition[targetStatus] || 0) + qtyToMove;
 
         onUpdateOrder({ ...order, repartitionStatuts: newRepartition, statut: targetStatus === StatutCommande.PRET ? StatutCommande.PRET : targetStatus });
-    };
-
-    // --- LOGIQUE LIVRAISON ---
-    const handleDeliverParts = (order: Commande) => {
-        const qtyReady = order.repartitionStatuts?.[StatutCommande.PRET] || 0;
-        if (qtyReady <= 0) {
-            alert("Aucune pièce n'est prête pour la livraison.");
-            return;
-        }
-
-        if (!window.confirm(`Confirmer la livraison de ${qtyReady} pièce(s) prête(s) pour le client ${order.clientNom} ?`)) {
-            return;
-        }
-
-        if (order.reste > 0) {
-            alert(`Attention : Le client doit encore régler ${order.reste.toLocaleString()} F.`);
-        }
-
-        const newRepartition = { ...(order.repartitionStatuts || {}) };
-        newRepartition[StatutCommande.PRET] = 0;
-        newRepartition[StatutCommande.LIVRE] = (newRepartition[StatutCommande.LIVRE] || 0) + qtyReady;
-
-        const deliveredOnly = newRepartition[StatutCommande.LIVRE] || 0;
-        const isFullyDelivered = deliveredOnly >= order.quantite;
-
-        const updatedOrder = {
-            ...order,
-            repartitionStatuts: newRepartition,
-            statut: isFullyDelivered ? StatutCommande.LIVRE : order.statut,
-            dateLivraisonEffective: isFullyDelivered ? new Date().toISOString() : order.dateLivraisonEffective
-        };
-
-        onUpdateOrder(updatedOrder);
-        if (orderDetailView && orderDetailView.id === order.id) setOrderDetailView(updatedOrder);
-        alert(`${qtyReady} pièce(s) marquée(s) comme LIVRÉES.`);
     };
 
     const handleToggleTaskStatus = (tk: TacheProduction) => {
@@ -257,22 +259,11 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         setTaskModalOpen(false);
     };
 
-    const handleOpenEditOrder = (order: Commande) => {
-        setNewOrderData({ ...order });
-        if (order.elements) setNewOrderItems(order.elements.map(e => ({ nom: e.nom, qte: e.quantite })));
-        else setNewOrderItems([{nom: '', qte: 1}]);
-        setIsEditingOrder(true);
-        setOrderModalOpen(true);
-    };
-
-    const handleConfirmPayment = () => {
-        if (!paymentModalOpen || payAmount <= 0 || !payAccount) return;
-        onAddPayment(paymentModalOpen.id, payAmount, payMethod, "Règlement Production", payDate, payAccount);
-        setPaymentModalOpen(null);
-    };
-
     const handleCreateOrUpdateOrder = () => {
-        if (!newOrderData.clientId || !newOrderData.prixTotal) return;
+        if (!newOrderData.clientId || !newOrderData.prixTotal) {
+            alert("Client et prix total requis.");
+            return;
+        }
         
         const totalQty = newOrderItems.reduce((acc, i) => acc + i.qte, 0);
         const description = newOrderItems.map(i => `${i.nom} (x${i.qte})`).join(', ');
@@ -280,12 +271,25 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         const avance = newOrderData.avance || 0;
         const reste = prixTotal - avance;
 
+        // --- VERIFICATION CAISSE POUR ACOMPTE ---
+        if (avance > 0 && !initialAccountId && !newOrderData.isDevis) {
+            alert("⚠️ ACTION REQUISE : Vous avez saisi un acompte. Veuillez sélectionner la CAISSE d'encaissement pour continuer.");
+            return;
+        }
+
         if (isEditingOrder && newOrderData.id) {
             const existing = commandes.find(c => c.id === newOrderData.id);
             if (!existing) return;
-            onUpdateOrder({ ...existing, ...newOrderData, description, elements: newOrderItems.map(i => ({nom: i.nom.toUpperCase(), quantite: i.qte})), quantite: totalQty, reste: reste } as Commande);
+            onUpdateOrder({ 
+                ...existing, 
+                ...newOrderData, 
+                description, 
+                elements: newOrderItems.map(i => ({nom: i.nom.toUpperCase(), quantite: i.qte})), 
+                quantite: totalQty, 
+                reste: reste,
+                consommations: newOrderConsommations 
+            } as Commande);
         } else {
-            if (avance > 0 && !initialAccountId) { alert("Veuillez choisir une caisse pour l'acompte."); return; }
             const client = clients.find(c => c.id === newOrderData.clientId);
             const order: Commande = {
                 id: `CMD_${Date.now()}`, clientId: newOrderData.clientId || '', clientNom: client?.nom || 'Client',
@@ -294,11 +298,70 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 avance: avance, reste: reste,
                 type: 'SUR_MESURE', quantite: totalQty, isDevis: newOrderData.isDevis || false,
                 repartitionStatuts: { [StatutCommande.EN_ATTENTE]: totalQty },
-                elements: newOrderItems.map(i => ({nom: i.nom.toUpperCase(), quantite: i.qte}))
+                elements: newOrderItems.map(i => ({nom: i.nom.toUpperCase(), quantite: i.qte})),
+                consommations: newOrderConsommations
             };
-            onCreateOrder(order, [], 'ESPECE', initialAccountId);
+            onCreateOrder(order, newOrderConsommations, 'ESPECE', initialAccountId);
         }
         setOrderModalOpen(false);
+    };
+
+    /**
+     * Fix: Implement missing handleOpenEditOrder function to resolve undefined error.
+     */
+    const handleOpenEditOrder = (order: Commande) => {
+        setNewOrderData({
+            id: order.id,
+            clientId: order.clientId,
+            dateLivraisonPrevue: order.dateLivraisonPrevue,
+            prixTotal: order.prixTotal,
+            avance: order.avance,
+            isDevis: order.isDevis || false
+        });
+        setNewOrderItems(order.elements?.map(e => ({ nom: e.nom, qte: e.quantite })) || [{ nom: '', qte: 1 }]);
+        setNewOrderConsommations(order.consommations || []);
+        setIsEditingOrder(true);
+        setOrderModalOpen(true);
+    };
+
+    /**
+     * Fix: Implement missing handleDeliverParts function to move parts to 'Livré' status.
+     */
+    const handleDeliverParts = (order: Commande) => {
+        const qtyToDeliver = order.repartitionStatuts?.[StatutCommande.PRET] || 0;
+        if (qtyToDeliver <= 0) return;
+
+        if (!window.confirm(`Confirmer la livraison de ${qtyToDeliver} pièce(s) ?`)) return;
+
+        const newRepartition = { ...(order.repartitionStatuts || {}) };
+        newRepartition[StatutCommande.PRET] = 0;
+        newRepartition[StatutCommande.LIVRE] = (newRepartition[StatutCommande.LIVRE] || 0) + qtyToDeliver;
+        
+        const totalQty = order.quantite;
+        const totalDelivered = (newRepartition[StatutCommande.LIVRE] || 0);
+        const newStatus = totalDelivered >= totalQty ? StatutCommande.LIVRE : order.statut;
+
+        onUpdateOrder({ 
+            ...order, 
+            repartitionStatuts: newRepartition, 
+            statut: newStatus,
+            dateLivraisonEffective: newStatus === StatutCommande.LIVRE ? new Date().toISOString() : order.dateLivraisonEffective
+        });
+        
+        if (orderDetailView && orderDetailView.id === order.id) {
+            setOrderDetailView(null);
+        }
+    };
+
+    /**
+     * Fix: Implement missing handleConfirmPayment function to record solde payments.
+     */
+    const handleConfirmPayment = () => {
+        if (!paymentModalOpen || payAmount <= 0 || !payAccount) return;
+        onAddPayment(paymentModalOpen.id, payAmount, payMethod, "Paiement solde (Atelier)", payDate, payAccount);
+        setPaymentModalOpen(null);
+        setPayAmount(0);
+        setPayAccount('');
     };
 
     const planningDays = useMemo(() => {
@@ -324,7 +387,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                 <div className="flex items-center gap-3">
                     <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier & Flux</h2>
-                    <button onClick={() => { setIsEditingOrder(false); setOrderModalOpen(true); setNewOrderItems([{nom: '', qte: 1}]); setInitialAccountId(''); setNewOrderData({clientId: '', dateLivraisonPrevue: '', prixTotal: 0, avance: 0, isDevis: false}); }} className="bg-brand-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-black transition-all shadow-lg active:scale-95"><Plus size={16}/> Nouvelle Commande</button>
+                    <button onClick={() => { setIsEditingOrder(false); setOrderModalOpen(true); setNewOrderItems([{nom: '', qte: 1}]); setNewOrderConsommations([]); setInitialAccountId(''); setNewOrderData({clientId: '', dateLivraisonPrevue: '', prixTotal: 0, avance: 0, isDevis: false}); }} className="bg-brand-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-black transition-all shadow-lg active:scale-95"><Plus size={16}/> Nouvelle Commande</button>
                     <button onClick={() => setTaskModalOpen(true)} className="bg-orange-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-orange-700 transition-all shadow-lg active:scale-95"><UserPlus size={16}/> Assigner Tâche</button>
                     <button onClick={handleRunAIAnalysis} disabled={isAiLoading} className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-purple-700 transition-all shadow-lg active:scale-95 disabled:opacity-50">
                         {isAiLoading ? <Clock size={16} className="animate-spin"/> : <Sparkles size={16}/>} IA Analyse
@@ -396,7 +459,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                             <td className="p-4 text-right relative">
                                                 <div className="flex justify-end gap-1.5 relative z-20">
                                                     <button onClick={() => setOrderDetailView(order)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg border shadow-sm" title="Détails"><Eye size={16}/></button>
-                                                    <button onClick={() => handleOpenEditOrder(order)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg border shadow-sm" title="Modifier"><Edit2 size={16}/></button>
+                                                    <button onClick={() => { setOrderDetailView(null); handleOpenEditOrder(order); }} className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg border shadow-sm" title="Modifier"><Edit2 size={16}/></button>
                                                     {order.reste > 0 && <button onClick={() => setPaymentModalOpen(order)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg border shadow-sm" title="Encaisser"><DollarSign size={16}/></button>}
                                                     {(order.repartitionStatuts?.[StatutCommande.PRET] || 0) > 0 && (
                                                         <button onClick={() => handleDeliverParts(order)} className="px-3 py-1 bg-green-600 text-white rounded text-[9px] font-black uppercase flex items-center gap-1 shadow-sm hover:bg-green-700 transition-all"><Truck size={14}/> Livrer</button>
@@ -538,43 +601,115 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 )}
             </div>
 
-            {/* MODALS REQUIS */}
+            {/* MODAL COMMANDE (AVEC GESTION STOCK) */}
             {orderModalOpen && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-md">
-                    <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl p-8 flex flex-col max-h-[95vh] animate-in zoom-in duration-200 border border-brand-100">
-                        <div className="flex justify-between items-center mb-6 border-b pb-4 shrink-0"><h3 className="text-2xl font-black text-gray-800 uppercase tracking-tighter flex items-center gap-3"><Plus size={32} className="text-brand-600"/> {isEditingOrder ? 'Modifier Commande' : 'Nouvelle Commande'}</h3><button onClick={() => setOrderModalOpen(false)}><X size={28}/></button></div>
+                    <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-3xl p-8 flex flex-col max-h-[95vh] animate-in zoom-in duration-200 border border-brand-100">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4 shrink-0">
+                            <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tighter flex items-center gap-3">
+                                <Plus size={32} className="text-brand-600"/> 
+                                {isEditingOrder ? 'Modifier Commande' : 'Nouvelle Commande'}
+                            </h3>
+                            <button onClick={() => setOrderModalOpen(false)}><X size={28}/></button>
+                        </div>
+                        
                         <div className="flex-1 overflow-y-auto space-y-6 pr-2 custom-scrollbar">
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Client</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50" value={newOrderData.clientId} onChange={e => setNewOrderData({...newOrderData, clientId: e.target.value})}><option value="">-- Choisir un client --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div>
                                 <div><label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Livraison Prévue</label><input type="date" className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50" value={newOrderData.dateLivraisonPrevue} onChange={e => setNewOrderData({...newOrderData, dateLivraisonPrevue: e.target.value})} /></div>
                             </div>
+
                             <div className="space-y-3">
                                 <div className="flex justify-between items-center"><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Composition</label><button onClick={() => setNewOrderItems([...newOrderItems, {nom: '', qte: 1}])} className="p-1 bg-brand-50 text-brand-600 rounded"><Plus size={14}/></button></div>
                                 {newOrderItems.map((it, idx) => (
                                     <div key={idx} className="flex gap-2 items-center animate-in slide-in-from-left-2">
-                                        <input type="text" placeholder="Désignation" className="flex-1 p-3 border-2 border-gray-100 rounded-xl text-xs font-bold bg-gray-50 uppercase" value={it.nom} onChange={e => { const list = [...newOrderItems]; list[idx].nom = e.target.value.toUpperCase(); setNewOrderItems(list); }} />
+                                        <input type="text" placeholder="Désignation (ex: Robe, Chemise...)" className="flex-1 p-3 border-2 border-gray-100 rounded-xl text-xs font-bold bg-gray-50 uppercase" value={it.nom} onChange={e => { const list = [...newOrderItems]; list[idx].nom = e.target.value.toUpperCase(); setNewOrderItems(list); }} />
                                         <input type="number" className="w-16 p-3 border-2 border-gray-100 rounded-xl text-center font-black" value={it.qte} onChange={e => { const list = [...newOrderItems]; list[idx].qte = parseInt(e.target.value)||1; setNewOrderItems(list); }} />
                                     </div>
                                 ))}
                             </div>
+
+                            {/* SECTION CONSOMMATION STOCK (MATIÈRES PREMIÈRES) */}
+                            <div className="bg-orange-50/50 p-5 rounded-2xl border-2 border-dashed border-orange-100">
+                                <h4 className="text-[10px] font-black text-orange-800 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                                    <Box size={14}/> Matières à déduire du stock
+                                </h4>
+                                
+                                <div className="flex gap-2 mb-4 items-end">
+                                    <div className="flex-1">
+                                        <label className="block text-[9px] font-bold text-gray-400 uppercase mb-1">Matière</label>
+                                        <select className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold" value={tempConsMatiere} onChange={e => { setTempConsMatiere(e.target.value); setTempConsVariante(''); }}>
+                                            <option value="">-- Choisir --</option>
+                                            {matieresPremieres.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
+                                        </select>
+                                    </div>
+                                    {tempConsMatiere && articles.find(a => a.id === tempConsMatiere)?.variantes.length! > 0 && (
+                                        <div className="flex-1">
+                                            <label className="block text-[9px] font-bold text-gray-400 uppercase mb-1">Variante</label>
+                                            <select className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold" value={tempConsVariante} onChange={e => setTempConsVariante(e.target.value)}>
+                                                <option value="">-- Variante --</option>
+                                                {articles.find(a => a.id === tempConsMatiere)?.variantes.map(v => <option key={v} value={v}>{v}</option>)}
+                                            </select>
+                                        </div>
+                                    )}
+                                    <div className="w-24">
+                                        <label className="block text-[9px] font-bold text-gray-400 uppercase mb-1">Quantité</label>
+                                        <input type="number" className="w-full p-2 border border-gray-200 rounded-lg text-xs font-black text-center" value={tempConsQty || ''} onChange={e => setTempConsQty(parseFloat(e.target.value)||0)} />
+                                    </div>
+                                    <button onClick={handleAddConsommation} className="p-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"><Plus size={16}/></button>
+                                </div>
+
+                                <div className="space-y-2">
+                                    {newOrderConsommations.map((c, i) => {
+                                        const art = articles.find(a => a.id === c.articleId);
+                                        return (
+                                            <div key={i} className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-orange-100 shadow-sm animate-in fade-in">
+                                                <div className="text-[10px] font-black text-orange-900 uppercase">
+                                                    {art?.nom} <span className="text-gray-400 ml-1">({c.variante})</span>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-[10px] font-black text-orange-600">{c.quantite} {art?.unite}</span>
+                                                    <button onClick={() => handleRemoveConsommation(i)} className="text-red-300 hover:text-red-500"><Trash2 size={14}/></button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                    {newOrderConsommations.length === 0 && <p className="text-[9px] text-gray-400 italic text-center py-2 uppercase">Aucune matière sélectionnée</p>}
+                                </div>
+                            </div>
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="block text-[10px] font-black text-brand-800 uppercase mb-1 ml-1">Prix Total (F)</label><input type="number" className="w-full p-3 border-2 border-brand-100 rounded-xl text-xl font-black text-brand-900 bg-brand-50/30" value={newOrderData.prixTotal || ''} onChange={e => setNewOrderData({...newOrderData, prixTotal: parseInt(e.target.value)||0})} /></div>
                                 <div className="space-y-2">
                                     <label className="block text-[10px] font-black text-green-700 uppercase mb-1 ml-1">Acompte (F)</label>
                                     <input type="number" className="w-full p-3 border-2 border-green-100 rounded-xl text-xl font-black text-green-600 bg-green-50/30" value={newOrderData.avance || ''} onChange={e => setNewOrderData({...newOrderData, avance: parseInt(e.target.value)||0})} />
+                                    
                                     {newOrderData.avance !== undefined && newOrderData.avance > 0 && !isEditingOrder && (
-                                        <div className="animate-in fade-in">
-                                            <label className="block text-[8px] font-black text-red-600 uppercase mb-1 ml-1 font-black">Caisse OBLIGATOIRE pour l'acompte *</label>
-                                            <select className="w-full p-2 border-2 border-brand-200 rounded-lg text-[10px] font-bold" value={initialAccountId} onChange={e => setInitialAccountId(e.target.value)}>
-                                                <option value="">-- Sélectionner --</option>
-                                                {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
-                                            </select>
+                                        <div className="animate-in slide-in-from-top-2">
+                                            <div className="p-3 bg-red-50 rounded-xl border border-red-100">
+                                                <label className="block text-[8px] font-black text-red-600 uppercase mb-2 tracking-widest flex items-center gap-1">
+                                                    <AlertCircle size={10}/> Sélectionner la caisse (OBLIGATOIRE) *
+                                                </label>
+                                                <select 
+                                                    className="w-full p-2 border-2 border-red-200 rounded-lg text-[10px] font-bold bg-white" 
+                                                    value={initialAccountId} 
+                                                    onChange={e => setInitialAccountId(e.target.value)}
+                                                >
+                                                    <option value="">-- CHOISIR UNE CAISSE --</option>
+                                                    {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
+                                                </select>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
                             </div>
                         </div>
-                        <div className="flex justify-end gap-3 mt-8 pt-4 border-t shrink-0"><button onClick={() => setOrderModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-xs tracking-widest">Annuler</button><button onClick={handleCreateOrUpdateOrder} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 hover:bg-black transition-all">Valider Commande</button></div>
+                        <div className="flex justify-end gap-3 mt-8 pt-4 border-t shrink-0">
+                            <button onClick={() => setOrderModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-xs tracking-widest">Annuler</button>
+                            <button onClick={handleCreateOrUpdateOrder} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 hover:bg-black transition-all">
+                                {isEditingOrder ? 'Mettre à jour' : 'Valider Commande'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -639,6 +774,22 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                     <p className="text-xs font-bold text-brand-900">{orderDetailView.description}</p>
                                 </div>
                                 <Scissors size={80} className="absolute -right-4 -bottom-4 text-brand-900/5 rotate-12 transition-transform group-hover:scale-110"/>
+                            </div>
+
+                            {/* MATIÈRES DÉDUITES DANS LES DÉTAILS */}
+                            <div>
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b pb-1">Matières du Stock</p>
+                                <div className="space-y-2">
+                                    {orderDetailView.consommations && orderDetailView.consommations.length > 0 ? orderDetailView.consommations.map((c, i) => {
+                                        const art = articles.find(a => a.id === c.articleId);
+                                        return (
+                                            <div key={i} className="flex justify-between items-center text-xs p-2 bg-gray-50 rounded-lg">
+                                                <span className="font-bold text-gray-700 uppercase">{art?.nom || 'Matière'} ({c.variante})</span>
+                                                <span className="font-black text-brand-600">{c.quantite} {art?.unite}</span>
+                                            </div>
+                                        );
+                                    }) : <p className="text-[9px] text-gray-300 italic uppercase">Aucune matière spécifique déduite</p>}
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
@@ -731,7 +882,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
             
-            {/* STYLES ADDITIONNELS POUR LES ANIMATIONS */}
             <style>{`
                 @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
                 .animate-bounce { animation: bounce 1s infinite; }

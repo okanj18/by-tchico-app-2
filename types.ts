@@ -368,4 +368,5 @@ export interface CompanyAssets {
     logoStr?: string;
     stampStr?: string;
     signatureStr?: string;
+    systemPassword?: string;
 }
