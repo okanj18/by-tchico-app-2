@@ -99,7 +99,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
             });
         }
 
-        // CSV Construction (Semicolon separator for French Excel)
         const csvContent = [
             headers.join(';'),
             ...rows.map(row => row.map((cell: any) => `"${(cell || '').toString().replace(/"/g, '""')}"`).join(';'))
@@ -161,6 +160,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                     for (const k of keys) {
                         const lowK = k.toLowerCase();
                         if (row[lowK] !== undefined) return row[lowK];
+                        // Gestion des accents courants en FR
+                        const normalizedK = lowK.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                        if (row[normalizedK] !== undefined) return row[normalizedK];
                     }
                     return undefined;
                 };
@@ -168,52 +170,52 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                 if (importType === 'CLIENTS') {
                     return {
                         id: `C_IMP_${Date.now()}_${Math.random()}`,
-                        nom: find(['nom', 'name', 'client', 'full name']) || 'Inconnu',
-                        telephone: find(['telephone', 'phone', 'tel', 'contact']) || '',
+                        nom: find(['nom', 'name', 'client', 'full name', 'prénom']) || 'Inconnu',
+                        telephone: find(['telephone', 'phone', 'tel', 'contact', 'téléphone']) || '',
                         ville: find(['ville', 'city', 'adresse']) || '',
                         notes: find(['notes', 'note', 'observation']) || '',
                         mesures: {
-                            tourCou: p(find(['cou', 'tour cou'])),
-                            epaule: p(find(['epaule'])),
+                            tourCou: p(find(['cou', 'tour cou', 'tour de cou'])),
+                            epaule: p(find(['epaule', 'épaule'])),
                             poitrine: p(find(['poitrine'])),
-                            longueurManche: p(find(['manche', 'longueur manche'])),
+                            longueurManche: p(find(['manche', 'longueur manche', 'long. manche'])),
                             taille: p(find(['taille'])),
                             ceinture: p(find(['ceinture'])),
-                            tourFesse: p(find(['bassin', 'fesse'])),
-                            tourCuisse: p(find(['cuisse'])),
-                            longueurBoubou: p(find(['boubou', 'longueur boubou'])),
-                            longueurPantalon: p(find(['pantalon', 'longueur pantalon']))
+                            tourFesse: p(find(['bassin', 'fesse', 'tour fesse'])),
+                            tourCuisse: p(find(['cuisse', 'tour cuisse'])),
+                            longueurBoubou: p(find(['boubou', 'longueur boubou', 'long. boubou'])),
+                            longueurPantalon: p(find(['pantalon', 'longueur pantalon', 'long. pantalon']))
                         }
                     };
                 } else if (importType === 'FOURNISSEURS') {
                     return {
                         id: `F_IMP_${Date.now()}_${Math.random()}`,
-                        nomEntreprise: find(['entreprise', 'fournisseur', 'societe', 'nom']) || 'Fournisseur',
+                        nomEntreprise: find(['entreprise', 'fournisseur', 'societe', 'nom', 'société']) || 'Fournisseur',
                         contactPersonne: find(['contact', 'responsable', 'nom contact']) || '',
-                        telephone: find(['telephone', 'tel', 'phone']) || '',
+                        telephone: find(['telephone', 'tel', 'phone', 'téléphone']) || '',
                         adresse: find(['adresse', 'lieu']) || '',
-                        categories: find(['categories', 'type']) ? find(['categories', 'type']).split(/[;|,]/) : [],
-                        delaiLivraisonMoyen: p(find(['delai', 'livraison'])),
+                        categories: find(['categories', 'type', 'catégories']) ? find(['categories', 'type', 'catégories']).split(/[;|,]/) : [],
+                        delaiLivraisonMoyen: p(find(['delai', 'livraison', 'délai'])),
                         notes: find(['notes', 'description']) || ''
                     };
                 } else if (importType === 'ARTICLES') {
                     return {
                         id: `A_IMP_${Date.now()}_${Math.random()}`,
                         nom: find(['nom', 'article', 'produit']) || 'Article',
-                        categorie: find(['categorie', 'classe']) || 'Importé',
+                        categorie: find(['categorie', 'classe', 'catégorie']) || 'Importé',
                         typeArticle: (find(['type']) || '').includes('FINI') ? 'PRODUIT_FINI' : 'MATIERE_PREMIERE',
                         prixAchatDefault: p(find(['achat', 'prix achat'])),
                         prixVenteDefault: p(find(['vente', 'prix vente'])),
-                        unite: find(['unite']) || 'Pièce',
-                        stockParLieu: { 'ATELIER': { 'Standard': p(find(['stock', 'quantite'])) } },
+                        unite: find(['unite', 'unité']) || 'Pièce',
+                        stockParLieu: { 'ATELIER': { 'Standard': p(find(['stock', 'quantite', 'quantité'])) } },
                         variantes: []
                     };
                 } else if (importType === 'EMPLOYES') {
                     return {
                         id: `E_IMP_${Date.now()}_${Math.random()}`,
-                        nom: find(['nom', 'employe', 'nom complet']) || 'Employé',
-                        role: find(['role', 'poste']) || 'TAILLEUR',
-                        telephone: find(['telephone', 'tel']) || '',
+                        nom: find(['nom', 'employe', 'nom complet', 'employé']) || 'Employé',
+                        role: find(['role', 'poste', 'rôle']) || 'TAILLEUR',
+                        telephone: find(['telephone', 'tel', 'téléphone']) || '',
                         salaireBase: p(find(['salaire', 'base'])),
                         typeContrat: find(['contrat']) || 'CDI',
                         actif: true, historiquePaie: [], absences: []
@@ -223,8 +225,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                         id: `D_IMP_${Date.now()}_${Math.random()}`,
                         date: find(['date']) ? new Date(find(['date'])).toISOString() : new Date().toISOString(),
                         montant: p(find(['montant', 'somme'])),
-                        categorie: find(['categorie']) || 'AUTRE',
-                        description: find(['description', 'libelle']) || 'Dépense importée'
+                        categorie: find(['categorie', 'catégorie']) || 'AUTRE',
+                        description: find(['description', 'libelle', 'libellé']) || 'Dépense importée'
                     };
                 }
                 return null;
@@ -236,7 +238,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                     setStatusMessage({type: 'success', text: `${mappedData.length} éléments importés.`});
                 }
             } else {
-                setStatusMessage({type: 'error', text: "Aucune donnée compatible trouvée."});
+                setStatusMessage({type: 'error', text: "Aucune donnée compatible trouvée. Vérifiez les en-têtes du fichier."});
             }
         };
         reader.readAsText(file);

@@ -65,22 +65,18 @@ const App: React.FC = () => {
 
     const handleUpdateOrder = (o: Commande) => setCommandes(prev => prev.map(cmd => cmd.id === o.id ? o : cmd));
 
-    // Logique mutualisée pour ajouter un paiement avec impact trésorerie
     const handleGlobalAddPayment = (orderId: string, amount: number, method: any, note: string, date: string, accId?: string) => {
         const order = commandes.find(c => c.id === orderId);
         if (!order) return;
 
-        // 1. Mise à jour de la commande
         setCommandes(prev => prev.map(c => c.id === orderId ? { 
             ...c, 
             reste: Math.max(0, c.reste - amount), 
             paiements: [...(c.paiements || []), { id: `P_${Date.now()}`, date, montant: amount, moyenPaiement: method, note }] 
         } : c));
 
-        // 2. Mise à jour du solde du compte et création de la transaction
         if (accId) {
             setComptes(prev => prev.map(c => c.id === accId ? { ...c, solde: c.solde + amount } : c));
-            
             const newTransaction: TransactionTresorerie = {
                 id: `TR_PAY_${Date.now()}`,
                 date: date,
@@ -92,6 +88,61 @@ const App: React.FC = () => {
                 createdBy: user?.nom
             };
             setTransactions(prev => [newTransaction, ...prev]);
+        }
+    };
+
+    const handleClearAllData = async () => {
+        if (!window.confirm("⚠️ ATTENTION : Cette action va réinitialiser TOUTES les données de l'entreprise (Ventes, Clients, Production, etc.). Cette opération est irréversible. Confirmer ?")) return;
+
+        setBoutiques(mockBoutiques);
+        setEmployes(mockEmployes);
+        setPointages(mockPointages);
+        setClients([]);
+        setCommandes([]);
+        setDepenses([]);
+        setArticles([]);
+        setCommandesFournisseurs([]);
+        setFournisseurs([]);
+        setMouvements([]);
+        setComptes(mockComptes);
+        setTransactions([]);
+        setGalleryItems([]);
+        setCompanyAssets(mockCompanyAssets);
+
+        localStorage.clear();
+        alert("Données réinitialisées avec succès. L'application va redémarrer.");
+        window.location.reload();
+    };
+
+    // --- NOUVEAUX HANDLERS D'IMPORTATION ---
+    const handleRestoreData = (data: any) => {
+        if (!data) return;
+        if (data.boutiques) setBoutiques(data.boutiques);
+        if (data.employes) setEmployes(data.employes);
+        if (data.pointages) setPointages(data.pointages);
+        if (data.clients) setClients(data.clients);
+        if (data.commandes) setCommandes(data.commandes);
+        if (data.depenses) setDepenses(data.depenses);
+        if (data.articles) setArticles(data.articles);
+        if (data.commandesFournisseurs) setCommandesFournisseurs(data.commandesFournisseurs);
+        if (data.fournisseurs) setFournisseurs(data.fournisseurs);
+        if (data.mouvements) setMouvements(data.mouvements);
+        if (data.comptes) setComptes(data.comptes);
+        if (data.transactions) setTransactions(data.transactions);
+        if (data.galleryItems) setGalleryItems(data.galleryItems);
+        if (data.companyAssets) setCompanyAssets(data.companyAssets);
+        
+        alert("Restauration terminée avec succès !");
+    };
+
+    const handleImportCSVData = (type: string, data: any[]) => {
+        switch(type) {
+            case 'CLIENTS': setClients(prev => [...prev, ...data]); break;
+            case 'ARTICLES': setArticles(prev => [...prev, ...data]); break;
+            case 'EMPLOYES': setEmployes(prev => [...prev, ...data]); break;
+            case 'FOURNISSEURS': setFournisseurs(prev => [...prev, ...data]); break;
+            case 'DEPENSES': setDepenses(prev => [...prev, ...data]); break;
+            case 'POINTAGE': setPointages(prev => [...prev, ...data]); break;
         }
     };
 
@@ -126,106 +177,18 @@ const App: React.FC = () => {
                 </header>
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 custom-scrollbar">
                     {currentView === 'dashboard' && <Dashboard commandes={commandes} employes={employes} depenses={depenses} clients={clients} />}
-                    
-                    {currentView === 'ventes' && (
-                        <SalesView 
-                            articles={articles} 
-                            boutiques={boutiques} 
-                            clients={clients} 
-                            commandes={commandes} 
-                            onMakeSale={(s) => { 
-                                setCommandes(prev => [s.order, ...prev]); 
-                                if(s.transaction) setTransactions(prev => [s.transaction, ...prev]); 
-                                if(s.newComptes) setComptes(s.newComptes); 
-                            }} 
-                            onAddPayment={handleGlobalAddPayment} 
-                            comptes={comptes} 
-                            onCancelSale={() => {}} 
-                            companyAssets={companyAssets} 
-                        />
-                    )}
-                    
-                    {currentView === 'production' && (
-                        <ProductionView 
-                            commandes={commandes} 
-                            employes={employes} 
-                            clients={clients} 
-                            articles={articles} 
-                            userRole={user.role} 
-                            onUpdateStatus={(id, s) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, statut: s } : c))} 
-                            onCreateOrder={(o, cons, meth, acc) => { 
-                                setCommandes(prev => [o, ...prev]); 
-                                if (o.avance > 0 && acc) {
-                                    setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + o.avance } : c));
-                                    // Transaction pour l'acompte initial
-                                    const acTransaction: TransactionTresorerie = {
-                                        id: `TR_AC_${Date.now()}`,
-                                        date: new Date().toISOString().split('T')[0],
-                                        type: 'ENCAISSEMENT',
-                                        montant: o.avance,
-                                        compteId: acc,
-                                        description: `Acompte initial : ${o.clientNom} (Cmd ${o.id.slice(-6)})`,
-                                        categorie: 'VENTE',
-                                        createdBy: user?.nom
-                                    };
-                                    setTransactions(prev => [acTransaction, ...prev]);
-                                }
-                            }} 
-                            onUpdateOrder={handleUpdateOrder} 
-                            onAddPayment={handleGlobalAddPayment} 
-                            onArchiveOrder={(id) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} 
-                            comptes={comptes} 
-                            companyAssets={companyAssets} 
-                        />
-                    )}
-                    
+                    {currentView === 'ventes' && <SalesView articles={articles} boutiques={boutiques} clients={clients} commandes={commandes} onMakeSale={(s) => { setCommandes(prev => [s.order, ...prev]); if(s.transaction) setTransactions(prev => [s.transaction, ...prev]); if(s.newComptes) setComptes(s.newComptes); }} onAddPayment={handleGlobalAddPayment} comptes={comptes} onCancelSale={() => {}} companyAssets={companyAssets} />}
+                    {currentView === 'production' && <ProductionView commandes={commandes} employes={employes} clients={clients} articles={articles} userRole={user.role} onUpdateStatus={(id, s) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, statut: s } : c))} onCreateOrder={(o, cons, meth, acc) => { setCommandes(prev => [o, ...prev]); if (o.avance > 0 && acc) { setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + o.avance } : c)); const acTransaction: TransactionTresorerie = { id: `TR_AC_${Date.now()}`, date: new Date().toISOString().split('T')[0], type: 'ENCAISSEMENT', montant: o.avance, compteId: acc, description: `Acompte initial : ${o.clientNom} (Cmd ${o.id.slice(-6)})`, categorie: 'VENTE', createdBy: user?.nom }; setTransactions(prev => [acTransaction, ...prev]); } }} onUpdateOrder={handleUpdateOrder} onAddPayment={handleGlobalAddPayment} onArchiveOrder={(id) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} comptes={comptes} companyAssets={companyAssets} />}
                     {currentView === 'stock' && <StockView articles={articles} boutiques={boutiques} mouvements={mouvements} userRole={user.role} onAddMouvement={(m) => setMouvements(prev => [m, ...prev])} onAddBoutique={(b) => setBoutiques(prev => [...prev, b])} />}
-                    
                     {currentView === 'approvisionnement' && <ProcurementView commandesFournisseurs={commandesFournisseurs} fournisseurs={fournisseurs} articles={articles} boutiques={boutiques} onAddOrder={(o, accId) => { setCommandesFournisseurs(prev => [o, ...prev]); if (o.montantPaye > 0 && accId) setComptes(prev => prev.map(c => c.id === accId ? { ...c, solde: c.solde - o.montantPaye } : c)); }} onUpdateOrder={(o) => setCommandesFournisseurs(prev => prev.map(cmd => cmd.id === o.id ? o : cmd))} onReceiveOrder={() => {}} onAddPayment={() => {}} onUpdateArticle={() => {}} onArchiveOrder={(id) => setCommandesFournisseurs(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} comptes={comptes} />}
-                    
                     {currentView === 'fournisseurs' && <SuppliersView fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} onAddFournisseur={(f) => setFournisseurs(prev => [...prev, f])} onUpdateFournisseur={(f) => setFournisseurs(prev => prev.map(item => item.id === f.id ? f : item))} onDeleteFournisseur={(id) => setFournisseurs(prev => prev.filter(f => f.id !== id))} onAddPayment={() => {}} comptes={comptes} />}
-                    
-                    {currentView === 'rh' && (
-                        <HRView 
-                            employes={employes} 
-                            boutiques={boutiques} 
-                            onAddEmploye={handleAddEmploye} 
-                            onUpdateEmploye={handleUpdateEmploye} 
-                            onDeleteEmploye={(id) => setEmployes(prev => prev.filter(e => e.id !== id))}
-                            onArchiveEmploye={(id) => setEmployes(prev => prev.map(e => e.id === id ? {...e, actif: !e.actif} : e))}
-                            onAddDepense={(d) => setDepenses(prev => [d, ...prev])}
-                            depenses={depenses}
-                            onDeleteDepense={(id) => setDepenses(prev => prev.filter(d => d.id !== id))}
-                            onUpdateDepense={(d) => setDepenses(prev => prev.map(item => item.id === d.id ? d : item))}
-                            pointages={pointages}
-                            onAddPointage={(p) => setPointages(prev => [...prev, p])}
-                            onUpdatePointage={(p) => setPointages(prev => prev.map(item => item.id === p.id ? p : item))}
-                            currentUser={user}
-                            comptes={comptes}
-                            onUpdateComptes={setComptes}
-                            onAddTransaction={(t) => setTransactions(prev => [t, ...prev])}
-                            onUpdateEmployes={handleUpdateEmployes}
-                        />
-                    )}
-                    
+                    {currentView === 'rh' && <HRView employes={employes} boutiques={boutiques} onAddEmploye={handleAddEmploye} onUpdateEmploye={handleUpdateEmploye} onDeleteEmploye={(id) => setEmployes(prev => prev.filter(e => e.id !== id))} onArchiveEmploye={(id) => setEmployes(prev => prev.map(e => e.id === id ? {...e, actif: !e.actif} : e))} onAddDepense={(d) => setDepenses(prev => [d, ...prev])} depenses={depenses} onDeleteDepense={(id) => setDepenses(prev => prev.filter(d => d.id !== id))} onUpdateDepense={(d) => setDepenses(prev => prev.map(item => item.id === d.id ? d : item))} pointages={pointages} onAddPointage={(p) => setPointages(prev => [...prev, p])} onUpdatePointage={(p) => setPointages(prev => prev.map(item => item.id === p.id ? p : item))} currentUser={user} comptes={comptes} onUpdateComptes={setComptes} onAddTransaction={(t) => setTransactions(prev => [t, ...prev])} onUpdateEmployes={handleUpdateEmployes} />}
                     {currentView === 'clients' && <ClientsView clients={clients} commandes={commandes} onAddClient={handleAddClient} onUpdateClient={handleUpdateClient} onDeleteClient={handleDeleteClient} />}
-                    
                     {currentView === 'finance' && <FinanceView depenses={depenses} commandes={commandes} boutiques={boutiques} onAddDepense={(d) => setDepenses(prev => [d, ...prev])} onDeleteDepense={(id) => setDepenses(prev => prev.filter(d => d.id !== id))} onUpdateDepense={(d) => setDepenses(prev => prev.map(item => item.id === d.id ? d : item))} userRole={user.role} fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} clients={clients} comptes={comptes} transactions={transactions} onUpdateComptes={setComptes} onAddTransaction={(t) => setTransactions(prev => [t, ...prev])} currentUser={user} />}
-                    
                     {currentView === 'catalogue' && <ArticlesView articles={articles} onAddArticle={(a) => setArticles(prev => [...prev, a])} onUpdateArticle={(a) => setArticles(prev => prev.map(item => item.id === a.id ? a : item))} />}
-                    
-                    {currentView === 'galerie' && (
-                        <GalleryView 
-                            items={galleryItems} 
-                            onAddItem={(i) => setGalleryItems(prev => [i, ...prev])} 
-                            onUpdateItem={(i) => setGalleryItems(prev => prev.map(item => item.id === i.id ? i : item))}
-                            onDeleteItem={(id) => setGalleryItems(prev => prev.filter(i => i.id !== id))} 
-                        />
-                    )}
-                    
+                    {currentView === 'galerie' && <GalleryView items={galleryItems} onAddItem={(i) => setGalleryItems(prev => [i, ...prev])} onUpdateItem={(i) => setGalleryItems(prev => prev.map(item => item.id === i.id ? i : item))} onDeleteItem={(id) => setGalleryItems(prev => prev.filter(i => i.id !== id))} />}
                     {currentView === 'catalogue-public' && <PublicCatalogView articles={articles} />}
-                    
-                    {currentView === 'settings' && <SettingsView fullData={{ boutiques, employes, pointages, clients, commandes, depenses, articles, commandesFournisseurs, fournisseurs, mouvements, comptes, transactions, galleryItems, companyAssets }} onRestore={() => {}} onImport={() => {}} onClearData={() => { localStorage.clear(); window.location.reload(); }} companyAssets={companyAssets} onUpdateAssets={setCompanyAssets} />}
+                    {currentView === 'settings' && <SettingsView fullData={{ boutiques, employes, pointages, clients, commandes, depenses, articles, commandesFournisseurs, fournisseurs, mouvements, comptes, transactions, galleryItems, companyAssets }} onRestore={handleRestoreData} onImport={handleImportCSVData} onClearData={handleClearAllData} companyAssets={companyAssets} onUpdateAssets={setCompanyAssets} />}
                 </div>
             </main>
         </div>
