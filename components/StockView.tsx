@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Article, Boutique, MouvementStock, TypeMouvement, RoleEmploye } from '../types';
-import { Box, ArrowRightLeft, History, AlertTriangle, Building, Search, Package, X, Save, TrendingUp, TrendingDown, BarChart2, Filter, Edit, Layers, Plus, Trash2, LayoutGrid, List, CheckCircle, AlertOctagon, ArrowRight, Eye } from 'lucide-react';
+import { Box, ArrowRightLeft, History, AlertTriangle, Building, Search, Package, X, Save, TrendingUp, TrendingDown, BarChart2, Filter, Edit, Layers, Plus, Trash2, LayoutGrid, List, CheckCircle, AlertOctagon, ArrowRight, Eye, Settings2 } from 'lucide-react';
 
 interface StockViewProps {
     articles: Article[];
@@ -9,9 +9,11 @@ interface StockViewProps {
     userRole: RoleEmploye;
     onAddMouvement: (m: MouvementStock) => void;
     onAddBoutique: (b: Boutique) => void;
+    onUpdateBoutique?: (b: Boutique) => void;
+    onDeleteBoutique?: (id: string) => void;
 }
 
-const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, userRole, onAddMouvement, onAddBoutique }) => {
+const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, userRole, onAddMouvement, onAddBoutique, onUpdateBoutique, onDeleteBoutique }) => {
     const [viewMode, setViewMode] = useState<'LEVELS' | 'HISTORY' | 'ANALYSIS'>('LEVELS');
     const [levelsViewMode, setLevelsViewMode] = useState<'GRID' | 'LIST'>('LIST'); 
     const [searchTerm, setSearchTerm] = useState('');
@@ -27,7 +29,8 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
     const [isMassTransferModalOpen, setIsMassTransferModalOpen] = useState(false);
     const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
     const [isBoutiqueModalOpen, setIsBoutiqueModalOpen] = useState(false);
-    const [selectedArticleForDetail, setSelectedArticleForDetail] = useState<Article | null>(null); // NEW: Detail Modal
+    const [isManageBoutiquesModalOpen, setIsManageBoutiquesModalOpen] = useState(false);
+    const [selectedArticleForDetail, setSelectedArticleForDetail] = useState<Article | null>(null); 
 
     // Quick Edit Stock State
     const [isQuickEditModalOpen, setIsQuickEditModalOpen] = useState(false);
@@ -59,6 +62,7 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
     const [massTempQty, setMassTempQty] = useState(0);
 
     const [newBoutique, setNewBoutique] = useState<Partial<Boutique>>({ nom: '', lieu: '' });
+    const [editingBoutiqueId, setEditingBoutiqueId] = useState<string | null>(null);
 
     // --- PERMISSIONS ---
     const canManageStock = userRole !== RoleEmploye.VENDEUR;
@@ -169,6 +173,7 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
         resetForm();
     };
 
+    // Fix: replaced undefined variable 'item' with 'article.id' in handleAddToMassList
     const handleAddToMassList = () => {
         if (!massSourceId) { alert("Veuillez sélectionner une boutique source."); return; }
         if (!massTempArticleId || massTempQty <= 0) { return; }
@@ -267,13 +272,48 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
 
     const handleSaveBoutique = () => {
         if (!newBoutique.nom || !newBoutique.lieu) return;
-        onAddBoutique({
-            id: `B${Date.now()}`,
-            nom: newBoutique.nom,
-            lieu: newBoutique.lieu
-        });
+        
+        if (editingBoutiqueId) {
+            onUpdateBoutique?.({
+                id: editingBoutiqueId,
+                nom: newBoutique.nom,
+                lieu: newBoutique.lieu
+            });
+            setEditingBoutiqueId(null);
+        } else {
+            onAddBoutique({
+                id: `B${Date.now()}`,
+                nom: newBoutique.nom,
+                lieu: newBoutique.lieu
+            });
+        }
         setIsBoutiqueModalOpen(false);
         setNewBoutique({ nom: '', lieu: '' });
+    };
+
+    const handleDeleteBoutiqueConfirm = (b: Boutique) => {
+        if (b.id === 'ATELIER') {
+            alert("Impossible de supprimer l'Atelier Central (Production).");
+            return;
+        }
+        
+        // Vérifier si des articles ont du stock dans cette boutique
+        const hasStock = articles.some(a => getArticleTotalInShop(a, b.id) > 0);
+        if (hasStock) {
+            if (!window.confirm(`⚠️ Attention : La boutique "${b.nom}" contient encore des articles en stock. Voulez-vous vraiment la supprimer ? Les niveaux de stock locaux seront perdus.`)) {
+                return;
+            }
+        } else if (!window.confirm(`Confirmer la suppression de la boutique "${b.nom}" ?`)) {
+            return;
+        }
+
+        onDeleteBoutique?.(b.id);
+    };
+
+    const openEditBoutique = (b: Boutique) => {
+        setNewBoutique({ nom: b.nom, lieu: b.lieu });
+        setEditingBoutiqueId(b.id);
+        setIsBoutiqueModalOpen(true);
     };
 
     // Objets sélectionnés pour l'affichage dynamique
@@ -331,7 +371,10 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
                             <button onClick={() => { resetForm(); setIsTransferModalOpen(true); }} className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors text-sm"><ArrowRightLeft size={16} /> Transfert</button>
                             <button onClick={() => { resetMassForm(); setIsMassTransferModalOpen(true); }} className="flex-1 sm:flex-none bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors text-sm"><Layers size={16} /> En Masse</button>
                             <button onClick={() => { resetForm(); setIsAdjustmentModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors text-sm"><AlertTriangle size={16} /> Ajustement</button>
-                            <button onClick={() => setIsBoutiqueModalOpen(true)} className="flex-1 sm:flex-none bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors text-sm"><Building size={16} /> + Boutique</button>
+                            <div className="flex gap-1">
+                                <button onClick={() => { setEditingBoutiqueId(null); setNewBoutique({nom:'', lieu:''}); setIsBoutiqueModalOpen(true); }} className="flex-1 sm:flex-none bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-l-lg flex items-center justify-center gap-2 font-medium transition-colors text-sm border-r border-gray-700"><Plus size={16} /> Boutique</button>
+                                <button onClick={() => setIsManageBoutiquesModalOpen(true)} className="bg-gray-800 hover:bg-gray-900 text-white px-2 py-2 rounded-r-lg" title="Gérer les boutiques"><Settings2 size={16}/></button>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -465,6 +508,44 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
                 )}
             </div>
 
+            {/* --- MODAL GESTION BOUTIQUES --- */}
+            {isManageBoutiquesModalOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in fade-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-bold flex items-center gap-2 text-gray-800">
+                                <Building size={20} className="text-brand-600"/> Liste des Points de Vente
+                            </h3>
+                            <button onClick={() => setIsManageBoutiquesModalOpen(false)} className="p-1 hover:bg-gray-100 rounded-full text-gray-400"><X size={24}/></button>
+                        </div>
+                        
+                        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+                            {boutiques.map(b => (
+                                <div key={b.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100 group transition-all hover:bg-white hover:border-brand-200 hover:shadow-sm">
+                                    <div>
+                                        <p className="font-bold text-gray-800 uppercase text-xs">{b.nom}</p>
+                                        <p className="text-[10px] text-gray-400 font-medium uppercase mt-0.5">{b.lieu}</p>
+                                    </div>
+                                    {b.id !== 'ATELIER' && (
+                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button onClick={() => openEditBoutique(b)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Edit size={16}/></button>
+                                            <button onClick={() => handleDeleteBoutiqueConfirm(b)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>
+                                        </div>
+                                    )}
+                                    {b.id === 'ATELIER' && (
+                                        <span className="text-[8px] font-black uppercase text-gray-300 tracking-widest">Siège (Fixe)</span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="mt-6 flex justify-end">
+                            <button onClick={() => setIsManageBoutiquesModalOpen(false)} className="px-6 py-2 bg-gray-800 text-white rounded-lg font-bold">Fermer</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* --- MODAL DETAILS STOCK PAR VARIANTE --- */}
             {selectedArticleForDetail && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center p-4">
@@ -490,14 +571,12 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
                                 <tbody className="divide-y divide-gray-100">
                                     {selectedArticleForDetail.variantes.length > 0 ? (
                                         selectedArticleForDetail.variantes.map(variant => {
-                                            let rowTotal = 0;
                                             return (
                                                 <tr key={variant} className="hover:bg-gray-50">
                                                     <td className="p-3 font-medium text-gray-800">{variant}</td>
                                                     <td className="p-3 text-center font-bold bg-gray-50 border-l border-r border-gray-200">
                                                         {(() => {
                                                             const tot = (Object.values(selectedArticleForDetail.stockParLieu) as Record<string, number>[]).reduce((acc: number, place) => acc + (Number(place[variant]) || 0), 0);
-                                                            rowTotal = tot;
                                                             return tot;
                                                         })()}
                                                     </td>
@@ -510,7 +589,6 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
                                             );
                                         })
                                     ) : (
-                                        // Cas sans variante explicite (Standard)
                                         <tr className="hover:bg-gray-50">
                                             <td className="p-3 font-medium text-gray-800">Standard</td>
                                             <td className="p-3 text-center font-bold bg-gray-50 border-l border-r border-gray-200">
@@ -736,12 +814,12 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
                 </div>
             )}
 
-            {/* --- MODAL BOUTIQUE --- */}
+            {/* --- MODAL BOUTIQUE (Ajout/Edition) --- */}
             {isBoutiqueModalOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
+                <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in duration-200">
                         <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-800">
-                            <Building className="text-gray-700" /> Nouvelle Boutique
+                            <Building className="text-gray-700" /> {editingBoutiqueId ? 'Modifier la Boutique' : 'Nouvelle Boutique'}
                         </h3>
                         <div className="space-y-4">
                             <div>
@@ -754,8 +832,8 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
                             </div>
                         </div>
                         <div className="flex justify-end gap-3 mt-6">
-                            <button onClick={() => setIsBoutiqueModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Annuler</button>
-                            <button onClick={handleSaveBoutique} className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900 font-bold">Créer</button>
+                            <button onClick={() => { setIsBoutiqueModalOpen(false); setEditingBoutiqueId(null); setNewBoutique({nom:'', lieu:''}); }} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Annuler</button>
+                            <button onClick={handleSaveBoutique} className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900 font-bold">{editingBoutiqueId ? 'Mettre à jour' : 'Créer'}</button>
                         </div>
                     </div>
                 </div>

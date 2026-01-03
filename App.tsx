@@ -25,7 +25,6 @@ const App: React.FC = () => {
     const [currentView, setView] = useState('dashboard');
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
-    // États synchronisés avec LocalStorage et Firestore
     const [boutiques, setBoutiques] = useSyncState<Boutique[]>(mockBoutiques, 'boutiques');
     const [employes, setEmployes] = useSyncState<Employe[]>(mockEmployes, 'employes');
     const [pointages, setPointages] = useSyncState<Pointage[]>(mockPointages, 'pointages');
@@ -41,7 +40,6 @@ const App: React.FC = () => {
     const [galleryItems, setGalleryItems] = useSyncState<GalleryItem[]>(mockGalleryItems, 'gallery');
     const [companyAssets, setCompanyAssets] = useSyncState<CompanyAssets>(mockCompanyAssets, 'assets');
 
-    // Handlers
     const handleLogin = (u: SessionUser) => {
         setUser(u);
         if (u.role === RoleEmploye.GARDIEN) setView('rh');
@@ -92,8 +90,7 @@ const App: React.FC = () => {
     };
 
     const handleClearAllData = async () => {
-        if (!window.confirm("⚠️ ATTENTION : Cette action va réinitialiser TOUTES les données de l'entreprise (Ventes, Clients, Production, etc.). Cette opération est irréversible. Confirmer ?")) return;
-
+        if (!window.confirm("⚠️ ATTENTION : Cette action va réinitialiser TOUTES les données de l'entreprise. Confirmer ?")) return;
         setBoutiques(mockBoutiques);
         setEmployes(mockEmployes);
         setPointages(mockPointages);
@@ -108,9 +105,8 @@ const App: React.FC = () => {
         setTransactions([]);
         setGalleryItems([]);
         setCompanyAssets(mockCompanyAssets);
-
         localStorage.clear();
-        alert("Données réinitialisées avec succès. L'application va redémarrer.");
+        alert("Réinitialisation terminée.");
         window.location.reload();
     };
 
@@ -130,8 +126,7 @@ const App: React.FC = () => {
         if (data.transactions) setTransactions(data.transactions);
         if (data.galleryItems) setGalleryItems(data.galleryItems);
         if (data.companyAssets) setCompanyAssets(data.companyAssets);
-        
-        alert("Restauration terminée avec succès !");
+        alert("Restauration terminée !");
     };
 
     const handleImportCSVData = (type: string, data: any[]) => {
@@ -158,17 +153,7 @@ const App: React.FC = () => {
 
     return (
         <div className="flex h-screen bg-gray-50 overflow-hidden">
-            <Sidebar 
-                currentView={currentView} 
-                setView={setView} 
-                isOpen={sidebarOpen} 
-                setIsOpen={setSidebarOpen} 
-                availableViews={availableViews} 
-                user={user} 
-                onLogout={handleLogout} 
-                commandes={commandes}
-                articles={articles}
-            />
+            <Sidebar currentView={currentView} setView={setView} isOpen={sidebarOpen} setIsOpen={setSidebarOpen} availableViews={availableViews} user={user} onLogout={handleLogout} commandes={commandes} articles={articles}/>
             <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
                 <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between md:hidden">
                     <button onClick={() => setSidebarOpen(true)} className="p-2 -ml-2 text-gray-600"><Menu size={24} /></button>
@@ -176,7 +161,7 @@ const App: React.FC = () => {
                 </header>
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 custom-scrollbar">
                     {currentView === 'dashboard' && <Dashboard commandes={commandes} employes={employes} depenses={depenses} clients={clients} />}
-                    {currentView === 'ventes' && <SalesView articles={articles} boutiques={boutiques} clients={clients} commandes={commandes} onMakeSale={(s) => { setCommandes(prev => [s.order, ...prev]); if(s.transaction) setTransactions(prev => [s.transaction, ...prev]); if(s.newComptes) setComptes(s.newComptes); }} onAddPayment={handleGlobalAddPayment} comptes={comptes} onCancelSale={() => {}} companyAssets={companyAssets} />}
+                    {currentView === 'ventes' && <SalesView articles={articles} boutiques={boutiques} clients={clients} commandes={commandes} onMakeSale={(s) => { setCommandes(prev => [s.order, ...prev]); if(s.transaction) setTransactions(prev => [s.transaction, ...prev]); if(s.newComptes) setComptes(s.newComptes); }} onAddPayment={handleGlobalAddPayment} comptes={comptes} onCancelSale={() => {}} companyAssets={companyAssets} currentUser={user} />}
                     {currentView === 'production' && <ProductionView commandes={commandes} employes={employes} clients={clients} articles={articles} userRole={user.role} onUpdateStatus={(id, s) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, statut: s } : c))} onCreateOrder={(o, cons, meth, acc) => { setCommandes(prev => [o, ...prev]); if (o.avance > 0 && acc) { setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + o.avance } : c)); const acTransaction: TransactionTresorerie = { id: `TR_AC_${Date.now()}`, date: new Date().toISOString().split('T')[0], type: 'ENCAISSEMENT', montant: o.avance, compteId: acc, description: `Acompte initial : ${o.clientNom} (Cmd ${o.id.slice(-6)})`, categorie: 'VENTE', createdBy: user?.nom }; setTransactions(prev => [acTransaction, ...prev]); } }} onUpdateOrder={handleUpdateOrder} onAddPayment={handleGlobalAddPayment} onArchiveOrder={(id) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} comptes={comptes} companyAssets={companyAssets} />}
                     {currentView === 'stock' && <StockView articles={articles} boutiques={boutiques} mouvements={mouvements} userRole={user.role} onAddMouvement={(m) => setMouvements(prev => [m, ...prev])} onAddBoutique={(b) => setBoutiques(prev => [...prev, b])} onUpdateBoutique={(b) => setBoutiques(prev => prev.map(item => item.id === b.id ? b : item))} onDeleteBoutique={(id) => setBoutiques(prev => prev.filter(b => b.id !== id))} />}
                     {currentView === 'approvisionnement' && <ProcurementView commandesFournisseurs={commandesFournisseurs} fournisseurs={fournisseurs} articles={articles} boutiques={boutiques} onAddOrder={(o, accId) => { setCommandesFournisseurs(prev => [o, ...prev]); if (o.montantPaye > 0 && accId) setComptes(prev => prev.map(c => c.id === accId ? { ...c, solde: c.solde - o.montantPaye } : c)); }} onUpdateOrder={(o) => setCommandesFournisseurs(prev => prev.map(cmd => cmd.id === o.id ? o : cmd))} onReceiveOrder={() => {}} onAddPayment={() => {}} onUpdateArticle={() => {}} onArchiveOrder={(id) => setCommandesFournisseurs(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} comptes={comptes} />}

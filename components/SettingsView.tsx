@@ -1,6 +1,6 @@
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Download, Upload, RefreshCw, AlertTriangle, FileText, Database, CheckCircle, Save, Trash2, Wifi, WifiOff, Lock, Code, Image as ImageIcon, Users, Truck, ShoppingBag, Scissors, Briefcase, Clock, FileDown } from 'lucide-react';
+import { Download, Upload, RefreshCw, AlertTriangle, FileText, Database, CheckCircle, Save, Trash2, Wifi, WifiOff, Lock, Code, Image as ImageIcon, Users, Truck, ShoppingBag, Scissors, Briefcase, Clock, FileDown, Shield } from 'lucide-react';
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { db } from "../services/firebase";
 import { CompanyAssets } from '../types';
@@ -24,6 +24,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
 
     const [importType, setImportType] = useState<'CLIENTS' | 'ARTICLES' | 'EMPLOYES' | 'FOURNISSEURS' | 'DEPENSES' | 'POINTAGE'>('CLIENTS');
     const [statusMessage, setStatusMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
+
+    const [newMasterPass, setNewMasterPass] = useState('');
 
     const handleBackup = () => {
         const dataStr = JSON.stringify(fullData, null, 2);
@@ -256,6 +258,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
         reader.readAsDataURL(file);
     };
 
+    const handleUpdateMasterPassword = () => {
+        if (!newMasterPass || newMasterPass.length < 4) {
+            alert("Le mot de passe doit faire au moins 4 caractères.");
+            return;
+        }
+        if (onUpdateAssets) {
+            onUpdateAssets({ ...(companyAssets || {}), systemPassword: newMasterPass });
+            setNewMasterPass('');
+            setStatusMessage({type: 'success', text: 'Mot de passe maître mis à jour avec succès.'});
+        }
+    };
+
     return (
         <div className="max-w-4xl mx-auto space-y-8 pb-10">
             <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Database className="text-brand-600" /> Paramètres & Gestion des Données</h2>
@@ -274,6 +288,37 @@ const SettingsView: React.FC<SettingsViewProps> = ({ fullData, onRestore, onImpo
                         <Upload size={24}/> RESTAURER TOUT (.JSON)
                     </button>
                     <input type="file" accept=".json" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
+                </div>
+            </div>
+
+            {/* SECTION SÉCURITÉ & ACCÈS */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="bg-gray-50 p-4 border-b">
+                    <h3 className="font-bold text-gray-800 flex items-center gap-2"><Shield size={20} className="text-brand-600" /> Sécurité & Accès Maître</h3>
+                    <p className="text-xs text-gray-500 mt-1">Gérer le mot de passe du compte 'admin' pour cet appareil.</p>
+                </div>
+                <div className="p-6">
+                    <div className="flex flex-col md:flex-row gap-4 items-end">
+                        <div className="flex-1">
+                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 tracking-widest">Nouveau mot de passe maître (Identifiant: admin)</label>
+                            <div className="relative">
+                                <Lock className="absolute left-3 top-3 text-gray-300" size={20} />
+                                <input 
+                                    type="text" 
+                                    value={newMasterPass}
+                                    onChange={e => setNewMasterPass(e.target.value)}
+                                    placeholder="Nouveau mot de passe..."
+                                    className="w-full pl-10 pr-4 py-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50 focus:border-brand-500 outline-none transition-all"
+                                />
+                            </div>
+                        </div>
+                        <button 
+                            onClick={handleUpdateMasterPassword}
+                            className="bg-brand-900 text-white px-8 py-3.5 rounded-xl font-black uppercase text-xs tracking-widest shadow-lg hover:bg-black transition-all active:scale-95"
+                        >
+                            Changer le mot de passe
+                        </button>
+                    </div>
                 </div>
             </div>
 
