@@ -3,12 +3,11 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "./firebase";
 
 /**
- * Compresse une image de manière agressive pour le web (Max 600px, Qualité 0.5).
- * Cela garantit que l'image fait moins de 100ko et se charge instantanément.
+ * Compresse une image de manière très agressive pour le web (Max 500px, Qualité 0.35).
+ * Cela garantit que chaque image est extrêmement légère pour ne pas saturer le document Firestore.
  */
 const compressImage = (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
-        // Timeout de sécurité : si la compression prend > 3s, on rejette
         const timeoutId = setTimeout(() => reject(new Error("Compression trop longue")), 3000);
 
         const img = new Image();
@@ -20,7 +19,7 @@ const compressImage = (file: File): Promise<Blob> => {
             
             try {
                 const canvas = document.createElement('canvas');
-                const MAX_WIDTH = 600; // Réduit à 600px pour performance maximale
+                const MAX_WIDTH = 500; // Réduit pour gagner en espace document
                 let width = img.width;
                 let height = img.height;
 
@@ -38,14 +37,13 @@ const compressImage = (file: File): Promise<Blob> => {
                     return;
                 }
                 
-                // Dessin simple
                 ctx.drawImage(img, 0, 0, width, height);
                 
-                // Compression JPEG basse qualité (suffisant pour écran)
+                // Compression JPEG agressive (0.35)
                 canvas.toBlob((blob) => {
                     if (blob) resolve(blob);
                     else reject(new Error("Erreur Blob"));
-                }, 'image/jpeg', 0.5);
+                }, 'image/jpeg', 0.35);
             } catch (e) {
                 reject(e);
             }
@@ -63,7 +61,6 @@ const compressImage = (file: File): Promise<Blob> => {
 
 export const uploadImageToCloud = async (file: File, path: string): Promise<string> => {
     try {
-        // 1. Compression
         let blobToUpload: Blob;
         try {
             blobToUpload = await compressImage(file);
@@ -72,7 +69,6 @@ export const uploadImageToCloud = async (file: File, path: string): Promise<stri
             blobToUpload = file;
         }
         
-        // Helper Base64
         const blobToBase64 = (blob: Blob): Promise<string> => {
             return new Promise((resolve) => {
                 const reader = new FileReader();
@@ -81,18 +77,15 @@ export const uploadImageToCloud = async (file: File, path: string): Promise<stri
             });
         };
 
-        // 2. Mode Hors Ligne
         if (!storage) {
             return await blobToBase64(blobToUpload);
         }
 
-        // 3. Upload avec Timeout strict (7 secondes)
         const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
         const storageRef = ref(storage, `${path}/${fileName}`);
         
         const uploadTask = uploadBytes(storageRef, blobToUpload);
         
-        // Race condition
         const timeoutPromise = new Promise<string>((_, reject) => 
             setTimeout(() => reject(new Error("Timeout Upload")), 7000)
         );

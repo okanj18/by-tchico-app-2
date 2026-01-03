@@ -214,7 +214,14 @@ const App: React.FC = () => {
                     
                     {currentView === 'catalogue' && <ArticlesView articles={articles} onAddArticle={(a) => setArticles(prev => [...prev, a])} onUpdateArticle={(a) => setArticles(prev => prev.map(item => item.id === a.id ? a : item))} />}
                     
-                    {currentView === 'galerie' && <GalleryView items={galleryItems} onAddItem={(i) => setGalleryItems(prev => [i, ...prev])} onDeleteItem={(id) => setGalleryItems(prev => prev.filter(i => i.id !== id))} />}
+                    {currentView === 'galerie' && (
+                        <GalleryView 
+                            items={galleryItems} 
+                            onAddItem={(i) => setGalleryItems(prev => [i, ...prev])} 
+                            onUpdateItem={(i) => setGalleryItems(prev => prev.map(item => item.id === i.id ? i : item))}
+                            onDeleteItem={(id) => setGalleryItems(prev => prev.filter(i => i.id !== id))} 
+                        />
+                    )}
                     
                     {currentView === 'catalogue-public' && <PublicCatalogView articles={articles} />}
                     
