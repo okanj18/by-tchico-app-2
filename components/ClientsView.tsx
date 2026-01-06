@@ -44,22 +44,22 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
     });
 
     const MEASUREMENT_FIELDS = [
-        { key: 'tourCou', label: 'TOUR DE COU' },
         { key: 'epaule', label: 'ÉPAULE' },
-        { key: 'poitrine', label: 'POITRINE' },
         { key: 'longueurManche', label: 'LONG. MANCHE' },
         { key: 'tourBras', label: 'TOUR DE BRAS' },
         { key: 'tourPoignet', label: 'TOUR POIGNET' },
-        { key: 'carrureDevant', label: 'CARRURE DEVANT' },
-        { key: 'carrureDos', label: 'CARRURE DOS' },
+        { key: 'tourCou', label: 'TOUR DE COU' },
+        { key: 'poitrine', label: 'POITRINE' },
         { key: 'taille', label: 'TAILLE' },
         { key: 'blouse', label: 'BLOUSE' },
+        { key: 'carrureDevant', label: 'CARRURE DEVANT' },
+        { key: 'carrureDos', label: 'CARRURE DOS' },
+        { key: 'longueurBoubou', label: 'LONG. BOUBOU' },
+        { key: 'longueurChemise', label: 'LONG. CHEMISE' },
         { key: 'ceinture', label: 'CEINTURE' },
         { key: 'tourFesse', label: 'TOUR DE FESSE' },
         { key: 'tourCuisse', label: 'TOUR DE CUISSE' },
         { key: 'entreJambe', label: 'ENTRE JAMBE' },
-        { key: 'longueurBoubou', label: 'LONG. BOUBOU' },
-        { key: 'longueurChemise', label: 'LONG. CHEMISE' },
         { key: 'longueurPantalon', label: 'LONG. PANTALON' },
         { key: 'genou', label: 'GENOU' },
         { key: 'mollet', label: 'MOLLET' },
@@ -465,7 +465,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                 )}
             </div>
 
-            {/* MODALS (Gardés tels quels car ils s'affichent déjà en plein écran mobile) */}
+            {/* MODALS */}
             {isAddingModeleModal && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-300 max-h-[90vh] flex flex-col border border-brand-100">
