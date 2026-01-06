@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Client, Commande, Employe, RoleEmploye, StatutCommande, Depense, Boutique, Fournisseur, CommandeFournisseur, StatutCommandeFournisseur, StatutPaiement, Article, MouvementStock, TypeMouvement, CompteFinancier, TransactionTresorerie, Pointage, GalleryItem, CompanyAssets, SessionUser, ModePaiement, TacheProduction } from './types';
+import { Client, Commande, Employe, RoleEmploye, StatutCommande, Depense, Boutique, Fournisseur, CommandeFournisseur, StatutCommandeFournisseur, StatutPaiement, Article, MouvementStock, TypeMouvement, CompteFinancier, TransactionTresorerie, Pointage, GalleryItem, CompanyAssets, SessionUser, ModePaiement, TacheProduction, ReceptionFournisseur } from './types';
 import { mockBoutiques, mockEmployes, mockPointages, mockClients, mockCommandes, mockDepenses, mockArticles, mockCommandesFournisseurs, mockMouvements, mockComptes, mockTransactionsTresorerie, mockGalleryItems, mockCompanyAssets, mockFournisseurs } from './services/mockData';
 import { useSyncState } from './hooks/useSyncState';
 import Sidebar from './components/Sidebar';
@@ -157,7 +157,108 @@ const App: React.FC = () => {
         setTransactions(prev => [delTrans, ...prev]);
     };
 
-    // FIX: Implemented handleRestoreData to fix undefined name error and enable data restoration from backup
+    // --- PROCUREMENT HANDLERS ---
+    const handleReceiveProcurementOrder = (orderId: string, lieuId: string, quantities: Record<string, number>, date: string) => {
+        const order = commandesFournisseurs.find(o => o.id === orderId);
+        if (!order) return;
+
+        // 1. Mettre à jour les quantités reçues sur la commande
+        const updatedCommandes = commandesFournisseurs.map(o => {
+            if (o.id !== orderId) return o;
+            
+            const updatedLignes = o.lignes.map(l => {
+                const qRecNow = quantities[l.id] || 0;
+                return { ...l, quantiteRecue: (l.quantiteRecue || 0) + qRecNow };
+            });
+
+            const allRec = updatedLignes.every(l => l.quantiteRecue >= l.quantite);
+            const newReception: ReceptionFournisseur = {
+                id: `REC_${Date.now()}`,
+                date,
+                lieuId,
+                details: updatedLignes.filter(l => (quantities[l.id] || 0) > 0).map(l => ({
+                    nomArticle: l.nomArticle,
+                    variante: l.variante,
+                    quantiteRecue: quantities[l.id] || 0
+                }))
+            };
+
+            return {
+                ...o,
+                lignes: updatedLignes,
+                statut: allRec ? StatutCommandeFournisseur.LIVRE : StatutCommandeFournisseur.EN_COURS,
+                receptions: [...(o.receptions || []), newReception]
+            };
+        });
+        setCommandesFournisseurs(updatedCommandes);
+
+        // 2. Mettre à jour les stocks réels des articles
+        const updatedArticles = articles.map(art => {
+            let articleUpdated = false;
+            const newStock = { ...art.stockParLieu };
+            
+            order.lignes.forEach(l => {
+                if (l.articleId === art.id) {
+                    const qRecNow = quantities[l.id] || 0;
+                    if (qRecNow > 0) {
+                        if (!newStock[lieuId]) newStock[lieuId] = {};
+                        newStock[lieuId][l.variante] = (newStock[lieuId][l.variante] || 0) + qRecNow;
+                        articleUpdated = true;
+
+                        // Logger le mouvement de stock
+                        const mvt: MouvementStock = {
+                            id: `MVT_${Date.now()}_${l.id}`,
+                            date,
+                            articleId: art.id,
+                            articleNom: art.nom,
+                            variante: l.variante,
+                            type: TypeMouvement.ACHAT,
+                            quantite: qRecNow,
+                            lieuId: lieuId,
+                            commentaire: `Réception CMD Fourn. #${orderId.slice(-6)}`
+                        };
+                        setMouvements(prev => [mvt, ...prev]);
+                    }
+                }
+            });
+
+            return articleUpdated ? { ...art, stockParLieu: newStock } : art;
+        });
+        setArticles(updatedArticles);
+        alert("Réception validée et stock mis à jour !");
+    };
+
+    const handleAddProcurementPayment = (orderId: string, amount: number, date: string, accId?: string) => {
+        const order = commandesFournisseurs.find(o => o.id === orderId);
+        if (!order) return;
+
+        setCommandesFournisseurs(prev => prev.map(o => {
+            if (o.id !== orderId) return o;
+            const newPaid = o.montantPaye + amount;
+            return {
+                ...o,
+                montantPaye: newPaid,
+                statutPaiement: newPaid >= o.montantTotal ? StatutPaiement.PAYE : StatutPaiement.PARTIEL,
+                paiements: [...(o.paiements || []), { id: `PF_${Date.now()}`, date, montant: amount, note: "Règlement fournisseur" }]
+            };
+        }));
+
+        if (accId) {
+            setComptes(prev => prev.map(c => c.id === accId ? { ...c, solde: c.solde - amount } : c));
+            const tr: TransactionTresorerie = {
+                id: `TR_PF_${Date.now()}`,
+                date,
+                type: 'DECAISSEMENT',
+                montant: amount,
+                compteId: accId,
+                description: `Paiement Fournisseur (CMD #${orderId.slice(-6)})`,
+                categorie: 'MATIERE_PREMIERE',
+                createdBy: user?.nom
+            };
+            setTransactions(prev => [tr, ...prev]);
+        }
+    };
+
     const handleRestoreData = (data: any) => {
         if (!data) return;
         if (data.boutiques) setBoutiques(data.boutiques);
@@ -178,7 +279,6 @@ const App: React.FC = () => {
         window.location.reload();
     };
 
-    // FIX: Implemented handleImportCSVData to fix undefined name error and enable importing data from CSV
     const handleImportCSVData = (type: 'CLIENTS' | 'ARTICLES' | 'EMPLOYES' | 'FOURNISSEURS' | 'DEPENSES' | 'POINTAGE', data: any[]) => {
         switch (type) {
             case 'CLIENTS': setClients(prev => [...prev, ...data]); break;
@@ -190,28 +290,13 @@ const App: React.FC = () => {
         }
     };
 
-    // FIX: Implemented handleClearAllData to fix undefined name error and enable resetting app data
     const handleClearAllData = () => {
         if (!window.confirm("⚠️ ATTENTION : Voulez-vous vraiment TOUT SUPPRIMER ? Cette action est irréversible.")) return;
-        
-        setBoutiques(mockBoutiques);
-        setEmployes(mockEmployes);
-        setPointages(mockPointages);
-        setClients(mockClients);
-        setCommandes(mockCommandes);
-        setDepenses(mockDepenses);
-        setArticles(mockArticles);
-        setCommandesFournisseurs(mockCommandesFournisseurs);
-        setFournisseurs(mockFournisseurs);
-        setMouvements(mockMouvements);
-        setComptes(mockComptes);
-        setTransactions(mockTransactionsTresorerie);
-        setGalleryItems(mockGalleryItems);
-        setCompanyAssets(mockCompanyAssets);
-        
-        localStorage.clear();
-        alert("Toutes les données ont été réinitialisées.");
-        window.location.reload();
+        setBoutiques(mockBoutiques); setEmployes(mockEmployes); setPointages(mockPointages); setClients(mockClients);
+        setCommandes(mockCommandes); setDepenses(mockDepenses); setArticles(mockArticles);
+        setCommandesFournisseurs(mockCommandesFournisseurs); setFournisseurs(mockFournisseurs); setMouvements(mockMouvements);
+        setComptes(mockComptes); setTransactions(mockTransactionsTresorerie); setGalleryItems(mockGalleryItems); setCompanyAssets(mockCompanyAssets);
+        localStorage.clear(); alert("Données réinitialisées."); window.location.reload();
     };
 
     const availableViews = useMemo(() => {
@@ -238,7 +323,7 @@ const App: React.FC = () => {
                     {currentView === 'ventes' && <SalesView articles={articles} boutiques={boutiques} clients={clients} commandes={commandes} onMakeSale={(s) => { setCommandes(prev => [s.order, ...prev]); if(s.transaction) setTransactions(prev => [s.transaction, ...prev]); if(s.newComptes) setComptes(s.newComptes); }} onAddPayment={handleGlobalAddPayment} comptes={comptes} onCancelSale={() => {}} companyAssets={companyAssets} currentUser={user} />}
                     {currentView === 'production' && <ProductionView commandes={commandes} employes={employes} clients={clients} articles={articles} userRole={user.role} onUpdateStatus={(id, s) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, statut: s } : c))} onCreateOrder={(o, cons, meth, acc) => { setCommandes(prev => [o, ...prev]); if (o.avance > 0 && acc) { setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + o.avance } : c)); const acTransaction: TransactionTresorerie = { id: `TR_AC_${Date.now()}`, date: new Date().toISOString().split('T')[0], type: 'ENCAISSEMENT', montant: o.avance, compteId: acc, description: `Acompte initial : ${o.clientNom}`, categorie: 'VENTE', createdBy: user?.nom }; setTransactions(prev => [acTransaction, ...prev]); } }} onUpdateOrder={handleUpdateOrder} onAddPayment={handleGlobalAddPayment} onUpdatePayment={handleGlobalUpdatePayment} onDeletePayment={handleGlobalDeletePayment} onAddTask={handleAddTaskToOrder} onUpdateTask={handleUpdateTask} onArchiveOrder={(id) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} comptes={comptes} companyAssets={companyAssets} />}
                     {currentView === 'stock' && <StockView articles={articles} boutiques={boutiques} mouvements={mouvements} userRole={user.role} onAddMouvement={(m) => setMouvements(prev => [m, ...prev])} onAddBoutique={(b) => setBoutiques(prev => [...prev, b])} onUpdateBoutique={(b) => setBoutiques(prev => prev.map(item => item.id === b.id ? b : item))} onDeleteBoutique={(id) => setBoutiques(prev => prev.filter(b => b.id !== id))} />}
-                    {currentView === 'approvisionnement' && <ProcurementView commandesFournisseurs={commandesFournisseurs} fournisseurs={fournisseurs} articles={articles} boutiques={boutiques} onAddOrder={(o, accId) => { setCommandesFournisseurs(prev => [o, ...prev]); if (o.montantPaye > 0 && accId) setComptes(prev => prev.map(c => c.id === accId ? { ...c, solde: c.solde - o.montantPaye } : c)); }} onUpdateOrder={(o) => setCommandesFournisseurs(prev => prev.map(cmd => cmd.id === o.id ? o : cmd))} onReceiveOrder={() => {}} onAddPayment={() => {}} onUpdateArticle={() => {}} onArchiveOrder={(id) => setCommandesFournisseurs(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} comptes={comptes} />}
+                    {currentView === 'approvisionnement' && <ProcurementView commandesFournisseurs={commandesFournisseurs} fournisseurs={fournisseurs} articles={articles} boutiques={boutiques} onAddOrder={(o, accId) => { setCommandesFournisseurs(prev => [o, ...prev]); if (o.montantPaye > 0 && accId) setComptes(prev => prev.map(c => c.id === accId ? { ...c, solde: c.solde - o.montantPaye } : c)); }} onUpdateOrder={(o) => setCommandesFournisseurs(prev => prev.map(cmd => cmd.id === o.id ? o : cmd))} onReceiveOrder={handleReceiveProcurementOrder} onAddPayment={handleAddProcurementPayment} onUpdateArticle={(a) => setArticles(prev => prev.map(art => art.id === a.id ? a : art))} onArchiveOrder={(id) => setCommandesFournisseurs(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} comptes={comptes} />}
                     {currentView === 'fournisseurs' && <SuppliersView fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} onAddFournisseur={(f) => setFournisseurs(prev => [...prev, f])} onUpdateFournisseur={(f) => setFournisseurs(prev => prev.map(item => item.id === f.id ? f : item))} onDeleteFournisseur={(id) => setFournisseurs(prev => prev.filter(f => f.id !== id))} onAddPayment={() => {}} comptes={comptes} />}
                     {currentView === 'rh' && <HRView employes={employes} boutiques={boutiques} onAddEmploye={handleAddEmploye} onUpdateEmploye={handleUpdateEmploye} onDeleteEmploye={(id) => setEmployes(prev => prev.filter(e => e.id !== id))} onArchiveEmploye={(id) => setEmployes(prev => prev.map(e => e.id === id ? {...e, actif: !e.actif} : e))} onAddDepense={(d) => setDepenses(prev => [d, ...prev])} depenses={depenses} onDeleteDepense={(id) => setDepenses(prev => prev.filter(d => d.id !== id))} onUpdateDepense={(d) => setDepenses(prev => prev.map(item => item.id === d.id ? d : item))} pointages={pointages} onAddPointage={(p) => setPointages(prev => [...prev, p])} onUpdatePointage={(p) => setPointages(prev => prev.map(item => item.id === p.id ? p : item))} currentUser={user} comptes={comptes} onUpdateComptes={setComptes} onAddTransaction={(t) => setTransactions(prev => [t, ...prev])} onUpdateEmployes={(updates) => setEmployes(prev => prev.map(e => updates.find(u => u.id === e.id) || e))} />}
                     {currentView === 'clients' && <ClientsView clients={clients} commandes={commandes} onAddClient={handleAddClient} onUpdateClient={handleUpdateClient} onDeleteClient={handleDeleteClient} />}
