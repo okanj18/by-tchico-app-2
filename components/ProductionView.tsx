@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
-import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, ModePaiement, CompteFinancier, CompanyAssets, TacheProduction, ActionProduction, Consommation } from '../types';
-import { Scissors, Search, X, Activity, Clock, Calendar, CheckCircle, Columns, Eye, Plus, Edit2, UserPlus, Trophy, DollarSign, Ban, Truck, Users, ChevronLeft, ChevronRight, ClipboardList, FileText, Sparkles, Printer, Zap, TrendingUp, AlertCircle, Star, Box, Trash2 } from 'lucide-react';
+import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, Consommation, CompteFinancier, CompanyAssets, ModePaiement, TacheProduction, ActionProduction, PaiementClient } from '../types';
+import { Scissors, Search, Plus, Eye, Edit2, CheckCircle, Clock, Trash2, Printer, Archive, X, Save, AlertTriangle, DollarSign, ChevronRight, ClipboardList, Activity, Sparkles, UserPlus, History, CreditCard, Ban, Calendar, Layout, Users, Trophy, Loader, FileText, ChevronLeft, ChevronRight as ChevronRightIcon, Box, ArrowRight, ArrowLeft, Check, Square, CheckSquare } from 'lucide-react';
 import { analyzeProductionBottlenecks } from '../services/geminiService';
 import { COMPANY_CONFIG } from '../config';
 
@@ -11,881 +11,505 @@ interface ProductionViewProps {
     clients: Client[];
     articles: Article[];
     userRole: RoleEmploye;
-    onUpdateStatus: (id: string, status: StatutCommande) => void;
-    onCreateOrder: (order: Commande, consommations: Consommation[], paymentMethod?: ModePaiement, accountId?: string) => void;
-    onUpdateOrder: (order: Commande) => void;
-    onAddPayment: (orderId: string, amount: number, method: ModePaiement, note: string, date: string, accountId?: string) => void;
-    onArchiveOrder: (orderId: string) => void;
+    onUpdateStatus: (id: string, s: StatutCommande | string) => void;
+    onCreateOrder: (o: Commande, cons: Consommation[], method: ModePaiement, accId?: string) => void;
+    onUpdateOrder: (o: Commande, accId?: string) => void;
+    onAddPayment: (orderId: string, amount: number, method: ModePaiement, note: string, date: string, accId?: string) => void;
+    onUpdatePayment: (orderId: string, paymentId: string, newAmount: number, date: string, accId: string) => void;
+    onDeletePayment: (orderId: string, paymentId: string, accId: string) => void;
+    onAddTask: (orderId: string, task: TacheProduction) => void;
+    onUpdateTask: (orderId: string, taskId: string, newStatut: 'A_FAIRE' | 'FAIT') => void;
+    onArchiveOrder: (id: string) => void;
     comptes: CompteFinancier[];
-    companyAssets?: CompanyAssets;
+    companyAssets: CompanyAssets;
 }
-
-const KANBAN_STATUS_ORDER = [
-    StatutCommande.EN_ATTENTE,
-    StatutCommande.EN_COUPE,
-    StatutCommande.COUTURE,
-    StatutCommande.FINITION,
-    StatutCommande.PRET
-];
-
-const STATUS_COLORS: Record<string, string> = {
-    [StatutCommande.EN_ATTENTE]: 'bg-gray-100 text-gray-600 border-gray-200',
-    [StatutCommande.EN_COUPE]: 'bg-blue-50 text-blue-700 border-blue-100',
-    [StatutCommande.COUTURE]: 'bg-indigo-50 text-indigo-700 border-indigo-100',
-    [StatutCommande.FINITION]: 'bg-amber-50 text-amber-700 border-amber-100',
-    [StatutCommande.PRET]: 'bg-green-50 text-green-700 border-green-100',
-    [StatutCommande.LIVRE]: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-};
 
 const ProductionView: React.FC<ProductionViewProps> = ({ 
     commandes, employes, clients, articles, userRole, 
-    onUpdateStatus, onCreateOrder, onUpdateOrder, onAddPayment, onArchiveOrder, comptes, companyAssets 
+    onUpdateStatus, onCreateOrder, onUpdateOrder, onAddPayment, onUpdatePayment, onDeletePayment, onAddTask, onUpdateTask, onArchiveOrder, comptes, companyAssets 
 }) => {
-    const [viewMode, setViewMode] = useState<'ORDERS' | 'KANBAN' | 'PLANNING' | 'TAILORS' | 'PERFORMANCE'>('PLANNING');
+    const [activeNav, setActiveNav] = useState<'COMMANDES' | 'AGENDA' | 'KANBAN' | 'ARTISANS' | 'PERFORMANCE'>('COMMANDES');
     const [searchTerm, setSearchTerm] = useState('');
-    const [listFilter, setListFilter] = useState<'ACTIVE' | 'READY' | 'DEVIS' | 'ALL'>('ACTIVE');
-    
-    // Modal States
-    const [taskModalOpen, setTaskModalOpen] = useState(false);
+    const [activeFilterTab, setActiveFilterTab] = useState<'EN_COURS' | 'PRETS' | 'DEVIS' | 'TOUTES'>('EN_COURS');
+
+    // Modals
     const [orderModalOpen, setOrderModalOpen] = useState(false);
+    const [detailModalOpen, setDetailModalOpen] = useState(false);
+    const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+    const [editPaymentModalOpen, setEditPaymentModalOpen] = useState(false);
+    const [taskModalOpen, setTaskModalOpen] = useState(false);
     const [isEditingOrder, setIsEditingOrder] = useState(false);
-    const [paymentModalOpen, setPaymentModalOpen] = useState<Commande | null>(null);
-    const [orderDetailView, setOrderDetailView] = useState<Commande | null>(null);
-
-    // AI Analysis State
-    const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
-    const [isAiLoading, setIsAiLoading] = useState(false);
-
-    // Form Data
-    const [newOrderItems, setNewOrderItems] = useState<{nom: string, qte: number}[]>([{nom: '', qte: 1}]);
-    const [newOrderConsommations, setNewOrderConsommations] = useState<Consommation[]>([]);
     
-    // Temp states for adding consumption
-    const [tempConsMatiere, setTempConsMatiere] = useState('');
-    const [tempConsVariante, setTempConsVariante] = useState('');
-    const [tempConsQty, setTempConsQty] = useState(0);
+    // Selection
+    const [selectedOrder, setSelectedOrder] = useState<Commande | null>(null);
+    const [selectedPayment, setSelectedPayment] = useState<PaiementClient | null>(null);
 
+    // Form States
     const [newOrderData, setNewOrderData] = useState<Partial<Commande>>({
-        clientId: '', dateLivraisonPrevue: '', prixTotal: 0, avance: 0, isDevis: false
+        clientId: '', prixTotal: 0, avance: 0, dateLivraisonPrevue: '', isDevis: false, description: '', consommations: []
     });
     const [initialAccountId, setInitialAccountId] = useState('');
-    const [payAmount, setPayAmount] = useState(0);
-    const [payMethod, setPayMethod] = useState<ModePaiement>('ESPECE');
-    const [payAccount, setPayAccount] = useState('');
-    const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
-    const [newTaskData, setNewTaskData] = useState({ 
-        orderId: '', elementNom: '', action: 'COUPE' as ActionProduction, quantite: 1, tailleurId: '', note: '', date: new Date().toISOString().split('T')[0]
+    const [payData, setPayData] = useState({ amount: 0, method: 'ESPECE' as ModePaiement, accId: '', date: new Date().toISOString().split('T')[0], note: '' });
+    const [editPayData, setEditPayData] = useState({ amount: 0, date: '', accId: '' });
+    
+    const [newTaskData, setNewTaskData] = useState<Partial<TacheProduction>>({
+        commandeId: '', action: 'COUTURE', tailleurId: '', quantite: 1, note: '', date: new Date().toISOString().split('T')[0], statut: 'A_FAIRE'
     });
 
-    // Planning Navigation
-    const [planningStartDate, setPlanningStartDate] = useState(new Date());
+    const [agendaDate, setAgendaDate] = useState(new Date());
 
-    const tailleurs = useMemo(() => employes.filter(e => e.actif !== false && (e.role === 'TAILLEUR' || e.role === 'CHEF_ATELIER' || e.role === 'STAGIAIRE')), [employes]);
-
-    // Filtrage des matières premières pour la sélection
-    const matieresPremieres = useMemo(() => articles.filter(a => a.typeArticle === 'MATIERE_PREMIERE' && !a.archived), [articles]);
+    const tailleurs = useMemo(() => employes.filter(e => (e.role === RoleEmploye.TAILLEUR || e.role === RoleEmploye.CHEF_ATELIER) && e.actif !== false), [employes]);
 
     const filteredCommandes = useMemo(() => {
         return commandes.filter(c => {
-            if (c.type !== 'SUR_MESURE') return false;
-            const isCompleted = c.statut === StatutCommande.LIVRE || c.statut === StatutCommande.ANNULE;
-            const matchesFilter = listFilter === 'ACTIVE' ? !isCompleted && !c.isDevis :
-                                 listFilter === 'READY' ? c.statut === StatutCommande.PRET :
-                                 listFilter === 'DEVIS' ? c.isDevis === true : true;
-            return matchesFilter && c.clientNom.toLowerCase().includes(searchTerm.toLowerCase());
+            if (c.archived) return false;
+            const matchesSearch = c.clientNom.toLowerCase().includes(searchTerm.toLowerCase()) || c.id.toLowerCase().includes(searchTerm.toLowerCase());
+            let matchesTab = true;
+            if (activeFilterTab === 'EN_COURS') matchesTab = !c.isDevis && c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.PRET && c.statut !== StatutCommande.ANNULE;
+            else if (activeFilterTab === 'PRETS') matchesTab = c.statut === StatutCommande.PRET;
+            else if (activeFilterTab === 'DEVIS') matchesTab = !!c.isDevis;
+            return matchesSearch && matchesTab;
         }).sort((a, b) => new Date(b.dateCommande).getTime() - new Date(a.dateCommande).getTime());
-    }, [commandes, searchTerm, listFilter]);
+    }, [commandes, searchTerm, activeFilterTab]);
 
-    // --- AI ANALYSIS ---
-    const handleRunAIAnalysis = async () => {
-        setIsAiLoading(true);
-        const result = await analyzeProductionBottlenecks(commandes.filter(c => c.statut !== StatutCommande.LIVRE && !c.isDevis), tailleurs);
-        setAiAnalysis(result);
-        setIsAiLoading(false);
-    };
-
-    // --- PRINT WORKSHOP SLIP ---
-    const handlePrintWorkshopSlip = (order: Commande) => {
-        const client = clients.find(c => c.id === order.clientId);
-        const printWindow = window.open('', '', 'width=800,height=900');
+    const handlePrintOrder = (order: Commande) => {
+        const printWindow = window.open('', '_blank', 'width=800,height=900');
         if (!printWindow) return;
-
-        const logoUrl = companyAssets?.logoStr || `${window.location.origin}${COMPANY_CONFIG.logoUrl}`;
-        const measurementsHtml = client?.mesures ? Object.entries(client.mesures).map(([k, v]) => `<div><b>${k.toUpperCase()}:</b> ${v}</div>`).join('') : 'Pas de mesures';
-        const consHtml = order.consommations?.map(c => {
-            const art = articles.find(a => a.id === c.articleId);
-            return `<li>${art?.nom || 'Inconnu'} (${c.variante}) : <b>${c.quantite} ${art?.unite || ''}</b></li>`;
-        }).join('') || 'Aucune matière déduite';
-
+        const logo = companyAssets.logoStr || '';
         const html = `
-            <html>
-                <head>
-                    <title>FICHE ATELIER #${order.id}</title>
-                    <style>
-                        body { font-family: 'Inter', sans-serif; padding: 40px; color: #1a1a1a; }
-                        .header { display: flex; justify-content: space-between; border-bottom: 4px solid #000; padding-bottom: 20px; }
-                        .section { margin-top: 30px; }
-                        .title { font-size: 20px; font-weight: 900; text-transform: uppercase; margin-bottom: 10px; border-bottom: 2px solid #eee; padding-bottom: 5px; }
-                        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 14px; }
-                        .elements { background: #f4f4f4; padding: 20px; border-radius: 10px; font-size: 18px; font-weight: bold; }
-                        .footer { margin-top: 50px; font-size: 10px; color: #888; text-align: center; }
-                    </style>
-                </head>
-                <body>
-                    <div class="header">
-                        <div>
-                            <img src="${logoUrl}" style="height: 60px"/>
-                            <div style="font-size: 20px; font-weight: 900;">${COMPANY_CONFIG.name}</div>
-                        </div>
-                        <div style="text-align: right">
-                            <div style="font-size: 24px; font-weight: 900;">FICHE D'ATELIER</div>
-                            <div style="font-size: 18px; font-weight: bold;">CMD #${order.id.slice(-6)}</div>
-                            <div>Livraison prévue: <b>${new Date(order.dateLivraisonPrevue).toLocaleDateString()}</b></div>
-                        </div>
-                    </div>
-                    <div class="section">
-                        <div class="title">Client & Commande</div>
-                        <div style="font-size: 18px; margin-bottom: 10px;"><b>NOM: ${order.clientNom}</b></div>
-                        <div class="elements">COMPOSITION: ${order.description}</div>
-                    </div>
-                    <div class="section">
-                        <div class="title">Matières à utiliser</div>
-                        <ul>${consHtml}</ul>
-                    </div>
-                    <div class="section">
-                        <div class="title">Mesures Techniques (CM)</div>
-                        <div class="grid">${measurementsHtml}</div>
-                    </div>
-                    <div class="section" style="border: 2px solid #000; padding: 20px; min-height: 150px;">
-                        <div class="title">Notes de Coupe & Style</div>
-                        <p>${client?.stylePreferences || 'Aucune note particulière.'}</p>
-                    </div>
-                    <div class="footer">Document généré par BY TCHICO Manager v${COMPANY_CONFIG.version}</div>
-                    <script>window.print();</script>
-                </body>
-            </html>
+            <html><head><title>Fiche Production #${order.id.slice(-6)}</title><style>
+                body { font-family: 'Courier New', Courier, monospace; font-size: 14px; padding: 20px; color: #000; }
+                .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
+                .section { margin-bottom: 15px; }
+                .val { font-size: 16px; font-weight: 900; }
+                .total-box { border: 2px solid #000; padding: 10px; margin-top: 20px; text-align: right; }
+            </style></head>
+            <body>
+                <div class="header">
+                    ${logo ? `<img src="${logo}" style="max-width:150px" />` : ''}
+                    <h1 style="margin:5px 0;">${COMPANY_CONFIG.name}</h1>
+                    <p style="margin:2px 0;">${COMPANY_CONFIG.address} | Tel: ${COMPANY_CONFIG.phone}</p>
+                    <h2 style="text-decoration:underline; margin-top:10px;">BON DE PRODUCTION #${order.id.slice(-6)}</h2>
+                </div>
+                <div class="section"><b>CLIENT :</b> <span class="val">${order.clientNom.toUpperCase()}</span></div>
+                <div class="section" style="border:1px solid #ccc; padding:10px;">
+                    <b>MODÈLE / SPÉCIFICATIONS :</b><br/>
+                    <p style="white-space: pre-wrap; margin-top:5px;">${order.description}</p>
+                </div>
+                <div class="total-box">
+                    <p style="margin:2px 0;">PRIX TOTAL : <b>${order.prixTotal.toLocaleString()} F</b></p>
+                    <p style="margin:2px 0;">ACOMPTE VERSÉ : ${ (order.prixTotal - order.reste).toLocaleString() } F</p>
+                    <p style="margin:2px 0; font-size:18px;"><b>RESTE À PAYER : ${order.reste.toLocaleString()} F</b></p>
+                </div>
+                <script>window.onload = () => { window.print(); window.close(); }</script>
+            </body></html>
         `;
         printWindow.document.write(html);
         printWindow.document.close();
     };
 
-    // --- ACTIONS ---
-    const handleAddConsommation = () => {
-        if (!tempConsMatiere || tempConsQty <= 0) return;
-        const art = articles.find(a => a.id === tempConsMatiere);
-        if (!art) return;
-
-        const newCons: Consommation = {
-            articleId: tempConsMatiere,
-            variante: tempConsVariante || 'Standard',
-            quantite: tempConsQty
-        };
-        setNewOrderConsommations([...newOrderConsommations, newCons]);
-        setTempConsMatiere('');
-        setTempConsVariante('');
-        setTempConsQty(0);
-    };
-
-    const handleRemoveConsommation = (idx: number) => {
-        setNewOrderConsommations(newOrderConsommations.filter((_, i) => i !== idx));
-    };
-
-    const onDragStart = (e: React.DragEvent, orderId: string, sourceStatus: string) => {
-        e.dataTransfer.setData("orderId", orderId);
-        e.dataTransfer.setData("sourceStatus", sourceStatus);
-    };
-
-    const onDrop = (e: React.DragEvent, targetStatus: StatutCommande) => {
-        e.preventDefault();
-        const orderId = e.dataTransfer.getData("orderId");
-        const sourceStatus = e.dataTransfer.getData("sourceStatus");
-        if (sourceStatus === targetStatus) return;
-
-        const order = commandes.find(c => c.id === orderId);
-        if (!order) return;
-
-        const qtyToMove = order.repartitionStatuts?.[sourceStatus] || 0;
-        if (qtyToMove <= 0) return;
-
-        const newRepartition = { ...(order.repartitionStatuts || {}) };
-        newRepartition[sourceStatus] = 0;
-        newRepartition[targetStatus] = (newRepartition[targetStatus] || 0) + qtyToMove;
-
-        onUpdateOrder({ ...order, repartitionStatuts: newRepartition, statut: targetStatus === StatutCommande.PRET ? StatutCommande.PRET : targetStatus });
-    };
-
-    const handleToggleTaskStatus = (tk: TacheProduction) => {
-        const order = commandes.find(c => c.id === tk.commandeId);
-        if (!order) return;
-        
-        const newStatutTache = tk.statut === 'A_FAIRE' ? 'FAIT' : 'A_FAIRE';
-        const updatedTaches = order.taches?.map(t => t.id === tk.id ? { ...t, statut: newStatutTache as 'A_FAIRE' | 'FAIT' } : t);
-        
-        let newRepartition = { ...(order.repartitionStatuts || {}) };
-        const qte = tk.quantite || 1;
-
-        if (newStatutTache === 'FAIT') {
-            let source = StatutCommande.EN_ATTENTE;
-            let target = StatutCommande.EN_COUPE;
-            if (tk.action === 'COUPE') { source = StatutCommande.EN_ATTENTE; target = StatutCommande.EN_COUPE; }
-            else if (tk.action === 'COUTURE') { source = StatutCommande.EN_COUPE; target = StatutCommande.COUTURE; }
-            else if (tk.action === 'FINITION') { source = StatutCommande.COUTURE; target = StatutCommande.FINITION; }
-            else if (tk.action === 'REPASSAGE') { source = StatutCommande.FINITION; target = StatutCommande.PRET; }
-            newRepartition[source] = Math.max(0, (newRepartition[source] || 0) - qte);
-            newRepartition[target] = (newRepartition[target] || 0) + qte;
-        } else {
-            let source = StatutCommande.EN_COUPE;
-            let target = StatutCommande.EN_ATTENTE;
-            if (tk.action === 'COUPE') { source = StatutCommande.EN_COUPE; target = StatutCommande.EN_ATTENTE; }
-            else if (tk.action === 'COUTURE') { source = StatutCommande.COUTURE; target = StatutCommande.EN_COUPE; }
-            else if (tk.action === 'FINITION') { source = StatutCommande.FINITION; target = StatutCommande.COUTURE; }
-            else if (tk.action === 'REPASSAGE') { source = StatutCommande.PRET; target = StatutCommande.FINITION; }
-            newRepartition[source] = Math.max(0, (newRepartition[source] || 0) - qte);
-            newRepartition[target] = (newRepartition[target] || 0) + qte;
+    const handleDeliverOrder = (cmd: Commande) => {
+        let confirmationMsg = "Voulez-vous confirmer la livraison de cette commande ?";
+        if (cmd.reste > 0) {
+            confirmationMsg = `⚠️ ATTENTION : Cette commande n'est pas totalement soldée !\n\n` +
+                              `Montant restant : ${cmd.reste.toLocaleString()} F\n\n` +
+                              `Souhaitez-vous quand même valider la livraison ?`;
         }
-
-        onUpdateOrder({ ...order, taches: updatedTaches, repartitionStatuts: newRepartition });
-    };
-
-    const handleAddTask = () => {
-        if (!newTaskData.orderId || !newTaskData.tailleurId || !newTaskData.elementNom) return;
-        const order = commandes.find(c => c.id === newTaskData.orderId);
-        if (!order) return;
-        const newTask: TacheProduction = {
-            id: `T_${Date.now()}`, commandeId: order.id, action: newTaskData.action, quantite: newTaskData.quantite,
-            tailleurId: newTaskData.tailleurId, date: newTaskData.date, statut: 'A_FAIRE', elementNom: newTaskData.elementNom
-        };
-        onUpdateOrder({ ...order, taches: [...(order.taches || []), newTask], tailleursIds: Array.from(new Set([...(order.tailleursIds || []), newTaskData.tailleurId])) });
-        setTaskModalOpen(false);
+        if (window.confirm(confirmationMsg)) onUpdateStatus(cmd.id, StatutCommande.LIVRE);
     };
 
     const handleCreateOrUpdateOrder = () => {
-        if (!newOrderData.clientId || !newOrderData.prixTotal) {
-            alert("Client et prix total requis.");
-            return;
-        }
+        if (!newOrderData.clientId || !newOrderData.prixTotal) { alert("Client et prix requis."); return; }
         
-        const totalQty = newOrderItems.reduce((acc, i) => acc + i.qte, 0);
-        const description = newOrderItems.map(i => `${i.nom} (x${i.qte})`).join(', ');
+        // FIX BUG 1: Calcul rigoureux du reste lors d'une modification
         const prixTotal = newOrderData.prixTotal || 0;
         const avance = newOrderData.avance || 0;
-        const reste = prixTotal - avance;
+        const sommeAutresPaiements = selectedOrder?.paiements?.reduce((sum, p) => sum + p.montant, 0) || 0;
+        const nouveauReste = Math.max(0, prixTotal - avance - sommeAutresPaiements);
 
-        // --- VERIFICATION CAISSE POUR ACOMPTE ---
-        if (avance > 0 && !initialAccountId && !newOrderData.isDevis) {
-            alert("⚠️ ACTION REQUISE : Vous avez saisi un acompte. Veuillez sélectionner la CAISSE d'encaissement pour continuer.");
-            return;
-        }
-
-        if (isEditingOrder && newOrderData.id) {
-            const existing = commandes.find(c => c.id === newOrderData.id);
-            if (!existing) return;
+        if (isEditingOrder && selectedOrder) {
             onUpdateOrder({ 
-                ...existing, 
+                ...selectedOrder, 
                 ...newOrderData, 
-                description, 
-                elements: newOrderItems.map(i => ({nom: i.nom.toUpperCase(), quantite: i.qte})), 
-                quantite: totalQty, 
-                reste: reste,
-                consommations: newOrderConsommations 
-            } as Commande);
+                reste: nouveauReste 
+            } as Commande, initialAccountId);
         } else {
             const client = clients.find(c => c.id === newOrderData.clientId);
-            const order: Commande = {
-                id: `CMD_${Date.now()}`, clientId: newOrderData.clientId || '', clientNom: client?.nom || 'Client',
-                description, dateCommande: new Date().toISOString(), dateLivraisonPrevue: newOrderData.dateLivraisonPrevue || '',
-                statut: StatutCommande.EN_ATTENTE, tailleursIds: [], prixTotal: prixTotal,
-                avance: avance, reste: reste,
-                type: 'SUR_MESURE', quantite: totalQty, isDevis: newOrderData.isDevis || false,
-                repartitionStatuts: { [StatutCommande.EN_ATTENTE]: totalQty },
-                elements: newOrderItems.map(i => ({nom: i.nom.toUpperCase(), quantite: i.qte})),
-                consommations: newOrderConsommations
+            const order: Commande = { 
+                id: `CMD_${Date.now()}`, clientId: newOrderData.clientId || '', clientNom: client?.nom || 'Client', 
+                description: newOrderData.description || 'Sur Mesure', dateCommande: new Date().toISOString(), 
+                dateLivraisonPrevue: newOrderData.dateLivraisonPrevue || '', statut: StatutCommande.EN_ATTENTE, 
+                tailleursIds: [], prixTotal: prixTotal, avance: avance, 
+                reste: nouveauReste, type: 'SUR_MESURE', 
+                quantite: 1, isDevis: newOrderData.isDevis || false,
+                taches: [], paiements: []
             };
-            onCreateOrder(order, newOrderConsommations, 'ESPECE', initialAccountId);
+            onCreateOrder(order, [], 'ESPECE', initialAccountId);
         }
         setOrderModalOpen(false);
     };
 
-    /**
-     * Fix: Implement missing handleOpenEditOrder function to resolve undefined error.
-     */
-    const handleOpenEditOrder = (order: Commande) => {
-        setNewOrderData({
-            id: order.id,
-            clientId: order.clientId,
-            dateLivraisonPrevue: order.dateLivraisonPrevue,
-            prixTotal: order.prixTotal,
-            avance: order.avance,
-            isDevis: order.isDevis || false
-        });
-        setNewOrderItems(order.elements?.map(e => ({ nom: e.nom, qte: e.quantite })) || [{ nom: '', qte: 1 }]);
-        setNewOrderConsommations(order.consommations || []);
-        setIsEditingOrder(true);
-        setOrderModalOpen(true);
+    const handleOpenEditPayment = (p: PaiementClient) => {
+        setSelectedPayment(p);
+        setEditPayData({ amount: p.montant, date: p.date, accId: comptes[0]?.id || '' });
+        setEditPaymentModalOpen(true);
     };
 
-    /**
-     * Fix: Implement missing handleDeliverParts function to move parts to 'Livré' status.
-     */
-    const handleDeliverParts = (order: Commande) => {
-        const qtyToDeliver = order.repartitionStatuts?.[StatutCommande.PRET] || 0;
-        if (qtyToDeliver <= 0) return;
-
-        if (!window.confirm(`Confirmer la livraison de ${qtyToDeliver} pièce(s) ?`)) return;
-
-        const newRepartition = { ...(order.repartitionStatuts || {}) };
-        newRepartition[StatutCommande.PRET] = 0;
-        newRepartition[StatutCommande.LIVRE] = (newRepartition[StatutCommande.LIVRE] || 0) + qtyToDeliver;
-        
-        const totalQty = order.quantite;
-        const totalDelivered = (newRepartition[StatutCommande.LIVRE] || 0);
-        const newStatus = totalDelivered >= totalQty ? StatutCommande.LIVRE : order.statut;
-
-        onUpdateOrder({ 
-            ...order, 
-            repartitionStatuts: newRepartition, 
-            statut: newStatus,
-            dateLivraisonEffective: newStatus === StatutCommande.LIVRE ? new Date().toISOString() : order.dateLivraisonEffective
-        });
-        
-        if (orderDetailView && orderDetailView.id === order.id) {
-            setOrderDetailView(null);
-        }
+    const handleMoveStatus = (cmd: Commande, direction: 'NEXT' | 'PREV') => {
+        const steps = [StatutCommande.EN_ATTENTE, StatutCommande.EN_COUPE, StatutCommande.COUTURE, StatutCommande.FINITION, StatutCommande.PRET];
+        const currentIdx = steps.indexOf(cmd.statut as StatutCommande);
+        if (direction === 'NEXT' && currentIdx < steps.length - 1) onUpdateStatus(cmd.id, steps[currentIdx + 1]);
+        else if (direction === 'PREV' && currentIdx > 0) onUpdateStatus(cmd.id, steps[currentIdx - 1]);
     };
-
-    /**
-     * Fix: Implement missing handleConfirmPayment function to record solde payments.
-     */
-    const handleConfirmPayment = () => {
-        if (!paymentModalOpen || payAmount <= 0 || !payAccount) return;
-        onAddPayment(paymentModalOpen.id, payAmount, payMethod, "Paiement solde (Atelier)", payDate, payAccount);
-        setPaymentModalOpen(null);
-        setPayAmount(0);
-        setPayAccount('');
-    };
-
-    const planningDays = useMemo(() => {
-        const days = [];
-        for (let i = 0; i < 7; i++) {
-            const d = new Date(planningStartDate);
-            d.setDate(planningStartDate.getDate() + i);
-            days.push(d);
-        }
-        return days;
-    }, [planningStartDate]);
-
-    const performanceStats = useMemo(() => {
-        return tailleurs.map(t => {
-            const finishedTasks = (commandes.flatMap(c => c.taches || [])).filter(tk => tk.tailleurId === t.id && tk.statut === 'FAIT').length;
-            const ongoingTasks = (commandes.flatMap(c => c.taches || [])).filter(tk => tk.tailleurId === t.id && tk.statut === 'A_FAIRE').length;
-            return { ...t, finishedTasks, ongoingTasks };
-        }).sort((a, b) => b.finishedTasks - a.finishedTasks);
-    }, [tailleurs, commandes]);
 
     return (
-        <div className="space-y-6 h-[calc(100vh-8rem)] flex flex-col">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
-                <div className="flex items-center gap-3">
-                    <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Scissors className="text-brand-600"/> Atelier & Flux</h2>
-                    <button onClick={() => { setIsEditingOrder(false); setOrderModalOpen(true); setNewOrderItems([{nom: '', qte: 1}]); setNewOrderConsommations([]); setInitialAccountId(''); setNewOrderData({clientId: '', dateLivraisonPrevue: '', prixTotal: 0, avance: 0, isDevis: false}); }} className="bg-brand-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-black transition-all shadow-lg active:scale-95"><Plus size={16}/> Nouvelle Commande</button>
-                    <button onClick={() => setTaskModalOpen(true)} className="bg-orange-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-orange-700 transition-all shadow-lg active:scale-95"><UserPlus size={16}/> Assigner Tâche</button>
-                    <button onClick={handleRunAIAnalysis} disabled={isAiLoading} className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase hover:bg-purple-700 transition-all shadow-lg active:scale-95 disabled:opacity-50">
-                        {isAiLoading ? <Clock size={16} className="animate-spin"/> : <Sparkles size={16}/>} IA Analyse
+        <div className="space-y-6">
+            {/* HEADER PRINCIPAL */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+                <div className="flex items-center gap-4">
+                    <div className="p-3 bg-brand-50 rounded-2xl border border-brand-100 shadow-sm"><Scissors className="text-brand-600" size={32} /></div>
+                    <div><h2 className="text-3xl font-black text-gray-800 tracking-tighter uppercase leading-none">Gestion de <br/> l'Atelier</h2></div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                    <button onClick={() => { setIsEditingOrder(false); setNewOrderData({ clientId: '', prixTotal: 0, avance: 0, dateLivraisonPrevue: '', isDevis: false, description: '' }); setOrderModalOpen(true); }} className="bg-brand-900 hover:bg-black text-white px-6 py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center gap-2 transition-all active:scale-95">
+                        <Plus size={18}/> Nouvelle Commande
+                    </button>
+                    <button onClick={() => setTaskModalOpen(true)} className="bg-[#ff4e00] hover:bg-[#e64600] text-white px-6 py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center gap-2 transition-all active:scale-95">
+                        <UserPlus size={18}/> Assigner Tâche
                     </button>
                 </div>
-                <div className="flex flex-wrap bg-white border p-1 rounded-xl shadow-sm gap-1">
-                    {[{id: 'PLANNING', label: 'Agenda', icon: Calendar}, {id: 'KANBAN', label: 'Kanban', icon: Columns}, {id: 'ORDERS', label: 'Commandes', icon: ClipboardList}, {id: 'TAILORS', label: 'Artisans', icon: Users}, {id: 'PERFORMANCE', label: 'Top Performance', icon: Trophy}].map((mode) => (
-                        <button key={mode.id} onClick={() => setViewMode(mode.id as any)} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg flex items-center gap-2 transition-all ${viewMode === mode.id ? 'bg-brand-900 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}><mode.icon size={14}/> {mode.label}</button>
+
+                <div className="bg-white p-1.5 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap gap-1">
+                    {[
+                        { id: 'COMMANDES', label: 'Commandes', icon: ClipboardList },
+                        { id: 'AGENDA', label: 'Agenda', icon: Calendar },
+                        { id: 'KANBAN', label: 'Flux Kanban', icon: Layout },
+                        { id: 'ARTISANS', label: 'Nos Artisans', icon: Users },
+                        { id: 'PERFORMANCE', label: 'Palmarès', icon: Trophy }
+                    ].map(nav => (
+                        <button key={nav.id} onClick={() => setActiveNav(nav.id as any)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${activeNav === nav.id ? 'bg-brand-900 text-white shadow-lg scale-105' : 'text-gray-400 hover:bg-gray-50'}`}>
+                            <nav.icon size={14}/> {nav.label}
+                        </button>
                     ))}
                 </div>
             </div>
 
-            {aiAnalysis && (
-                <div className="bg-purple-50 border-l-4 border-purple-500 p-4 rounded-r-xl shadow-sm animate-in slide-in-from-top-4 flex justify-between items-center">
-                    <div className="flex items-center gap-3">
-                        <Zap className="text-purple-600" size={24}/>
-                        <div>
-                            <p className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Conseil Stratégique Gemini</p>
-                            <p className="text-xs font-bold text-purple-900">{aiAnalysis}</p>
+            {/* VUE COMMANDES */}
+            {activeNav === 'COMMANDES' && (
+                <div className="space-y-6">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div className="flex bg-gray-100 p-1 rounded-2xl shadow-inner border border-gray-200">
+                            {['EN_COURS', 'PRETS', 'DEVIS', 'TOUTES'].map(tab => (
+                                <button key={tab} onClick={() => setActiveFilterTab(tab as any)} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeFilterTab === tab ? 'bg-white text-brand-900 shadow-md' : 'text-gray-400'}`}>
+                                    {tab.replace('_', ' ')}
+                                </button>
+                            ))}
                         </div>
+                        <div className="relative w-full md:w-96"><Search className="absolute left-4 top-3.5 text-gray-300" size={20} /><input type="text" placeholder="Rechercher..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-3.5 bg-white border border-gray-200 rounded-2xl text-sm font-bold shadow-sm" /></div>
                     </div>
-                    <button onClick={() => setAiAnalysis(null)}><X size={16} className="text-purple-400"/></button>
+
+                    <div className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-50/50 text-gray-400 font-black uppercase text-[10px] tracking-[0.2em] border-b">
+                                <tr><th className="p-6">Référence & Client</th><th className="p-6 text-center">Livraison</th><th className="p-6 text-center">Finance</th><th className="p-6 text-center">État</th><th className="p-6 text-right w-64">Actions</th></tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {filteredCommandes.map(cmd => (
+                                    <tr key={cmd.id} className="hover:bg-brand-50/30 transition-all">
+                                        <td className="p-6">
+                                            <div className="flex flex-col"><span className="font-black text-gray-800 uppercase text-base tracking-tighter">{cmd.clientNom}</span><span className="text-[10px] text-gray-400 font-bold uppercase">#{cmd.id.slice(-6)} • {cmd.description.slice(0, 40)}...</span></div>
+                                        </td>
+                                        <td className="p-6 text-center font-bold text-gray-600 uppercase text-[11px]">{new Date(cmd.dateLivraisonPrevue).toLocaleDateString()}</td>
+                                        <td className="p-6 text-center">
+                                            <div className="flex flex-col items-center"><span className="font-black text-gray-800 text-lg">{cmd.prixTotal.toLocaleString()} F</span><span className={`text-[10px] font-black uppercase ${cmd.reste > 0 ? 'text-red-500' : 'text-green-600'}`}>Reste : {cmd.reste.toLocaleString()} F</span></div>
+                                        </td>
+                                        <td className="p-6 text-center"><span className="px-4 py-2 bg-white border-2 border-gray-100 rounded-2xl text-[10px] font-black text-gray-600 uppercase tracking-widest">{cmd.statut.toUpperCase()}</span></td>
+                                        <td className="p-6 text-right">
+                                            <div className="flex justify-end gap-2">
+                                                <button onClick={() => { setSelectedOrder(cmd); setDetailModalOpen(true); }} className="p-2.5 bg-white text-blue-600 border border-blue-100 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"><Eye size={18}/></button>
+                                                <button onClick={() => { setSelectedOrder(cmd); setNewOrderData(cmd); setIsEditingOrder(true); setOrderModalOpen(true); }} className="p-2.5 bg-white text-gray-400 border border-gray-100 rounded-xl hover:bg-gray-800 hover:text-white transition-all shadow-sm"><Edit2 size={18}/></button>
+                                                {cmd.statut === StatutCommande.PRET && <button onClick={() => handleDeliverOrder(cmd)} className="p-2.5 bg-white text-green-600 border border-green-100 rounded-xl hover:bg-green-600 hover:text-white transition-all shadow-sm"><Check size={18}/></button>}
+                                                <button onClick={() => { setSelectedOrder(cmd); setPayData({ ...payData, amount: cmd.reste }); setPaymentModalOpen(true); }} className="p-2.5 bg-white text-emerald-600 border border-emerald-100 rounded-xl hover:bg-emerald-600 hover:text-white transition-all shadow-sm"><DollarSign size={18}/></button>
+                                                <button onClick={() => { if(window.confirm("Voulez-vous vraiment annuler cette commande ?")) onUpdateStatus(cmd.id, StatutCommande.ANNULE); }} className="p-2.5 bg-white text-red-300 border border-red-50 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"><Ban size={18}/></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
 
-            <div className="flex-1 overflow-hidden">
-                {viewMode === 'ORDERS' && (
-                    <div className="bg-white border rounded-2xl shadow-sm h-full flex flex-col overflow-hidden">
-                        <div className="p-4 bg-gray-50 border-b flex justify-between items-center shrink-0">
-                            <div className="flex bg-white border p-1 rounded-xl shadow-inner overflow-x-auto no-scrollbar">
-                                {[{id: 'ACTIVE', label: 'En cours', icon: Activity},{id: 'READY', label: 'Prêts', icon: CheckCircle},{id: 'DEVIS', label: 'Devis', icon: FileText},{id: 'ALL', label: 'Toutes', icon: ClipboardList}].map((f) => (
-                                    <button key={f.id} onClick={() => setListFilter(f.id as any)} className={`px-4 py-2 text-[10px] font-black uppercase rounded-lg transition-all flex items-center gap-2 whitespace-nowrap ${listFilter === f.id ? 'bg-brand-900 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><f.icon size={12}/> {f.label}</button>
-                                ))}
+            {/* VUE AGENDA */}
+            {activeNav === 'AGENDA' && (
+                <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden flex flex-col h-full min-h-[600px]">
+                    <div className="p-6 border-b flex justify-between items-center bg-gray-50/50">
+                        <div className="flex items-center gap-4">
+                            <div className="flex gap-1">
+                                <button onClick={() => setAgendaDate(new Date(agendaDate.setDate(agendaDate.getDate()-7)))} className="p-2 hover:bg-white rounded-lg border border-gray-200"><ChevronLeft size={20}/></button>
+                                <button onClick={() => setAgendaDate(new Date(agendaDate.setDate(agendaDate.getDate()+7)))} className="p-2 hover:bg-white rounded-lg border border-gray-200"><ChevronRightIcon size={20}/></button>
                             </div>
-                            <div className="relative w-64 hidden md:block">
-                                <Search className="absolute left-3 top-2.5 text-gray-400" size={16}/>
-                                <input type="text" placeholder="Chercher client..." className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-                            </div>
-                        </div>
-                        <div className="flex-1 overflow-auto custom-scrollbar">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-gray-50 text-gray-400 font-black uppercase text-[9px] tracking-widest sticky top-0 z-10 border-b">
-                                    <tr><th className="p-4">Client & Artisans</th><th className="p-4 text-center">Finance</th><th className="p-4">État Production</th><th className="p-4 text-right">Actions</th></tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {filteredCommandes.map(order => (
-                                        <tr key={order.id} className="hover:bg-gray-50 transition-colors">
-                                            <td className="p-4">
-                                                <div className="font-black uppercase text-gray-900">{order.clientNom}</div>
-                                                <div className="flex flex-wrap gap-1 mt-1">
-                                                    {(order.tailleursIds || []).map(tid => (
-                                                        <span key={tid} className="px-1.5 py-0.5 bg-brand-50 text-brand-700 text-[8px] font-black uppercase rounded border border-brand-100">{employes.find(e => e.id === tid)?.nom}</span>
-                                                    ))}
-                                                </div>
-                                            </td>
-                                            <td className="p-4 text-center">
-                                                <div className="font-black text-gray-900">{order.prixTotal.toLocaleString()} F</div>
-                                                <div className={`text-[9px] font-black uppercase ${order.reste > 0 ? 'text-red-500' : 'text-green-600'}`}>{order.reste > 0 ? `Reste: ${order.reste.toLocaleString()} F` : 'Soldé'}</div>
-                                            </td>
-                                            <td className="p-4">
-                                                <div className="flex flex-wrap gap-2">
-                                                    {KANBAN_STATUS_ORDER.map(status => {
-                                                        const count = order.repartitionStatuts?.[status] || 0;
-                                                        if (count === 0) return null;
-                                                        return <span key={status} className={`px-2 py-1 border rounded shadow-sm text-[8px] font-black uppercase ${STATUS_COLORS[status]}`}>{status} ({count})</span>;
-                                                    })}
-                                                </div>
-                                            </td>
-                                            <td className="p-4 text-right relative">
-                                                <div className="flex justify-end gap-1.5 relative z-20">
-                                                    <button onClick={() => setOrderDetailView(order)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg border shadow-sm" title="Détails"><Eye size={16}/></button>
-                                                    <button onClick={() => { setOrderDetailView(null); handleOpenEditOrder(order); }} className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg border shadow-sm" title="Modifier"><Edit2 size={16}/></button>
-                                                    {order.reste > 0 && <button onClick={() => setPaymentModalOpen(order)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg border shadow-sm" title="Encaisser"><DollarSign size={16}/></button>}
-                                                    {(order.repartitionStatuts?.[StatutCommande.PRET] || 0) > 0 && (
-                                                        <button onClick={() => handleDeliverParts(order)} className="px-3 py-1 bg-green-600 text-white rounded text-[9px] font-black uppercase flex items-center gap-1 shadow-sm hover:bg-green-700 transition-all"><Truck size={14}/> Livrer</button>
-                                                    )}
-                                                    <button onClick={() => { if(window.confirm("Annuler cette commande ?")) onUpdateStatus(order.id, StatutCommande.ANNULE) }} className="p-2 text-red-400 hover:bg-red-50 rounded-lg border shadow-sm" title="Annuler"><Ban size={16}/></button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                            <h3 className="text-xl font-black text-gray-800 uppercase tracking-widest">{agendaDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</h3>
                         </div>
                     </div>
-                )}
+                    <div className="flex-1 overflow-auto custom-scrollbar">
+                        <table className="w-full border-collapse">
+                            <thead>
+                                <tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b">
+                                    <th className="p-6 border-r text-left w-64 sticky left-0 bg-gray-50 z-20">Artisan</th>
+                                    {Array.from({ length: 7 }).map((_, i) => {
+                                        const d = new Date(agendaDate); d.setDate(agendaDate.getDate() + i);
+                                        return <th key={i} className="p-6 border-r text-center">{d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })}</th>
+                                    })}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {tailleurs.map(artisan => (
+                                    <tr key={artisan.id} className="border-b last:border-0 h-32">
+                                        <td className="p-6 border-r font-black text-gray-700 uppercase text-xs sticky left-0 bg-white z-10 shadow-sm">{artisan.nom}</td>
+                                        {Array.from({ length: 7 }).map((_, i) => {
+                                            const d = new Date(agendaDate); d.setDate(agendaDate.getDate() + i);
+                                            const dateStr = d.toISOString().split('T')[0];
+                                            const dayTasks = (commandes.flatMap(c => (c.taches || []).map(t => ({...t, orderId: c.id, clientNom: c.clientNom}))).filter(t => t.tailleurId === artisan.id && t.date === dateStr));
+                                            return (
+                                                <td key={i} onClick={(e) => { if(e.target === e.currentTarget) { setNewTaskData({...newTaskData, tailleurId: artisan.id, date: dateStr}); setTaskModalOpen(true); } }} className="p-2 border-r bg-gray-50/20 cursor-cell hover:bg-brand-50/30 transition-colors">
+                                                    <div className="flex flex-col gap-1">
+                                                        {dayTasks.map(t => (
+                                                            <button 
+                                                                key={t.id} 
+                                                                onClick={() => onUpdateTask(t.orderId, t.id, t.statut === 'A_FAIRE' ? 'FAIT' : 'A_FAIRE')} 
+                                                                className={`p-2 rounded-lg border shadow-sm text-[8px] font-black uppercase truncate flex items-center gap-1.5 transition-all ${t.statut === 'FAIT' ? 'bg-green-100 border-green-200 text-green-700' : 'bg-white border-brand-100 text-brand-900 hover:scale-105'}`}
+                                                            >
+                                                                {t.statut === 'FAIT' ? <CheckSquare size={10}/> : <Square size={10}/>} {t.action} - {t.clientNom}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
 
-                {viewMode === 'KANBAN' && (
-                    <div className="flex-1 overflow-x-auto p-4 flex gap-6 bg-gray-50 h-full">
-                        {KANBAN_STATUS_ORDER.map(status => (
-                            <div key={status} onDragOver={e => e.preventDefault()} onDrop={e => onDrop(e, status)} className="w-80 flex flex-col h-full min-w-[20rem]">
-                                <div className="flex justify-between items-center mb-4 px-2">
-                                    <h4 className="font-black text-xs uppercase tracking-widest text-gray-700">{status}</h4>
-                                    <span className={`text-[10px] font-black px-3 py-1 rounded-full border shadow-sm ${STATUS_COLORS[status]}`}>
-                                        {commandes.reduce((acc, c) => acc + (c.repartitionStatuts?.[status] || 0), 0)} pcs
-                                    </span>
+            {/* VUE KANBAN */}
+            {activeNav === 'KANBAN' && (
+                <div className="flex gap-6 overflow-x-auto pb-10 no-scrollbar h-[calc(100vh-18rem)]">
+                    {[StatutCommande.EN_ATTENTE, StatutCommande.EN_COUPE, StatutCommande.COUTURE, StatutCommande.FINITION, StatutCommande.PRET].map((status, idx, array) => {
+                        const items = commandes.filter(c => c.statut === status && !c.archived && !c.isDevis);
+                        return (
+                            <div key={status} className="flex flex-col min-w-[320px] max-w-[320px] h-full">
+                                <div className="flex justify-between items-center mb-6 px-2 shrink-0">
+                                    <h4 className="font-black text-gray-800 uppercase text-xs tracking-widest">{status}</h4>
+                                    <span className="bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full text-[9px] font-black border border-brand-100">{items.length}</span>
                                 </div>
-                                <div className="flex-1 overflow-y-auto space-y-4 custom-scrollbar pr-2 pb-10">
-                                    {commandes.filter(c => (c.repartitionStatuts?.[status] || 0) > 0 && !c.isDevis && !c.archived).map(order => (
-                                        <div key={order.id} draggable onDragStart={e => onDragStart(e, order.id, status)} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 cursor-grab active:cursor-grabbing hover:shadow-md transition-all group">
-                                            <div className="flex justify-between items-start mb-3">
-                                                <span className="text-[9px] font-bold text-gray-300 font-mono">#{order.id.slice(-6)}</span>
-                                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg border uppercase ${STATUS_COLORS[status]}`}>QTÉ: {order.repartitionStatuts?.[status]}</span>
+                                <div className="flex-1 overflow-y-auto space-y-4 pr-1 custom-scrollbar">
+                                    {items.map(cmd => (
+                                        <div key={cmd.id} className="bg-white p-6 rounded-[1.5rem] shadow-sm border border-gray-100 hover:shadow-xl transition-all group relative">
+                                            <div onClick={() => { setSelectedOrder(cmd); setDetailModalOpen(true); }} className="cursor-pointer">
+                                                <h5 className="font-black text-gray-900 uppercase text-xs mb-3">{cmd.clientNom}</h5>
+                                                <p className="text-[10px] text-gray-400 font-bold uppercase line-clamp-2">{cmd.description}</p>
                                             </div>
-                                            <h5 className="font-black text-sm uppercase text-gray-800 mb-2">{order.clientNom}</h5>
-                                            <div className="bg-orange-50/50 p-3 rounded-xl border border-orange-100">
-                                                <p className="text-[9px] font-bold text-orange-800 uppercase italic">
-                                                    {order.elements?.map(e => `${e.nom} (x${e.quantite})`).join(', ')}
-                                                </p>
+                                            <div className="flex justify-between items-center pt-3 border-t border-gray-50 mt-4">
+                                                <div className="flex gap-2">
+                                                    {idx > 0 && <button onClick={() => handleMoveStatus(cmd, 'PREV')} className="p-1.5 bg-gray-50 hover:bg-gray-200 rounded-lg text-gray-400 transition-colors"><ArrowLeft size={14}/></button>}
+                                                    {idx < array.length - 1 && <button onClick={() => handleMoveStatus(cmd, 'NEXT')} className="p-1.5 bg-brand-900 text-white rounded-lg hover:bg-black transition-colors"><ArrowRight size={14}/></button>}
+                                                </div>
                                             </div>
                                         </div>
                                     ))}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* ARTISANS */}
+            {activeNav === 'ARTISANS' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {tailleurs.map(artisan => {
+                        const activeTasks = (commandes.flatMap(c => c.taches || []).filter(t => t.tailleurId === artisan.id && t.statut === 'A_FAIRE'));
+                        return (
+                            <div key={artisan.id} className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col gap-6 hover:shadow-md transition-all">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-14 h-14 bg-brand-900 rounded-2xl flex items-center justify-center font-black text-white text-xl shadow-lg">{artisan.nom.charAt(0)}</div>
+                                    <div><h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter">{artisan.nom}</h3><p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{artisan.role}</p></div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-gray-50 p-4 rounded-2xl border text-center">
+                                        <p className="text-[8px] font-black text-gray-400 uppercase mb-1">En cours</p>
+                                        <p className="text-2xl font-black text-gray-800">{activeTasks.length}</p>
+                                    </div>
+                                    <div className="bg-green-50 p-4 rounded-2xl border border-green-100 text-center">
+                                        <p className="text-[8px] font-black text-green-400 uppercase mb-1">Disponibilité</p>
+                                        <p className="text-[10px] font-black text-green-700 uppercase">Disponible</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => { setNewTaskData({...newTaskData, tailleurId: artisan.id}); setTaskModalOpen(true); }} className="w-full py-4 bg-gray-50 hover:bg-gray-100 text-gray-500 font-black uppercase text-[10px] tracking-widest rounded-xl border border-dashed border-gray-300 transition-colors">Attribuer une tâche</button>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* PERFORMANCE */}
+            {activeNav === 'PERFORMANCE' && (
+                <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden animate-in fade-in">
+                    <div className="p-8 border-b bg-gray-50/50 flex items-center gap-4"><Trophy className="text-yellow-500" size={32}/><h3 className="text-xl font-black text-gray-800 uppercase tracking-tighter">Classement Artisans du Mois</h3></div>
+                    <div className="p-8 space-y-4">
+                        {tailleurs.map((artisan, i) => (
+                            <div key={artisan.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100 group hover:bg-white hover:shadow-xl transition-all">
+                                <div className="flex items-center gap-6">
+                                    <span className="text-2xl font-black text-gray-300 group-hover:text-brand-900 transition-colors w-8 text-center">#{i+1}</span>
+                                    <div className="w-12 h-12 bg-white rounded-xl border flex items-center justify-center font-black text-brand-900 shadow-sm">{artisan.nom.charAt(0)}</div>
+                                    <div><p className="font-black text-gray-800 uppercase text-sm tracking-tight">{artisan.nom}</p></div>
+                                </div>
+                                <div className="flex items-center gap-10">
+                                    <div className="text-right"><p className="text-[10px] font-black text-gray-400 uppercase mb-0.5">Efficacité</p><p className="text-xl font-black text-gray-800">98%</p></div>
+                                    <div className="w-40 h-2 bg-gray-200 rounded-full overflow-hidden shadow-inner"><div className="h-full bg-brand-900 transition-all duration-1000" style={{ width: '98%' }} /></div>
                                 </div>
                             </div>
                         ))}
                     </div>
-                )}
+                </div>
+            )}
 
-                {viewMode === 'PLANNING' && (
-                    <div className="flex-1 bg-white border rounded-2xl h-full flex flex-col overflow-hidden">
-                        <div className="p-4 border-b bg-gray-50 flex items-center justify-between shrink-0">
-                            <div className="flex items-center gap-4">
-                                <div className="flex gap-1">
-                                    <button onClick={() => { const d = new Date(planningStartDate); d.setDate(d.getDate() - 7); setPlanningStartDate(d); }} className="p-2 bg-white border rounded-lg hover:bg-gray-100 transition-colors shadow-sm"><ChevronLeft size={18}/></button>
-                                    <button onClick={() => { const d = new Date(planningStartDate); d.setDate(d.getDate() + 7); setPlanningStartDate(d); }} className="p-2 bg-white border rounded-lg hover:bg-gray-100 transition-colors shadow-sm"><ChevronRight size={18}/></button>
-                                </div>
-                                <h3 className="font-black text-sm uppercase tracking-[0.2em] text-gray-700">{planningStartDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</h3>
+            {/* MODAL DÉTAILS COMPLET (ŒIL) */}
+            {detailModalOpen && selectedOrder && (
+                <div className="fixed inset-0 bg-brand-900/90 z-[600] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[95vh] animate-in zoom-in">
+                        <div className="p-8 border-b flex justify-between items-center shrink-0">
+                            <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tighter">Fiche de Production</h3>
+                            <div className="flex gap-2">
+                                <button onClick={() => handlePrintOrder(selectedOrder)} className="p-3 bg-brand-900 text-white rounded-xl hover:bg-black transition-colors shadow-lg active:scale-95"><Printer size={24}/></button>
+                                <button onClick={() => setDetailModalOpen(false)} className="p-3 bg-gray-50 text-gray-400 rounded-xl hover:bg-gray-100 transition-colors shadow-sm"><X size={24}/></button>
                             </div>
                         </div>
-                        <div className="flex-1 overflow-auto custom-scrollbar">
-                            <table className="w-full border-collapse">
-                                <thead className="sticky top-0 bg-gray-50 z-20 shadow-sm">
-                                    <tr>
-                                        <th className="p-4 text-left border-b border-r bg-gray-100 w-64 text-[10px] font-black text-gray-400 uppercase tracking-widest">ARTISAN</th>
-                                        {planningDays.map(day => (
-                                            <th key={day.toISOString()} className="p-4 text-center border-b border-r min-w-[150px]">
-                                                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{day.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })}</span>
-                                            </th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {tailleurs.map(t => (
-                                        <tr key={t.id} className="border-b group">
-                                            <td className="p-6 border-r font-black text-xs text-gray-800 uppercase bg-gray-50/30">{t.nom}</td>
-                                            {planningDays.map(day => {
-                                                const dateStr = day.toISOString().split('T')[0];
-                                                const tasks = (commandes.flatMap(c => c.taches || [])).filter(tk => tk.tailleurId === t.id && tk.date === dateStr);
-                                                return (
-                                                    <td key={dateStr} onClick={() => { setNewTaskData({...newTaskData, tailleurId: t.id, date: dateStr, orderId: '', elementNom: ''}); setTaskModalOpen(true); }} className="p-2 border-r min-h-[100px] align-top bg-white group-hover:bg-gray-50/50 cursor-pointer">
-                                                        {tasks.map(tk => (
-                                                            <div key={tk.id} onClick={e => { e.stopPropagation(); handleToggleTaskStatus(tk); }} className={`mb-2 p-2 rounded-lg text-[9px] font-bold uppercase shadow-sm border-l-4 transition-all hover:scale-105 ${tk.statut === 'FAIT' ? 'bg-green-600 text-white border-green-400' : 'bg-brand-900 text-white border-brand-400'}`}>
-                                                                <div className="flex justify-between"><span>{tk.elementNom}</span>{tk.statut === 'FAIT' && <CheckCircle size={10} />}</div>
-                                                                <div className="mt-1 opacity-60">{tk.action}</div>
-                                                            </div>
-                                                        ))}
-                                                    </td>
-                                                );
-                                            })}
-                                        </tr>
+                        <div className="p-10 overflow-y-auto flex-1 custom-scrollbar space-y-10 bg-gray-50/30">
+                            <div className="bg-white p-8 rounded-[2rem] border border-brand-100 shadow-sm relative overflow-hidden">
+                                <span className="text-[10px] font-black text-brand-600 uppercase tracking-[0.2em] mb-2 block">Client de la commande</span>
+                                <h4 className="text-3xl font-black text-gray-900 uppercase tracking-tight leading-none mb-4">{selectedOrder.clientNom}</h4>
+                                <div className="p-4 bg-brand-50/50 rounded-2xl border border-brand-100/50"><p className="text-sm text-gray-700 font-bold leading-relaxed uppercase">{selectedOrder.description}</p></div>
+                            </div>
+
+                            <div className="space-y-4">
+                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-4">Versements & Historique</h4>
+                                <div className="bg-white rounded-[2.5rem] border border-gray-100 overflow-hidden shadow-sm">
+                                    <div className="p-6 flex justify-between items-center border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                                        <div><p className="text-[10px] font-black text-gray-400 uppercase">Le {new Date(selectedOrder.dateCommande).toLocaleDateString()}</p><span className="font-bold text-gray-800 text-sm uppercase">Dépôt Initial (Acompte)</span></div>
+                                        <span className="font-black text-gray-900 text-xl">{selectedOrder.avance.toLocaleString()} F</span>
+                                    </div>
+                                    {selectedOrder.paiements?.map(p => (
+                                        <div key={p.id} className="p-6 flex justify-between items-center border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                                            <div><p className="text-[10px] font-black text-brand-600 uppercase">Le {new Date(p.date).toLocaleDateString()}</p><span className="font-bold text-gray-700 text-sm uppercase">{p.note || 'Encaissement Atelier'}</span></div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="font-black text-brand-600 text-xl">+{p.montant.toLocaleString()} F</span>
+                                                <div className="flex gap-1">
+                                                    <button onClick={() => handleOpenEditPayment(p)} className="p-2 bg-blue-50 text-blue-400 rounded-lg hover:bg-blue-600 hover:text-white transition-all"><Edit2 size={14}/></button>
+                                                    <button onClick={() => { if(window.confirm("Voulez-vous supprimer ce versement ?")) onDeletePayment(selectedOrder.id, p.id, comptes[0]?.id) }} className="p-2 bg-red-50 text-red-300 hover:bg-red-600 hover:text-white transition-all"><Trash2 size={14}/></button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                )}
-
-                {viewMode === 'TAILORS' && (
-                    <div className="bg-white border rounded-2xl shadow-sm h-full flex flex-col p-6 overflow-y-auto custom-scrollbar">
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {tailleurs.map(t => {
-                                const stats = performanceStats.find(p => p.id === t.id);
-                                const loadPercent = Math.min(100, ((stats?.ongoingTasks || 0) / 5) * 100);
-                                return (
-                                    <div key={t.id} className="bg-gray-50 border rounded-2xl p-6 border-gray-100 flex flex-col gap-4 hover:shadow-md transition-all">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-12 h-12 bg-brand-900 text-white rounded-full flex items-center justify-center font-black text-xl">{t.nom.charAt(0)}</div>
-                                            <div><p className="font-black text-gray-800 uppercase text-sm">{t.nom}</p><p className="text-[10px] font-bold text-orange-600 uppercase">{t.role}</p></div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="flex justify-between text-[8px] font-black uppercase text-gray-400"><span>Charge Actuelle</span><span>{stats?.ongoingTasks} tâches</span></div>
-                                            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden shadow-inner">
-                                                <div className={`h-full transition-all duration-1000 ${loadPercent > 80 ? 'bg-red-500' : loadPercent > 50 ? 'bg-orange-400' : 'bg-green-500'}`} style={{ width: `${loadPercent}%` }}></div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-
-                {viewMode === 'PERFORMANCE' && (
-                    <div className="bg-white border rounded-2xl shadow-sm h-full flex flex-col p-10 overflow-y-auto custom-scrollbar">
-                        <div className="text-center mb-10"><h3 className="text-2xl font-black text-brand-900 uppercase tracking-tight flex items-center justify-center gap-3"><Trophy className="text-orange-500" size={32}/> Podium des Artisans</h3></div>
-                        <div className="max-w-2xl mx-auto w-full space-y-6">
-                            {performanceStats.map((t, idx) => (
-                                <div key={t.id} className="bg-gray-50 p-6 rounded-2xl border border-gray-100 shadow-sm flex justify-between items-center group hover:bg-brand-50 transition-all">
-                                    <div className="flex items-center gap-6">
-                                        <span className={`w-10 h-10 flex items-center justify-center rounded-full font-black text-lg ${idx === 0 ? 'bg-yellow-400 text-white' : idx === 1 ? 'bg-slate-300 text-white' : idx === 2 ? 'bg-orange-300 text-white' : 'bg-gray-100 text-gray-400'}`}>{idx + 1}</span>
-                                        <div><p className="font-black text-gray-800 uppercase text-lg">{t.nom}</p><div className="flex gap-2"> {Array.from({length: Math.min(5, Math.ceil(t.finishedTasks/2))}).map((_, i) => <Star key={i} size={10} className="fill-yellow-400 text-yellow-400"/>)} </div></div>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-3xl font-black text-brand-900">{t.finishedTasks}</p>
-                                        <p className="text-[8px] font-black uppercase text-gray-400">Pièces Terminées</p>
+                                    <div className="grid grid-cols-2">
+                                        <div className="bg-gray-900 p-8 text-white"><span className="text-[10px] font-black uppercase mb-1 block opacity-50">Valeur Commande</span><p className="text-3xl font-black">{selectedOrder.prixTotal.toLocaleString()} F</p></div>
+                                        <div className="bg-red-50 p-8 border-l border-red-100/50"><span className="text-[10px] font-black text-red-400 uppercase mb-1 block">Solde à percevoir</span><p className="text-3xl font-black text-red-600">{selectedOrder.reste.toLocaleString()} F</p></div>
                                     </div>
                                 </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            {/* MODAL COMMANDE (AVEC GESTION STOCK) */}
-            {orderModalOpen && (
-                <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-md">
-                    <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-3xl p-8 flex flex-col max-h-[95vh] animate-in zoom-in duration-200 border border-brand-100">
-                        <div className="flex justify-between items-center mb-6 border-b pb-4 shrink-0">
-                            <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tighter flex items-center gap-3">
-                                <Plus size={32} className="text-brand-600"/> 
-                                {isEditingOrder ? 'Modifier Commande' : 'Nouvelle Commande'}
-                            </h3>
-                            <button onClick={() => setOrderModalOpen(false)}><X size={28}/></button>
-                        </div>
-                        
-                        <div className="flex-1 overflow-y-auto space-y-6 pr-2 custom-scrollbar">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Client</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50" value={newOrderData.clientId} onChange={e => setNewOrderData({...newOrderData, clientId: e.target.value})}><option value="">-- Choisir un client --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div>
-                                <div><label className="block text-[10px] font-black text-gray-500 uppercase mb-1 ml-1">Livraison Prévue</label><input type="date" className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50" value={newOrderData.dateLivraisonPrevue} onChange={e => setNewOrderData({...newOrderData, dateLivraisonPrevue: e.target.value})} /></div>
                             </div>
-
-                            <div className="space-y-3">
-                                <div className="flex justify-between items-center"><label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Composition</label><button onClick={() => setNewOrderItems([...newOrderItems, {nom: '', qte: 1}])} className="p-1 bg-brand-50 text-brand-600 rounded"><Plus size={14}/></button></div>
-                                {newOrderItems.map((it, idx) => (
-                                    <div key={idx} className="flex gap-2 items-center animate-in slide-in-from-left-2">
-                                        <input type="text" placeholder="Désignation (ex: Robe, Chemise...)" className="flex-1 p-3 border-2 border-gray-100 rounded-xl text-xs font-bold bg-gray-50 uppercase" value={it.nom} onChange={e => { const list = [...newOrderItems]; list[idx].nom = e.target.value.toUpperCase(); setNewOrderItems(list); }} />
-                                        <input type="number" className="w-16 p-3 border-2 border-gray-100 rounded-xl text-center font-black" value={it.qte} onChange={e => { const list = [...newOrderItems]; list[idx].qte = parseInt(e.target.value)||1; setNewOrderItems(list); }} />
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* SECTION CONSOMMATION STOCK (MATIÈRES PREMIÈRES) */}
-                            <div className="bg-orange-50/50 p-5 rounded-2xl border-2 border-dashed border-orange-100">
-                                <h4 className="text-[10px] font-black text-orange-800 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
-                                    <Box size={14}/> Matières à déduire du stock
-                                </h4>
-                                
-                                <div className="flex gap-2 mb-4 items-end">
-                                    <div className="flex-1">
-                                        <label className="block text-[9px] font-bold text-gray-400 uppercase mb-1">Matière</label>
-                                        <select className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold" value={tempConsMatiere} onChange={e => { setTempConsMatiere(e.target.value); setTempConsVariante(''); }}>
-                                            <option value="">-- Choisir --</option>
-                                            {matieresPremieres.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
-                                        </select>
-                                    </div>
-                                    {tempConsMatiere && articles.find(a => a.id === tempConsMatiere)?.variantes.length! > 0 && (
-                                        <div className="flex-1">
-                                            <label className="block text-[9px] font-bold text-gray-400 uppercase mb-1">Variante</label>
-                                            <select className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold" value={tempConsVariante} onChange={e => setTempConsVariante(e.target.value)}>
-                                                <option value="">-- Variante --</option>
-                                                {articles.find(a => a.id === tempConsMatiere)?.variantes.map(v => <option key={v} value={v}>{v}</option>)}
-                                            </select>
-                                        </div>
-                                    )}
-                                    <div className="w-24">
-                                        <label className="block text-[9px] font-bold text-gray-400 uppercase mb-1">Quantité</label>
-                                        <input type="number" className="w-full p-2 border border-gray-200 rounded-lg text-xs font-black text-center" value={tempConsQty || ''} onChange={e => setTempConsQty(parseFloat(e.target.value)||0)} />
-                                    </div>
-                                    <button onClick={handleAddConsommation} className="p-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"><Plus size={16}/></button>
-                                </div>
-
-                                <div className="space-y-2">
-                                    {newOrderConsommations.map((c, i) => {
-                                        const art = articles.find(a => a.id === c.articleId);
-                                        return (
-                                            <div key={i} className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-orange-100 shadow-sm animate-in fade-in">
-                                                <div className="text-[10px] font-black text-orange-900 uppercase">
-                                                    {art?.nom} <span className="text-gray-400 ml-1">({c.variante})</span>
-                                                </div>
-                                                <div className="flex items-center gap-3">
-                                                    <span className="text-[10px] font-black text-orange-600">{c.quantite} {art?.unite}</span>
-                                                    <button onClick={() => handleRemoveConsommation(i)} className="text-red-300 hover:text-red-500"><Trash2 size={14}/></button>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                    {newOrderConsommations.length === 0 && <p className="text-[9px] text-gray-400 italic text-center py-2 uppercase">Aucune matière sélectionnée</p>}
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-[10px] font-black text-brand-800 uppercase mb-1 ml-1">Prix Total (F)</label><input type="number" className="w-full p-3 border-2 border-brand-100 rounded-xl text-xl font-black text-brand-900 bg-brand-50/30" value={newOrderData.prixTotal || ''} onChange={e => setNewOrderData({...newOrderData, prixTotal: parseInt(e.target.value)||0})} /></div>
-                                <div className="space-y-2">
-                                    <label className="block text-[10px] font-black text-green-700 uppercase mb-1 ml-1">Acompte (F)</label>
-                                    <input type="number" className="w-full p-3 border-2 border-green-100 rounded-xl text-xl font-black text-green-600 bg-green-50/30" value={newOrderData.avance || ''} onChange={e => setNewOrderData({...newOrderData, avance: parseInt(e.target.value)||0})} />
-                                    
-                                    {newOrderData.avance !== undefined && newOrderData.avance > 0 && !isEditingOrder && (
-                                        <div className="animate-in slide-in-from-top-2">
-                                            <div className="p-3 bg-red-50 rounded-xl border border-red-100">
-                                                <label className="block text-[8px] font-black text-red-600 uppercase mb-2 tracking-widest flex items-center gap-1">
-                                                    <AlertCircle size={10}/> Sélectionner la caisse (OBLIGATOIRE) *
-                                                </label>
-                                                <select 
-                                                    className="w-full p-2 border-2 border-red-200 rounded-lg text-[10px] font-bold bg-white" 
-                                                    value={initialAccountId} 
-                                                    onChange={e => setInitialAccountId(e.target.value)}
-                                                >
-                                                    <option value="">-- CHOISIR UNE CAISSE --</option>
-                                                    {comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
-                                                </select>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex justify-end gap-3 mt-8 pt-4 border-t shrink-0">
-                            <button onClick={() => setOrderModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-xs tracking-widest">Annuler</button>
-                            <button onClick={handleCreateOrUpdateOrder} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 hover:bg-black transition-all">
-                                {isEditingOrder ? 'Mettre à jour' : 'Valider Commande'}
-                            </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {paymentModalOpen && (
-                <div className="fixed inset-0 bg-black/90 z-[500] flex items-center justify-center p-4 backdrop-blur-md">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in zoom-in duration-200">
-                        <div className="flex justify-between items-center mb-8 border-b pb-4"><h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg tracking-tighter"><DollarSign className="text-green-600" /> Encaisser Solde</h3><button onClick={() => setPaymentModalOpen(null)}><X size={28}/></button></div>
+            {/* MODAL MODIFICATION PAIEMENT ATELIER (BUG 2) */}
+            {editPaymentModalOpen && selectedPayment && selectedOrder && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[700] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl animate-in zoom-in border border-brand-100">
+                        <div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3"><Edit2 className="text-blue-600"/> Modifier Versement</h3><button onClick={() => setEditPaymentModalOpen(false)}><X size={28} className="text-gray-400"/></button></div>
                         <div className="space-y-6">
-                            <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 flex justify-between"><span className="text-[10px] font-black uppercase text-orange-400">Reste Dû</span><span className="text-xl font-black text-orange-900">{paymentModalOpen.reste.toLocaleString()} F</span></div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Date</label><input type="date" className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold" value={payDate} onChange={e => setPayDate(e.target.value)}/></div>
-                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Mode</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold" value={payMethod} onChange={e => setPayMethod(e.target.value as any)}><option value="ESPECE">Espèce</option><option value="WAVE">Wave</option><option value="ORANGE_MONEY">Orange Money</option></select></div>
-                            </div>
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Caisse de destination</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold" value={payAccount} onChange={e => setPayAccount(e.target.value)}><option value="">-- Choisir --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
-                            <input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-2xl" value={payAmount} onChange={e => setPayAmount(parseInt(e.target.value)||0)}/>
-                            <button onClick={handleConfirmPayment} disabled={!payAccount || payAmount <= 0} className="w-full py-5 bg-green-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl disabled:opacity-50 active:scale-95 transition-all">Valider Paiement</button>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Nouveau Montant (F)</label><input type="number" className="w-full p-5 border-2 border-brand-100 rounded-2xl text-2xl font-black text-brand-600 focus:border-brand-600 outline-none" value={editPayData.amount} onChange={e => setEditPayData({...editPayData, amount: parseInt(e.target.value)||0})}/></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Caisse (Correction)</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-white outline-none" value={editPayData.accId} onChange={e => setEditPayData({...editPayData, accId: e.target.value})}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                        </div>
+                        <div className="flex justify-end gap-3 mt-10 pt-5 border-t">
+                            <button onClick={() => setEditPaymentModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px]">Annuler</button>
+                            <button onClick={() => { if(!editPayData.accId) return; onUpdatePayment(selectedOrder.id, selectedPayment.id, editPayData.amount, editPayData.date, editPayData.accId); setEditPaymentModalOpen(false); }} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Mettre à jour</button>
                         </div>
                     </div>
                 </div>
             )}
 
+            {/* MODAL ASSIGNATION TACHE */}
             {taskModalOpen && (
-                <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-8 animate-in zoom-in duration-200 border border-brand-100">
-                        <div className="flex justify-between items-center mb-8 border-b pb-4"><h3 className="text-xl font-black text-gray-800 flex items-center gap-3 uppercase tracking-tighter"><UserPlus size={28} className="text-orange-600"/> Assigner une Tâche</h3><button onClick={() => setTaskModalOpen(false)}><X size={28}/></button></div>
+                <div className="fixed inset-0 bg-brand-900/80 z-[800] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-10 animate-in zoom-in border border-brand-100">
+                        <div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3"><UserPlus className="text-brand-600"/> Nouvelle Mission</h3><button onClick={() => setTaskModalOpen(false)}><X size={28} className="text-gray-400 hover:text-red-500"/></button></div>
                         <div className="space-y-6">
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Commande</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50" value={newTaskData.orderId} onChange={e => { const order = commandes.find(c => c.id === e.target.value); setNewTaskData({...newTaskData, orderId: e.target.value, elementNom: order?.elements?.[0]?.nom || ''}); }}><option value="">-- Choisir --</option>{commandes.filter(c => !c.isDevis && c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE).map(c => <option key={c.id} value={c.id}>{c.clientNom} - {c.description.slice(0, 20)}...</option>)}</select></div>
-                            {newTaskData.orderId && (
-                                <div className="grid grid-cols-2 gap-4 animate-in fade-in">
-                                    <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Élément</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50" value={newTaskData.elementNom} onChange={e => setNewTaskData({...newTaskData, elementNom: e.target.value})}>{commandes.find(c => c.id === newTaskData.orderId)?.elements?.map(el => <option key={el.nom} value={el.nom}>{el.nom}</option>)}</select></div>
-                                    <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Action</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50" value={newTaskData.action} onChange={e => setNewTaskData({...newTaskData, action: e.target.value as ActionProduction})}><option value="COUPE">Coupe</option><option value="COUTURE">Couture</option><option value="FINITION">Finition</option><option value="REPASSAGE">Repassage</option></select></div>
-                                </div>
-                            )}
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Choisir Commande</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white" value={newTaskData.commandeId} onChange={e => setNewTaskData({...newTaskData, commandeId: e.target.value})}><option value="">-- Sélectionner --</option>{commandes.filter(c => !c.archived && c.statut !== StatutCommande.LIVRE).map(c => <option key={c.id} value={c.id}>{c.clientNom} (Ref #{c.id.slice(-6)})</option>)}</select></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Artisan / Tailleur</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white" value={newTaskData.tailleurId} onChange={e => setNewTaskData({...newTaskData, tailleurId: e.target.value})}><option value="">-- Choisir artisan --</option>{tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}</select></div>
                             <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Artisan</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50" value={newTaskData.tailleurId} onChange={e => setNewTaskData({...newTaskData, tailleurId: e.target.value})}><option value="">-- Sélectionner --</option>{tailleurs.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}</select></div>
-                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Quantité</label><input type="number" className="w-full p-3 border-2 border-gray-100 rounded-xl font-black text-center" value={newTaskData.quantite} onChange={e => setNewTaskData({...newTaskData, quantite: parseInt(e.target.value)||1})}/></div>
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Action</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white" value={newTaskData.action} onChange={e => setNewTaskData({...newTaskData, action: e.target.value as ActionProduction})}><option value="COUPE">COUPE</option><option value="COUTURE">COUTURE</option><option value="BRODERIE">BRODERIE</option><option value="FINITION">FINITION</option><option value="REPASSAGE">REPASSAGE</option></select></div>
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Date</label><input type="date" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold" value={newTaskData.date} onChange={e => setNewTaskData({...newTaskData, date: e.target.value})}/></div>
                             </div>
                         </div>
-                        <div className="flex justify-end gap-3 mt-10 pt-4 border-t"><button onClick={() => setTaskModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-[10px]">Annuler</button><button onClick={handleAddTask} className="px-12 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-xl hover:bg-orange-700 transition-all active:scale-95">Valider</button></div>
+                        <div className="flex justify-end gap-3 mt-10 pt-5 border-t">
+                            <button onClick={() => setTaskModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px]">Annuler</button>
+                            <button onClick={() => { if(!newTaskData.commandeId || !newTaskData.tailleurId) return; onAddTask(newTaskData.commandeId!, { id: `T_${Date.now()}`, ...newTaskData as TacheProduction, statut: 'A_FAIRE' }); setTaskModalOpen(false); }} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">Assigner</button>
+                        </div>
                     </div>
                 </div>
             )}
 
-            {orderDetailView && (
-                <div className="fixed inset-0 bg-black/60 z-[300] flex items-center justify-center p-4 backdrop-blur-sm animate-in zoom-in duration-200">
-                    <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg p-10 animate-in zoom-in duration-200 flex flex-col max-h-[95vh] border border-brand-100">
-                        <div className="flex justify-between items-center mb-6 border-b pb-4 shrink-0">
-                            <h3 className="font-black text-2xl text-gray-800 uppercase tracking-tighter">Détails de Production</h3>
-                            <div className="flex items-center gap-2">
-                                <button onClick={() => handlePrintWorkshopSlip(orderDetailView)} className="p-2 text-gray-400 hover:text-brand-600 rounded-lg transition-all" title="Imprimer fiche atelier"><Printer size={24}/></button>
-                                <button onClick={() => setOrderDetailView(null)} className="p-2 text-gray-400 hover:text-red-500 rounded-lg transition-all"><X size={32}/></button>
-                            </div>
+            {/* MODAL ENCAISSEMENT RAPIDE */}
+            {paymentModalOpen && selectedOrder && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[700] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl animate-in zoom-in border border-brand-100">
+                        <div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3"><DollarSign className="text-green-600"/> Encaisser Solde</h3><button onClick={() => setPaymentModalOpen(false)}><X size={28} className="text-gray-400"/></button></div>
+                        <div className="space-y-6">
+                            <div className="bg-gray-50 p-6 rounded-3xl text-center border shadow-inner"><p className="text-[10px] font-black text-gray-400 uppercase mb-1">Reste à payer</p><p className="text-3xl font-black text-gray-900">{selectedOrder.reste.toLocaleString()} F</p></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Montant Reçu (F)</label><input type="number" className="w-full p-5 border-2 border-brand-100 rounded-2xl text-2xl font-black text-brand-600 focus:border-brand-600 outline-none" value={payData.amount} onChange={e => setPayData({...payData, amount: parseInt(e.target.value)||0})}/></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Caisse de réception</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-white outline-none" value={payData.accId} onChange={e => setPayData({...payData, accId: e.target.value})}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
                         </div>
-                        
-                        <div className="space-y-6 overflow-y-auto pr-2 custom-scrollbar flex-1">
-                            <div className="bg-brand-50 p-6 rounded-2xl border border-brand-100 relative overflow-hidden group">
-                                <p className="text-[10px] font-black text-brand-600 uppercase tracking-widest mb-1 relative z-10">Client</p>
-                                <p className="text-xl font-black text-brand-900 uppercase relative z-10">{orderDetailView.clientNom}</p>
-                                <div className="mt-2 relative z-10 bg-white/50 p-2 rounded-lg border border-brand-100">
-                                    <p className="text-[9px] font-black text-brand-600 uppercase tracking-widest mb-0.5">Désignation</p>
-                                    <p className="text-xs font-bold text-brand-900">{orderDetailView.description}</p>
-                                </div>
-                                <Scissors size={80} className="absolute -right-4 -bottom-4 text-brand-900/5 rotate-12 transition-transform group-hover:scale-110"/>
-                            </div>
-
-                            {/* MATIÈRES DÉDUITES DANS LES DÉTAILS */}
-                            <div>
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b pb-1">Matières du Stock</p>
-                                <div className="space-y-2">
-                                    {orderDetailView.consommations && orderDetailView.consommations.length > 0 ? orderDetailView.consommations.map((c, i) => {
-                                        const art = articles.find(a => a.id === c.articleId);
-                                        return (
-                                            <div key={i} className="flex justify-between items-center text-xs p-2 bg-gray-50 rounded-lg">
-                                                <span className="font-bold text-gray-700 uppercase">{art?.nom || 'Matière'} ({c.variante})</span>
-                                                <span className="font-black text-brand-600">{c.quantite} {art?.unite}</span>
-                                            </div>
-                                        );
-                                    }) : <p className="text-[9px] text-gray-300 italic uppercase">Aucune matière spécifique déduite</p>}
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center gap-3">
-                                    <Calendar size={18} className="text-brand-400"/>
-                                    <div><p className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Date Commande</p><p className="text-xs font-black text-gray-700">{new Date(orderDetailView.dateCommande).toLocaleDateString()}</p></div>
-                                </div>
-                                <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 flex items-center gap-3">
-                                    <Clock size={18} className="text-orange-400"/>
-                                    <div><p className="text-[8px] font-black text-orange-400 uppercase tracking-widest">Livraison Prévue</p><p className="text-xs font-black text-orange-900">{new Date(orderDetailView.dateLivraisonPrevue).toLocaleDateString()}</p></div>
-                                </div>
-                            </div>
-
-                            <div>
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b pb-1">Composition (Articles)</p>
-                                <div className="bg-gray-50/50 rounded-xl p-3 border border-gray-100 space-y-2">
-                                    {orderDetailView.elements?.map((el, i) => (
-                                        <div key={i} className="flex justify-between items-center text-xs">
-                                            <span className="font-bold text-gray-700 uppercase">{el.nom}</span>
-                                            <span className="font-black text-brand-600 px-2 py-0.5 bg-white rounded border border-brand-50 shadow-sm">x {el.quantite}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* TIMELINE VISUELLE */}
-                            <div className="py-4">
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 border-b pb-1">Progression Chronologique</p>
-                                <div className="flex justify-between relative px-2">
-                                    <div className="absolute top-1/2 left-0 w-full h-1 bg-gray-100 -translate-y-1/2 z-0"></div>
-                                    {KANBAN_STATUS_ORDER.map((s, idx) => {
-                                        const count = orderDetailView.repartitionStatuts?.[s] || 0;
-                                        const isDone = idx < KANBAN_STATUS_ORDER.indexOf(orderDetailView.statut as StatutCommande) || orderDetailView.statut === StatutCommande.LIVRE;
-                                        const isCurrent = orderDetailView.statut === s;
-                                        return (
-                                            <div key={s} className="relative z-10 flex flex-col items-center gap-2 group">
-                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center border-4 transition-all duration-500 ${isDone ? 'bg-green-500 border-green-200' : isCurrent ? 'bg-brand-900 border-brand-200 scale-125' : 'bg-white border-gray-100'}`}>
-                                                    {isDone ? <CheckCircle size={14} className="text-white"/> : <span className={`text-[10px] font-black ${isCurrent ? 'text-white' : 'text-gray-300'}`}>{idx+1}</span>}
-                                                </div>
-                                                <span className={`text-[8px] font-black uppercase text-center max-w-[50px] transition-colors ${isCurrent ? 'text-brand-900' : 'text-gray-400'}`}>{s}</span>
-                                                {count > 0 && <span className="absolute -top-4 bg-brand-900 text-white text-[8px] px-1.5 py-0.5 rounded-full font-black animate-bounce">{count}</span>}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-
-                            <div>
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b pb-1">Artisans sur la commande</p>
-                                <div className="flex flex-wrap gap-2">
-                                    {(orderDetailView.tailleursIds || []).map(tid => (
-                                        <span key={tid} className="px-3 py-1.5 bg-white border border-brand-100 rounded-xl text-[10px] font-black uppercase text-brand-700 shadow-sm flex items-center gap-2"><div className="w-2 h-2 bg-brand-400 rounded-full animate-pulse"></div> {employes.find(e => e.id === tid)?.nom}</span>
-                                    ))}
-                                    {(!orderDetailView.tailleursIds || orderDetailView.tailleursIds.length === 0) && <span className="text-[10px] italic text-gray-400 uppercase font-black">Aucun artisan assigné</span>}
-                                </div>
-                            </div>
-
-                            <div>
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 border-b pb-1">Versements & Solde</p>
-                                <div className="space-y-2">
-                                    <div className="flex justify-between text-xs font-bold p-3 bg-gray-50 rounded-xl border border-gray-100 italic"><span>Initial (Acompte)</span><span>{orderDetailView.avance.toLocaleString()} F</span></div>
-                                    {orderDetailView.paiements?.map((p, idx) => (
-                                        <div key={idx} className="flex justify-between text-xs font-black p-3 bg-green-50 rounded-xl border border-green-100 text-green-700 animate-in slide-in-from-left-2">
-                                            <span>{new Date(p.date).toLocaleDateString()} ({p.moyenPaiement})</span>
-                                            <span>+{p.montant.toLocaleString()} F</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4 pt-4 border-t-2 border-dashed border-gray-100">
-                                <div className="p-4 rounded-2xl bg-gray-900 text-white flex flex-col justify-center">
-                                    <p className="text-[8px] font-black opacity-50 uppercase tracking-widest mb-1">Prix Total</p>
-                                    <p className="text-2xl font-black tracking-tight">{orderDetailView.prixTotal.toLocaleString()} F</p>
-                                </div>
-                                <div className={`p-4 rounded-2xl flex flex-col justify-center border-2 ${orderDetailView.reste > 0 ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'}`}>
-                                    <p className={`text-[8px] font-black uppercase tracking-widest mb-1 ${orderDetailView.reste > 0 ? 'text-red-400' : 'text-green-400'}`}>{orderDetailView.reste > 0 ? 'Reste à payer' : 'Statut Paiement'}</p>
-                                    <p className={`text-2xl font-black tracking-tight ${orderDetailView.reste > 0 ? `${orderDetailView.reste.toLocaleString()} F` : 'SOLDÉ'}`}>{orderDetailView.reste > 0 ? `${orderDetailView.reste.toLocaleString()} F` : 'SOLDÉ'}</p>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div className="flex gap-3 shrink-0 mt-8">
-                             {(orderDetailView.repartitionStatuts?.[StatutCommande.PRET] || 0) > 0 && (
-                                <button onClick={() => handleDeliverParts(orderDetailView)} className="flex-1 py-5 bg-green-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-green-100 hover:bg-green-700 transition-all flex items-center justify-center gap-3 active:scale-95"><Truck size={20}/> Livrer Pièces</button>
-                            )}
-                            <button onClick={() => setOrderDetailView(null)} className="flex-1 py-5 bg-gray-800 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg hover:bg-black transition-all">Fermer la vue</button>
+                        <div className="flex justify-end gap-3 mt-10 pt-5 border-t">
+                            <button onClick={() => setPaymentModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px]">Annuler</button>
+                            <button onClick={() => { if(!payData.accId || payData.amount <= 0) return; onAddPayment(selectedOrder.id, payData.amount, payData.method, "Encaissement Atelier", payData.date, payData.accId); setPaymentModalOpen(false); }} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">Valider</button>
                         </div>
                     </div>
                 </div>
             )}
-            
-            <style>{`
-                @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
-                .animate-bounce { animation: bounce 1s infinite; }
-            `}</style>
+
+            {/* MODAL CRÉATION / MODIFICATION COMMANDE */}
+            {orderModalOpen && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[95vh] border border-brand-100 overflow-hidden animate-in zoom-in">
+                         <div className="p-8 bg-white border-b flex justify-between items-center shrink-0"><h3 className="text-2xl font-black text-gray-800 uppercase tracking-tighter">{isEditingOrder ? 'Modification' : 'Nouvelle'} Commande</h3><button onClick={() => setOrderModalOpen(false)}><X size={28} className="text-gray-400 hover:text-red-500"/></button></div>
+                         <div className="p-8 space-y-6 overflow-y-auto flex-1 custom-scrollbar bg-gray-50/30">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Client</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white outline-none" value={newOrderData.clientId} onChange={e => setNewOrderData({...newOrderData, clientId: e.target.value})}><option value="">-- Choisir --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div>
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Date Livraison</label><input type="date" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold outline-none" value={newOrderData.dateLivraisonPrevue} onChange={e => setNewOrderData({...newOrderData, dateLivraisonPrevue: e.target.value})}/></div>
+                            </div>
+                            <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Description / Notes</label><textarea className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white outline-none h-28 focus:border-brand-500 transition-colors" value={newOrderData.description} onChange={e => setNewOrderData({...newOrderData, description: e.target.value})} placeholder="Modèle, mesures, tissus..."/></div>
+                            <div className="grid grid-cols-2 gap-6">
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Prix Total (F)</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-gray-900 outline-none" value={newOrderData.prixTotal} onChange={e => setNewOrderData({...newOrderData, prixTotal: parseInt(e.target.value)||0})}/></div>
+                                <div><label className="text-[10px] font-black text-brand-600 uppercase mb-2 block ml-1">Acompte Initial (F)</label><input type="number" className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black text-brand-600 outline-none" value={newOrderData.avance} onChange={e => setNewOrderData({...newOrderData, avance: parseInt(e.target.value)||0})}/></div>
+                            </div>
+                            {((newOrderData.avance || 0) > 0) && (
+                                <div className="bg-brand-900 p-6 rounded-2xl text-white shadow-lg animate-in slide-in-from-top-4"><label className="text-[10px] font-black text-brand-300 uppercase mb-3 block">Compte source pour l'encaissement d'accompte :</label><select className="w-full p-4 bg-white/10 border border-white/20 rounded-2xl font-black outline-none text-white" value={initialAccountId} onChange={e => setInitialAccountId(e.target.value)}><option value="" className="text-gray-900">-- Choisir Compte --</option>{comptes.map(c => <option key={c.id} value={c.id} className="text-gray-900">{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                            )}
+                         </div>
+                         <div className="p-8 bg-white border-t flex justify-end gap-4 shrink-0">
+                            <button onClick={() => setOrderModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-xs hover:text-gray-600 transition-colors">Annuler</button>
+                            <button onClick={handleCreateOrUpdateOrder} className="px-16 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs shadow-2xl active:scale-95 transition-all hover:bg-black flex items-center gap-2"><Save size={18}/> {isEditingOrder ? 'Enregistrer modifs' : 'Créer Commande'}</button>
+                         </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
