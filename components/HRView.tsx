@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Employe, Boutique, Depense, Pointage, SessionUser, RoleEmploye, TransactionPaie, CompteFinancier, TransactionTresorerie, NiveauAcces, PermissionsUtilisateur } from '../types';
-import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock, Truck, CheckSquare, Square, Save, Image as ImageIcon, Upload, Shield, Eye, AlertTriangle, Calendar, CreditCard, BarChart3, ChevronLeft, ChevronRight, UserX, FileText, Landmark, Store } from 'lucide-react';
+import { Users, DollarSign, Plus, Edit2, Trash2, Search, Clock, Briefcase, X, History, UserMinus, RotateCcw, QrCode, Camera, Printer, PieChart, TrendingUp, Filter, User, Cloud, ShieldCheck, Loader, Mail, Lock, Truck, CheckSquare, Square, Save, Image as ImageIcon, Upload, Shield, Eye, AlertTriangle, Calendar, CreditCard, BarChart3, ChevronLeft, ChevronRight, UserX, FileText, Landmark, Store, CheckCircle } from 'lucide-react';
 import { QRScannerModal, QRGeneratorModal } from './QRTools';
 import { uploadImageToCloud } from '../services/storageService';
 
@@ -402,6 +402,170 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
+            {/* MODAL TRANSPORT GROUPE */}
+            {transportModalOpen && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200 border border-brand-100">
+                        <div className="p-6 border-b flex justify-between items-center">
+                            <h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg tracking-tighter"><Truck className="text-blue-600" /> Règlement Transport Groupe</h3>
+                            <button onClick={() => setTransportModalOpen(false)}><X size={28}/></button>
+                        </div>
+                        <div className="p-8 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2">Montant par employé (F)</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-brand-600" value={transportData.montantUnitaire} onChange={e => setTransportData({...transportData, montantUnitaire: parseInt(e.target.value)||0})}/></div>
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2">Compte de décaissement</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold" value={transportData.compteId} onChange={e => setTransportData({...transportData, compteId: e.target.value})}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-4">Sélectionner les bénéficiaires présents ({selectedTransportEmpIds.length})</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {activeEmployes.map(emp => (
+                                        <button 
+                                            key={emp.id} 
+                                            onClick={() => setSelectedTransportEmpIds(prev => prev.includes(emp.id) ? prev.filter(id => id !== emp.id) : [...prev, emp.id])}
+                                            className={`p-3 rounded-xl border-2 text-left flex items-center justify-between transition-all ${selectedTransportEmpIds.includes(emp.id) ? 'border-brand-600 bg-brand-50' : 'border-gray-100 bg-white'}`}
+                                        >
+                                            <span className="text-[10px] font-black uppercase truncate">{emp.nom}</span>
+                                            {selectedTransportEmpIds.includes(emp.id) ? <CheckCircle size={16} className="text-brand-600"/> : <Square size={16} className="text-gray-200"/>}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="bg-gray-900 p-6 rounded-2xl text-center shadow-lg"><p className="text-[10px] font-black text-gray-400 uppercase mb-1">TOTAL À DÉCAISSER</p><p className="text-3xl font-black text-white">{currentTransportTotal.toLocaleString()} F</p></div>
+                        </div>
+                        <div className="p-6 bg-gray-50 border-t flex justify-end gap-3">
+                            <button onClick={() => setTransportModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px]">Annuler</button>
+                            <button onClick={handleSaveTransport} disabled={!transportData.compteId || selectedTransportEmpIds.length === 0} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Valider Paiement</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL REGLEMENT INDIVIDUEL */}
+            {payModalOpen && selectedEmployeeForPay && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 animate-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-8 border-b pb-4"><h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg tracking-tighter"><DollarSign className="text-green-600" /> Règlement Artisan</h3><button onClick={() => setPayModalOpen(false)}><X size={28}/></button></div>
+                        <div className="space-y-6">
+                            <div className="bg-gray-50 p-4 rounded-2xl border text-center"><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Bénéficiaire</p><p className="text-sm font-black text-gray-900 uppercase">{selectedEmployeeForPay.nom}</p></div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2">Type</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white" value={transactionData.type} onChange={e => setTransactionData({...transactionData, type: e.target.value as any})}><option value="ACOMPTE">Acompte</option><option value="PRIME">Prime / Bonus</option><option value="SALAIRE_NET">Solde Salaire</option></select></div>
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2">Période (Mois)</label><input type="month" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold" value={transactionData.period} onChange={e => setTransactionData({...transactionData, period: e.target.value})}/></div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2">Montant (F)</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-brand-600" value={transactionData.montant} onChange={e => setTransactionData({...transactionData, montant: parseInt(e.target.value)||0})}/></div>
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2">Caisse Source</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white" value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)} disabled={transactionData.type === 'PRIME'}><option value="">-- Choisir --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                            </div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2">Note / Motif</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold" value={transactionData.note} onChange={e => setTransactionData({...transactionData, note: e.target.value})} placeholder="Ex: Avance Tabaski, Prime Korité..."/></div>
+                        </div>
+                        <div className="flex justify-end gap-3 mt-10 pt-4 border-t">
+                            <button onClick={() => setPayModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px]">Annuler</button>
+                            <button onClick={handleConfirmPayment} disabled={transactionData.montant <= 0} className="px-10 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Valider</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL SCANNER BADGE */}
+            <QRScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} onScan={(id) => { handleClockIn(id); setIsScannerOpen(false); alert(`Pointage enregistré pour ${employes.find(e => e.id === id)?.nom || id}`); }} />
+
+            {/* MODAL BADGE QR (GENERATOR) */}
+            {selectedEmployeeForBadge && (
+                <QRGeneratorModal 
+                    isOpen={qrBadgeModalOpen} 
+                    onClose={() => setQrBadgeModalOpen(false)} 
+                    value={selectedEmployeeForBadge.id} 
+                    title={selectedEmployeeForBadge.nom} 
+                    subtitle={selectedEmployeeForBadge.role} 
+                />
+            )}
+
+            {/* MODAL RÉCAPITULATIF POINTAGE INDIVIDUEL */}
+            {selectedEmployeeForPtHistory && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 animate-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-8 border-b pb-4"><h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg tracking-tighter"><Clock className="text-blue-600" /> Assiduité : {selectedEmployeeForPtHistory.nom}</h3><button onClick={() => setSelectedEmployeeForPtHistory(null)}><X size={28}/></button></div>
+                        <div className="space-y-6">
+                            <input type="month" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold mb-4" value={recapMonth} onChange={e => setRecapMonth(e.target.value)}/>
+                            {(() => {
+                                const recap = getEmployeeRecap(selectedEmployeeForPtHistory.id, recapMonth);
+                                return (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="bg-green-50 p-4 rounded-2xl text-center border border-green-100"><p className="text-[10px] font-black text-green-400 uppercase tracking-widest">Présent</p><p className="text-2xl font-black text-green-700">{recap.present}</p></div>
+                                        <div className="bg-orange-50 p-4 rounded-2xl text-center border border-orange-100"><p className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Retard</p><p className="text-2xl font-black text-orange-700">{recap.retard}</p></div>
+                                        <div className="bg-red-50 p-4 rounded-2xl text-center border border-red-100"><p className="text-[10px] font-black text-red-400 uppercase tracking-widest">Absent</p><p className="text-2xl font-black text-red-700">{recap.absent}</p></div>
+                                        <div className="bg-gray-50 p-4 rounded-2xl text-center border border-gray-100"><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total jours</p><p className="text-2xl font-black text-gray-700">{recap.total}</p></div>
+                                    </div>
+                                );
+                            })()}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL RÉCAPITULATIF GLOBAL ET HISTORIQUE POINTAGES */}
+            {ptGlobalHistoryOpen && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200 border border-brand-100 overflow-hidden">
+                        <div className="p-6 border-b flex justify-between items-center bg-white">
+                            <h3 className="font-black text-gray-800 flex items-center gap-3 uppercase text-lg tracking-tighter"><History className="text-brand-600" /> Archives de Pointage</h3>
+                            <div className="flex gap-2">
+                                <div className="flex bg-gray-100 p-1 rounded-lg">
+                                    <button onClick={() => setPtGlobalMode('LIST')} className={`px-4 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${ptGlobalMode === 'LIST' ? 'bg-white text-brand-900 shadow-sm' : 'text-gray-400'}`}>Journalier</button>
+                                    <button onClick={() => setPtGlobalMode('RECAP')} className={`px-4 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${ptGlobalMode === 'RECAP' ? 'bg-white text-brand-900 shadow-sm' : 'text-gray-400'}`}>Récap mensuel</button>
+                                </div>
+                                <button onClick={() => setPtGlobalHistoryOpen(false)}><X size={28}/></button>
+                            </div>
+                        </div>
+                        <div className="p-8 flex-1 overflow-y-auto custom-scrollbar bg-gray-50">
+                            {ptGlobalMode === 'RECAP' ? (
+                                <div className="space-y-6">
+                                    <div className="flex justify-between items-center bg-white p-4 rounded-2xl border">
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Mois à analyser :</label>
+                                        <input type="month" className="p-2 border-2 border-gray-100 rounded-xl font-bold" value={recapMonth} onChange={e => setRecapMonth(e.target.value)}/>
+                                    </div>
+                                    <div className="bg-white rounded-2xl border overflow-hidden shadow-sm">
+                                        <table className="w-full text-sm text-left">
+                                            <thead className="bg-gray-50 font-black text-gray-400 text-[10px] uppercase border-b"><tr><th className="p-4">Employé</th><th className="p-4 text-center">Présences</th><th className="p-4 text-center">Retards</th><th className="p-4 text-center">Absences</th><th className="p-4 text-center">Assiduité %</th></tr></thead>
+                                            <tbody className="divide-y">
+                                                {activeEmployes.map(emp => {
+                                                    const r = getEmployeeRecap(emp.id, recapMonth);
+                                                    const score = r.total > 0 ? Math.round(((r.present + (r.retard * 0.5)) / r.total) * 100) : 0;
+                                                    return (
+                                                        <tr key={emp.id} className="hover:bg-brand-50/20">
+                                                            <td className="p-4 font-bold uppercase">{emp.nom}</td>
+                                                            <td className="p-4 text-center text-green-600 font-black">{r.present}</td>
+                                                            <td className="p-4 text-center text-orange-600 font-black">{r.retard}</td>
+                                                            <td className="p-4 text-center text-red-600 font-black">{r.absent}</td>
+                                                            <td className="p-4 text-center"><span className={`px-2 py-1 rounded font-black text-xs ${score > 80 ? 'text-green-600 bg-green-50' : score > 50 ? 'text-orange-600 bg-orange-50' : 'text-red-600 bg-red-50'}`}>{score}%</span></td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {pointages.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 50).map(pt => {
+                                        const emp = employes.find(e => e.id === pt.employeId);
+                                        return (
+                                            <div key={pt.id} className="bg-white p-4 rounded-2xl border flex justify-between items-center group hover:border-brand-300 transition-colors">
+                                                <div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{new Date(pt.date).toLocaleDateString()}</p><p className="text-sm font-bold text-gray-800 uppercase">{emp?.nom || 'Inconnu'}</p></div>
+                                                <div className="flex items-center gap-6">
+                                                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${getPointageStatusColor(pt.statut)}`}>{pt.statut}</span>
+                                                    <div className="text-right"><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Horaire</p><p className="text-xs font-mono font-bold text-gray-700">{pt.heureArrivee || '--:--'} → {pt.heureDepart || '--:--'}</p></div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL MODIFICATION POINTAGE (MANUEL) */}
             {editingPointage && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-sm p-8 animate-in zoom-in duration-200">
@@ -422,6 +586,7 @@ const HRView: React.FC<HRViewProps> = ({
                 </div>
             )}
 
+            {/* Rest of the modals (Employee profile, history, etc.) */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in duration-200 border border-brand-100">
@@ -458,14 +623,14 @@ const HRView: React.FC<HRViewProps> = ({
                                     <div className="space-y-3">
                                         <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Carte d'Identité (Recto)</label>
                                         <div className="w-full aspect-[1.6/1] bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden group">
-                                            {formData.cniRecto ? <img src={formData.cniRecto} className="w-full h-full object-cover" /> : <ImageIcon className="text-gray-300" size={32} />}
+                                            {formData.cniRecto ? <img src={formData.cniRecto} className="w-full h-full object-cover" alt="recto" /> : <ImageIcon className="text-gray-300" size={32} />}
                                             {isUploading === 'recto' ? <Loader className="animate-spin text-brand-600" /> : <label className="absolute inset-0 cursor-pointer flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/20 transition-opacity"><input type="file" className="hidden" accept="image/*" onChange={e => handleFileUpload(e, 'recto')} /><Upload className="text-white" size={24} /></label>}
                                         </div>
                                     </div>
                                     <div className="space-y-3">
                                         <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Carte d'Identité (Verso)</label>
                                         <div className="w-full aspect-[1.6/1] bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden group">
-                                            {formData.cniVerso ? <img src={formData.cniVerso} className="w-full h-full object-cover" /> : <ImageIcon className="text-gray-300" size={32} />}
+                                            {formData.cniVerso ? <img src={formData.cniVerso} className="w-full h-full object-cover" alt="verso" /> : <ImageIcon className="text-gray-300" size={32} />}
                                             {isUploading === 'verso' ? <Loader className="animate-spin text-brand-600" /> : <label className="absolute inset-0 cursor-pointer flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/20 transition-opacity"><input type="file" className="hidden" accept="image/*" onChange={e => handleFileUpload(e, 'verso')} /><Upload className="text-white" size={24} /></label>}
                                         </div>
                                     </div>
@@ -474,7 +639,7 @@ const HRView: React.FC<HRViewProps> = ({
                                 <div className="space-y-3">
                                     {(Object.keys(DEFAULT_PERMISSIONS) as Array<keyof PermissionsUtilisateur>).map((key) => (
                                         <div key={key} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                                            <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest">{key === 'settings' ? 'PARAMÈTRES' : key}</span>
+                                            <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest">{key === 'settings' ? 'PARAMÈTRES' : key.toUpperCase()}</span>
                                             <div className="flex bg-white rounded-lg p-1 border shadow-inner">
                                                 {(['NONE', 'READ', 'WRITE'] as NiveauAcces[]).map((level) => <button key={level} onClick={() => setFormData(prev => ({...prev, permissions: {...(prev.permissions || DEFAULT_PERMISSIONS), [key]: level}}))} className={`px-3 py-1 rounded-md text-[9px] font-black transition-all ${formData.permissions?.[key] === level ? 'bg-brand-900 text-white shadow-md' : 'text-gray-300'}`}>{level}</button>)}
                                             </div>
@@ -506,9 +671,6 @@ const HRView: React.FC<HRViewProps> = ({
                     </div>
                 </div>
             )}
-
-            {/* Rest of the modals (PT Global, PT Individual, Transport, Pay) are omitted for brevity but remain identical */}
-            {/* Scanner and Badge modals remain identical */}
         </div>
     );
 };
