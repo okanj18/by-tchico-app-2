@@ -411,8 +411,9 @@ const HRView: React.FC<HRViewProps> = ({
                             <button onClick={() => setTransportModalOpen(false)}><X size={28}/></button>
                         </div>
                         <div className="p-8 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2">Montant par employé (F)</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-brand-600" value={transportData.montantUnitaire} onChange={e => setTransportData({...transportData, montantUnitaire: parseInt(e.target.value)||0})}/></div>
+                                <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2">Date du transport</label><input type="date" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold" value={transportData.date} onChange={e => setTransportData({...transportData, date: e.target.value})}/></div>
                                 <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2">Compte de décaissement</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold" value={transportData.compteId} onChange={e => setTransportData({...transportData, compteId: e.target.value})}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
                             </div>
                             <div>
