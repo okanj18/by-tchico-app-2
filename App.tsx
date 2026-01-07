@@ -87,8 +87,34 @@ const App: React.FC = () => {
     const handleUpdateTask = (orderId: string, taskId: string, newStatut: 'A_FAIRE' | 'FAIT') => {
         setCommandes(prev => prev.map(c => {
             if (c.id !== orderId) return c;
+            
+            const taskToUpdate = (c.taches || []).find(t => t.id === taskId);
+            if (!taskToUpdate) return c;
+
             const updatedTaches = (c.taches || []).map(t => t.id === taskId ? { ...t, statut: newStatut } : t);
-            return { ...c, taches: updatedTaches };
+            
+            // Logique de synchronisation : faire avancer le statut de la commande si la tâche est terminée
+            let newGlobalStatus = c.statut;
+            if (newStatut === 'FAIT') {
+                switch(taskToUpdate.action) {
+                    case 'COUPE': 
+                        newGlobalStatus = StatutCommande.COUTURE; 
+                        break;
+                    case 'COUTURE': 
+                    case 'BRODERIE':
+                        newGlobalStatus = StatutCommande.FINITION; 
+                        break;
+                    case 'FINITION': 
+                    case 'REPASSAGE': 
+                        newGlobalStatus = StatutCommande.PRET; 
+                        break;
+                    default:
+                        // Pour les autres actions, on ne change pas forcément le statut global automatiquement
+                        break;
+                }
+            }
+
+            return { ...c, taches: updatedTaches, statut: newGlobalStatus };
         }));
     };
 

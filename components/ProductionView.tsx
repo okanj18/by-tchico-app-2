@@ -17,6 +17,7 @@ interface ProductionViewProps {
     onAddPayment: (orderId: string, amount: number, method: ModePaiement, note: string, date: string, accId?: string) => void;
     onUpdatePayment: (orderId: string, paymentId: string, newAmount: number, date: string, accId: string) => void;
     onDeletePayment: (orderId: string, paymentId: string, accId: string) => void;
+    onAddPaymentToOrder?: (orderId: string, amount: number, method: ModePaiement, note: string, date: string, accId?: string) => void;
     onAddTask: (orderId: string, task: TacheProduction) => void;
     onUpdateTask: (orderId: string, taskId: string, newStatut: 'A_FAIRE' | 'FAIT') => void;
     onArchiveOrder: (id: string) => void;
@@ -120,19 +121,13 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
     const handleCreateOrUpdateOrder = () => {
         if (!newOrderData.clientId || !newOrderData.prixTotal) { alert("Client et prix requis."); return; }
-        
-        // FIX BUG 1: Calcul rigoureux du reste lors d'une modification
         const prixTotal = newOrderData.prixTotal || 0;
         const avance = newOrderData.avance || 0;
         const sommeAutresPaiements = selectedOrder?.paiements?.reduce((sum, p) => sum + p.montant, 0) || 0;
         const nouveauReste = Math.max(0, prixTotal - avance - sommeAutresPaiements);
 
         if (isEditingOrder && selectedOrder) {
-            onUpdateOrder({ 
-                ...selectedOrder, 
-                ...newOrderData, 
-                reste: nouveauReste 
-            } as Commande, initialAccountId);
+            onUpdateOrder({ ...selectedOrder, ...newOrderData, reste: nouveauReste } as Commande, initialAccountId);
         } else {
             const client = clients.find(c => c.id === newOrderData.clientId);
             const order: Commande = { 
@@ -199,9 +194,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             {activeNav === 'COMMANDES' && (
                 <div className="space-y-6">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <div className="flex bg-gray-100 p-1 rounded-2xl shadow-inner border border-gray-200">
+                        <div className="flex bg-gray-100 p-1 rounded-2xl shadow-inner border border-gray-200 overflow-x-auto no-scrollbar max-w-full">
                             {['EN_COURS', 'PRETS', 'DEVIS', 'TOUTES'].map(tab => (
-                                <button key={tab} onClick={() => setActiveFilterTab(tab as any)} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeFilterTab === tab ? 'bg-white text-brand-900 shadow-md' : 'text-gray-400'}`}>
+                                <button key={tab} onClick={() => setActiveFilterTab(tab as any)} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeFilterTab === tab ? 'bg-white text-brand-900 shadow-md' : 'text-gray-400'}`}>
                                     {tab.replace('_', ' ')}
                                 </button>
                             ))}
@@ -209,35 +204,69 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         <div className="relative w-full md:w-96"><Search className="absolute left-4 top-3.5 text-gray-300" size={20} /><input type="text" placeholder="Rechercher..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-3.5 bg-white border border-gray-200 rounded-2xl text-sm font-bold shadow-sm" /></div>
                     </div>
 
-                    <div className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-gray-50/50 text-gray-400 font-black uppercase text-[10px] tracking-[0.2em] border-b">
-                                <tr><th className="p-6">Référence & Client</th><th className="p-6 text-center">Livraison</th><th className="p-6 text-center">Finance</th><th className="p-6 text-center">État</th><th className="p-6 text-right w-64">Actions</th></tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {filteredCommandes.map(cmd => (
-                                    <tr key={cmd.id} className="hover:bg-brand-50/30 transition-all">
-                                        <td className="p-6">
-                                            <div className="flex flex-col"><span className="font-black text-gray-800 uppercase text-base tracking-tighter">{cmd.clientNom}</span><span className="text-[10px] text-gray-400 font-bold uppercase">#{cmd.id.slice(-6)} • {cmd.description.slice(0, 40)}...</span></div>
-                                        </td>
-                                        <td className="p-6 text-center font-bold text-gray-600 uppercase text-[11px]">{new Date(cmd.dateLivraisonPrevue).toLocaleDateString()}</td>
-                                        <td className="p-6 text-center">
-                                            <div className="flex flex-col items-center"><span className="font-black text-gray-800 text-lg">{cmd.prixTotal.toLocaleString()} F</span><span className={`text-[10px] font-black uppercase ${cmd.reste > 0 ? 'text-red-500' : 'text-green-600'}`}>Reste : {cmd.reste.toLocaleString()} F</span></div>
-                                        </td>
-                                        <td className="p-6 text-center"><span className="px-4 py-2 bg-white border-2 border-gray-100 rounded-2xl text-[10px] font-black text-gray-600 uppercase tracking-widest">{cmd.statut.toUpperCase()}</span></td>
-                                        <td className="p-6 text-right">
-                                            <div className="flex justify-end gap-2">
-                                                <button onClick={() => { setSelectedOrder(cmd); setDetailModalOpen(true); }} className="p-2.5 bg-white text-blue-600 border border-blue-100 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"><Eye size={18}/></button>
-                                                <button onClick={() => { setSelectedOrder(cmd); setNewOrderData(cmd); setIsEditingOrder(true); setOrderModalOpen(true); }} className="p-2.5 bg-white text-gray-400 border border-gray-100 rounded-xl hover:bg-gray-800 hover:text-white transition-all shadow-sm"><Edit2 size={18}/></button>
-                                                {cmd.statut === StatutCommande.PRET && <button onClick={() => handleDeliverOrder(cmd)} className="p-2.5 bg-white text-green-600 border border-green-100 rounded-xl hover:bg-green-600 hover:text-white transition-all shadow-sm"><Check size={18}/></button>}
-                                                <button onClick={() => { setSelectedOrder(cmd); setPayData({ ...payData, amount: cmd.reste }); setPaymentModalOpen(true); }} className="p-2.5 bg-white text-emerald-600 border border-emerald-100 rounded-xl hover:bg-emerald-600 hover:text-white transition-all shadow-sm"><DollarSign size={18}/></button>
-                                                <button onClick={() => { if(window.confirm("Voulez-vous vraiment annuler cette commande ?")) onUpdateStatus(cmd.id, StatutCommande.ANNULE); }} className="p-2.5 bg-white text-red-300 border border-red-50 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"><Ban size={18}/></button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                    {/* VUE MOBILE (CARTES) */}
+                    <div className="grid grid-cols-1 gap-4 md:hidden">
+                        {filteredCommandes.map(cmd => (
+                            <div key={cmd.id} className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm space-y-4">
+                                <div className="flex justify-between items-start">
+                                    <div className="flex flex-col">
+                                        <span className="font-black text-gray-800 uppercase text-sm tracking-tight">{cmd.clientNom}</span>
+                                        <span className="text-[10px] text-gray-400 font-bold uppercase">Ref #{cmd.id.slice(-6)}</span>
+                                    </div>
+                                    <span className="px-3 py-1 bg-brand-50 border border-brand-100 rounded-xl text-[9px] font-black text-brand-700 uppercase">{cmd.statut}</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-[10px] border-y border-gray-50 py-3">
+                                    <div><p className="text-gray-400 uppercase mb-1">Livraison</p><p className="font-bold text-gray-800">{new Date(cmd.dateLivraisonPrevue).toLocaleDateString()}</p></div>
+                                    <div className="text-right"><p className="text-gray-400 uppercase mb-1">Total</p><p className="font-black text-gray-900">{cmd.prixTotal.toLocaleString()} F</p></div>
+                                    <div><p className="text-gray-400 uppercase mb-1">Reste</p><p className={`font-black ${cmd.reste > 0 ? 'text-red-500' : 'text-green-600'}`}>{cmd.reste.toLocaleString()} F</p></div>
+                                </div>
+                                <div className="flex justify-between gap-2">
+                                    <div className="flex gap-2">
+                                        <button onClick={() => { setSelectedOrder(cmd); setDetailModalOpen(true); }} className="p-3 bg-white text-blue-600 border border-blue-100 rounded-xl shadow-sm"><Eye size={18}/></button>
+                                        <button onClick={() => { setSelectedOrder(cmd); setNewOrderData(cmd); setIsEditingOrder(true); setOrderModalOpen(true); }} className="p-3 bg-white text-gray-400 border border-gray-100 rounded-xl shadow-sm"><Edit2 size={18}/></button>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        {cmd.statut === StatutCommande.PRET && <button onClick={() => handleDeliverOrder(cmd)} className="p-3 bg-green-600 text-white rounded-xl shadow-sm"><Check size={18}/></button>}
+                                        <button onClick={() => { setSelectedOrder(cmd); setPayData({ ...payData, amount: cmd.reste }); setPaymentModalOpen(true); }} className="p-3 bg-brand-900 text-white rounded-xl shadow-sm"><DollarSign size={18}/></button>
+                                        <button onClick={() => { if(window.confirm("Annuler ?")) onUpdateStatus(cmd.id, StatutCommande.ANNULE); }} className="p-3 bg-red-50 text-red-300 border border-red-50 rounded-xl shadow-sm"><Ban size={18}/></button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* VUE TABLETTE/DESKTOP (TABLEAU) */}
+                    <div className="hidden md:block bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden">
+                        <div className="overflow-x-auto custom-scrollbar">
+                            <table className="w-full text-sm text-left min-w-[900px]">
+                                <thead className="bg-gray-50/50 text-gray-400 font-black uppercase text-[10px] tracking-[0.2em] border-b">
+                                    <tr><th className="p-6">Référence & Client</th><th className="p-6 text-center">Livraison</th><th className="p-6 text-center">Finance</th><th className="p-6 text-center">État</th><th className="p-6 text-right w-64">Actions</th></tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-50">
+                                    {filteredCommandes.map(cmd => (
+                                        <tr key={cmd.id} className="hover:bg-brand-50/30 transition-all">
+                                            <td className="p-6">
+                                                <div className="flex flex-col"><span className="font-black text-gray-800 uppercase text-base tracking-tighter">{cmd.clientNom}</span><span className="text-[10px] text-gray-400 font-bold uppercase">#{cmd.id.slice(-6)} • {cmd.description.slice(0, 40)}...</span></div>
+                                            </td>
+                                            <td className="p-6 text-center font-bold text-gray-600 uppercase text-[11px]">{new Date(cmd.dateLivraisonPrevue).toLocaleDateString()}</td>
+                                            <td className="p-6 text-center">
+                                                <div className="flex flex-col items-center"><span className="font-black text-gray-800 text-lg">{cmd.prixTotal.toLocaleString()} F</span><span className={`text-[10px] font-black uppercase ${cmd.reste > 0 ? 'text-red-500' : 'text-green-600'}`}>Reste : {cmd.reste.toLocaleString()} F</span></div>
+                                            </td>
+                                            <td className="p-6 text-center"><span className="px-4 py-2 bg-white border-2 border-gray-100 rounded-2xl text-[10px] font-black text-gray-600 uppercase tracking-widest">{cmd.statut.toUpperCase()}</span></td>
+                                            <td className="p-6 text-right">
+                                                <div className="flex justify-end gap-2">
+                                                    <button onClick={() => { setSelectedOrder(cmd); setDetailModalOpen(true); }} className="p-2.5 bg-white text-blue-600 border border-blue-100 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"><Eye size={18}/></button>
+                                                    <button onClick={() => { setSelectedOrder(cmd); setNewOrderData(cmd); setIsEditingOrder(true); setOrderModalOpen(true); }} className="p-2.5 bg-white text-gray-400 border border-gray-100 rounded-xl hover:bg-gray-800 hover:text-white transition-all shadow-sm"><Edit2 size={18}/></button>
+                                                    {cmd.statut === StatutCommande.PRET && <button onClick={() => handleDeliverOrder(cmd)} className="p-2.5 bg-white text-green-600 border border-green-100 rounded-xl hover:bg-green-600 hover:text-white transition-all shadow-sm"><Check size={18}/></button>}
+                                                    <button onClick={() => { setSelectedOrder(cmd); setPayData({ ...payData, amount: cmd.reste }); setPaymentModalOpen(true); }} className="p-2.5 bg-white text-emerald-600 border border-emerald-100 rounded-xl hover:bg-emerald-600 hover:text-white transition-all shadow-sm"><DollarSign size={18}/></button>
+                                                    <button onClick={() => { if(window.confirm("Voulez-vous vraiment annuler cette commande ?")) onUpdateStatus(cmd.id, StatutCommande.ANNULE); }} className="p-2.5 bg-white text-red-300 border border-red-50 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"><Ban size={18}/></button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             )}
@@ -428,7 +457,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL MODIFICATION PAIEMENT ATELIER (BUG 2) */}
+            {/* MODAL MODIFICATION PAIEMENT ATELIER */}
             {editPaymentModalOpen && selectedPayment && selectedOrder && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[700] flex items-center justify-center p-4 backdrop-blur-md">
                     <div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl animate-in zoom-in border border-brand-100">
