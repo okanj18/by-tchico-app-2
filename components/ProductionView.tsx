@@ -1,7 +1,7 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, Consommation, CompteFinancier, CompanyAssets, ModePaiement, TacheProduction, ActionProduction, PaiementClient } from '../types';
-import { Scissors, Search, Plus, Eye, Edit2, CheckCircle, Clock, Trash2, Printer, Archive, X, Save, AlertTriangle, DollarSign, ChevronRight, ClipboardList, Activity, Sparkles, UserPlus, History, CreditCard, Ban, Calendar, Layout, Users, Trophy, Loader, FileText, ChevronLeft, ChevronRight as ChevronRightIcon, Box, ArrowRight, ArrowLeft, Check, Square, CheckSquare } from 'lucide-react';
+import { Scissors, Search, Plus, Eye, Edit2, CheckCircle, Clock, Trash2, Printer, Archive, X, Save, AlertTriangle, DollarSign, ChevronRight, ClipboardList, Activity, Sparkles, UserPlus, History, CreditCard, Ban, Calendar, Layout, Users, Trophy, Loader, FileText, ChevronLeft, ChevronRight as ChevronRightIcon, Box, ArrowRight, ArrowLeft, Check, Square, CheckSquare, User as UserIcon, Layers } from 'lucide-react';
 import { analyzeProductionBottlenecks } from '../services/geminiService';
 import { COMPANY_CONFIG } from '../config';
 
@@ -49,6 +49,12 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [newOrderData, setNewOrderData] = useState<Partial<Commande>>({
         clientId: '', prixTotal: 0, avance: 0, dateLivraisonPrevue: '', isDevis: false, description: '', consommations: []
     });
+    const [clientSearchTerm, setClientSearchTerm] = useState('');
+    const [showClientResults, setShowClientResults] = useState(false);
+    
+    // État temporaire pour l'ajout d'une consommation
+    const [tempCons, setTempCons] = useState<Consommation>({ articleId: '', variante: '', quantite: 0 });
+    
     const [initialAccountId, setInitialAccountId] = useState('');
     const [payData, setPayData] = useState({ amount: 0, method: 'ESPECE' as ModePaiement, accId: '', date: new Date().toISOString().split('T')[0], note: '' });
     const [editPayData, setEditPayData] = useState({ amount: 0, date: '', accId: '' });
@@ -72,6 +78,19 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             return matchesSearch && matchesTab;
         }).sort((a, b) => new Date(b.dateCommande).getTime() - new Date(a.dateCommande).getTime());
     }, [commandes, searchTerm, activeFilterTab]);
+
+    // Filtrage des clients pour la recherche
+    const searchedClients = useMemo(() => {
+        if (!clientSearchTerm.trim()) return [];
+        return clients.filter(c => 
+            c.nom.toLowerCase().includes(clientSearchTerm.toLowerCase()) || 
+            c.telephone.includes(clientSearchTerm)
+        ).slice(0, 5);
+    }, [clients, clientSearchTerm]);
+
+    const selectedClientName = useMemo(() => {
+        return clients.find(c => c.id === newOrderData.clientId)?.nom || '';
+    }, [clients, newOrderData.clientId]);
 
     const handlePrintOrder = (order: Commande) => {
         const printWindow = window.open('', '_blank', 'width=800,height=900');
@@ -119,6 +138,17 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         if (window.confirm(confirmationMsg)) onUpdateStatus(cmd.id, StatutCommande.LIVRE);
     };
 
+    const handleAddCons = () => {
+        if (!tempCons.articleId || tempCons.quantite <= 0) return;
+        const currentCons = newOrderData.consommations || [];
+        setNewOrderData({ ...newOrderData, consommations: [...currentCons, { ...tempCons, id: `CS_${Date.now()}` }] });
+        setTempCons({ articleId: '', variante: '', quantite: 0 });
+    };
+
+    const handleRemoveCons = (id: string) => {
+        setNewOrderData({ ...newOrderData, consommations: (newOrderData.consommations || []).filter(c => c.id !== id) });
+    };
+
     const handleCreateOrUpdateOrder = () => {
         if (!newOrderData.clientId || !newOrderData.prixTotal) { alert("Client et prix requis."); return; }
         const prixTotal = newOrderData.prixTotal || 0;
@@ -137,9 +167,10 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 tailleursIds: [], prixTotal: prixTotal, avance: avance, 
                 reste: nouveauReste, type: 'SUR_MESURE', 
                 quantite: 1, isDevis: newOrderData.isDevis || false,
-                taches: [], paiements: []
+                taches: [], paiements: [],
+                consommations: newOrderData.consommations || []
             };
-            onCreateOrder(order, [], 'ESPECE', initialAccountId);
+            onCreateOrder(order, newOrderData.consommations || [], 'ESPECE', initialAccountId);
         }
         setOrderModalOpen(false);
     };
@@ -167,7 +198,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
-                    <button onClick={() => { setIsEditingOrder(false); setNewOrderData({ clientId: '', prixTotal: 0, avance: 0, dateLivraisonPrevue: '', isDevis: false, description: '' }); setOrderModalOpen(true); }} className="bg-brand-900 hover:bg-black text-white px-6 py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center gap-2 transition-all active:scale-95">
+                    <button onClick={() => { setIsEditingOrder(false); setNewOrderData({ clientId: '', prixTotal: 0, avance: 0, dateLivraisonPrevue: '', isDevis: false, description: '', consommations: [] }); setClientSearchTerm(''); setOrderModalOpen(true); }} className="bg-brand-900 hover:bg-black text-white px-6 py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center gap-2 transition-all active:scale-95">
                         <Plus size={18}/> Nouvelle Commande
                     </button>
                     <button onClick={() => setTaskModalOpen(true)} className="bg-[#ff4e00] hover:bg-[#e64600] text-white px-6 py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center gap-2 transition-all active:scale-95">
@@ -428,6 +459,21 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             </div>
 
                             <div className="space-y-4">
+                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-4">Fournitures Utilisées</h4>
+                                <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-2">
+                                    {(selectedOrder.consommations || []).length > 0 ? (selectedOrder.consommations?.map(c => {
+                                        const art = articles.find(a => a.id === c.articleId);
+                                        return (
+                                            <div key={c.id} className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
+                                                <span className="text-xs font-bold text-gray-700 uppercase">{art?.nom} {c.variante !== 'Standard' ? `(${c.variante})` : ''}</span>
+                                                <span className="text-xs font-black text-brand-900">{c.quantite} {art?.unite}</span>
+                                            </div>
+                                        );
+                                    })) : <p className="text-[10px] text-gray-400 text-center py-4 uppercase font-bold">Aucune matière déduite</p>}
+                                </div>
+                            </div>
+
+                            <div className="space-y-4">
                                 <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-4">Versements & Historique</h4>
                                 <div className="bg-white rounded-[2.5rem] border border-gray-100 overflow-hidden shadow-sm">
                                     <div className="p-6 flex justify-between items-center border-b border-gray-50 hover:bg-gray-50 transition-colors">
@@ -519,22 +565,111 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[95vh] border border-brand-100 overflow-hidden animate-in zoom-in">
                          <div className="p-8 bg-white border-b flex justify-between items-center shrink-0"><h3 className="text-2xl font-black text-gray-800 uppercase tracking-tighter">{isEditingOrder ? 'Modification' : 'Nouvelle'} Commande</h3><button onClick={() => setOrderModalOpen(false)}><X size={28} className="text-gray-400 hover:text-red-500"/></button></div>
                          <div className="p-8 space-y-6 overflow-y-auto flex-1 custom-scrollbar bg-gray-50/30">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Client</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white outline-none" value={newOrderData.clientId} onChange={e => setNewOrderData({...newOrderData, clientId: e.target.value})}><option value="">-- Choisir --</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div>
-                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Date Livraison</label><input type="date" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold outline-none" value={newOrderData.dateLivraisonPrevue} onChange={e => setNewOrderData({...newOrderData, dateLivraisonPrevue: e.target.value})}/></div>
+                            
+                            {/* RECHERCHE CLIENT AMÉLIORÉE */}
+                            <div className="relative">
+                                <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Client</label>
+                                {!newOrderData.clientId ? (
+                                    <div className="relative">
+                                        <div className="absolute left-4 top-3.5 text-gray-300"><Search size={20}/></div>
+                                        <input 
+                                            type="text" 
+                                            className="w-full pl-12 p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white outline-none focus:border-brand-500 transition-all" 
+                                            placeholder="Taper nom ou numéro de téléphone..." 
+                                            value={clientSearchTerm}
+                                            onChange={e => { setClientSearchTerm(e.target.value); setShowClientResults(true); }}
+                                            onFocus={() => setShowClientResults(true)}
+                                        />
+                                        {showClientResults && searchedClients.length > 0 && (
+                                            <div className="absolute top-full left-0 w-full mt-2 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[700] animate-in fade-in slide-in-from-top-2">
+                                                {searchedClients.map(c => (
+                                                    <button 
+                                                        key={c.id} 
+                                                        onClick={() => { setNewOrderData({...newOrderData, clientId: c.id}); setShowClientResults(false); }}
+                                                        className="w-full p-4 text-left hover:bg-brand-50 border-b last:border-0 flex items-center justify-between group transition-colors"
+                                                    >
+                                                        <div>
+                                                            <p className="font-black text-gray-800 uppercase text-xs">{c.nom}</p>
+                                                            <p className="text-[10px] text-gray-400 font-bold">{c.telephone}</p>
+                                                        </div>
+                                                        <div className="p-2 bg-gray-100 rounded-lg group-hover:bg-brand-600 group-hover:text-white transition-colors"><Plus size={16}/></div>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {showClientResults && clientSearchTerm.trim() && searchedClients.length === 0 && (
+                                            <div className="absolute top-full left-0 w-full mt-2 bg-white rounded-2xl p-6 text-center shadow-2xl border border-gray-100 z-[700]">
+                                                <p className="text-xs font-bold text-gray-400 uppercase">Aucun client trouvé</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center justify-between bg-brand-900 text-white p-4 rounded-2xl shadow-lg animate-in zoom-in">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-white/20 rounded-xl"><UserIcon size={20}/></div>
+                                            <div>
+                                                <p className="text-xs font-black uppercase tracking-tight">{selectedClientName}</p>
+                                                <p className="text-[10px] text-brand-300 font-bold">{clients.find(c => c.id === newOrderData.clientId)?.telephone}</p>
+                                            </div>
+                                        </div>
+                                        <button onClick={() => { setNewOrderData({...newOrderData, clientId: ''}); setClientSearchTerm(''); }} className="p-2 hover:bg-white/10 rounded-full transition-colors text-brand-300"><X size={20}/></button>
+                                    </div>
+                                )}
                             </div>
-                            <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Description / Notes</label><textarea className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white outline-none h-28 focus:border-brand-500 transition-colors" value={newOrderData.description} onChange={e => setNewOrderData({...newOrderData, description: e.target.value})} placeholder="Modèle, mesures, tissus..."/></div>
+
+                            <div className="grid grid-cols-1 gap-6">
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Date Livraison Prevue</label><input type="date" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold outline-none bg-white" value={newOrderData.dateLivraisonPrevue} onChange={e => setNewOrderData({...newOrderData, dateLivraisonPrevue: e.target.value})}/></div>
+                            </div>
+                            <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Description / Notes (Modèle, mesures...)</label><textarea className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white outline-none h-24 focus:border-brand-500 transition-colors" value={newOrderData.description} onChange={e => setNewOrderData({...newOrderData, description: e.target.value})} placeholder="Détails de la confection..."/></div>
+                            
+                            {/* SECTION CONSOMMATION STOCK */}
+                            <div className="bg-brand-50 p-6 rounded-[2rem] border border-brand-100 space-y-4">
+                                <h4 className="text-[10px] font-black text-brand-700 uppercase tracking-[0.2em] flex items-center gap-2"><Layers size={14}/> Fournitures & Tissus à déduire du stock</h4>
+                                
+                                <div className="flex flex-col md:flex-row gap-2">
+                                    <select className="flex-1 p-3 border-2 border-white rounded-xl text-xs font-bold" value={tempCons.articleId} onChange={e => {
+                                        const art = articles.find(a => a.id === e.target.value);
+                                        setTempCons({ ...tempCons, articleId: e.target.value, variante: (art?.variantes?.length || 0) > 0 ? art!.variantes[0] : 'Standard' });
+                                    }}>
+                                        <option value="">-- Choisir Matière --</option>
+                                        {articles.filter(a => !a.archived).map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}
+                                    </select>
+                                    {articles.find(a => a.id === tempCons.articleId)?.variantes && articles.find(a => a.id === tempCons.articleId)!.variantes.length > 0 && (
+                                        <select className="flex-1 p-3 border-2 border-white rounded-xl text-xs font-bold" value={tempCons.variante} onChange={e => setTempCons({ ...tempCons, variante: e.target.value })}>
+                                            {articles.find(a => a.id === tempCons.articleId)!.variantes.map(v => <option key={v} value={v}>{v}</option>)}
+                                        </select>
+                                    )}
+                                    <input type="number" placeholder="Qté" className="w-24 p-3 border-2 border-white rounded-xl text-center font-black" value={tempCons.quantite || ''} onChange={e => setTempCons({ ...tempCons, quantite: parseFloat(e.target.value) || 0 })} />
+                                    <button onClick={handleAddCons} className="p-3 bg-brand-600 text-white rounded-xl hover:bg-brand-700 transition-colors shadow-md"><Plus size={20}/></button>
+                                </div>
+
+                                <div className="space-y-2">
+                                    {(newOrderData.consommations || []).map((c) => {
+                                        const art = articles.find(a => a.id === c.articleId);
+                                        return (
+                                            <div key={c.id} className="flex justify-between items-center bg-white p-3 rounded-xl border border-brand-100 shadow-sm">
+                                                <span className="text-[10px] font-black uppercase text-gray-700">{art?.nom} {c.variante !== 'Standard' ? `(${c.variante})` : ''}</span>
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-xs font-black text-brand-900">{c.quantite} {art?.unite}</span>
+                                                    <button onClick={() => handleRemoveCons(c.id!)} className="text-red-300 hover:text-red-500"><X size={16}/></button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
                             <div className="grid grid-cols-2 gap-6">
-                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Prix Total (F)</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-gray-900 outline-none" value={newOrderData.prixTotal || ''} placeholder="0" onChange={e => setNewOrderData({...newOrderData, prixTotal: parseInt(e.target.value)||0})}/></div>
-                                <div><label className="text-[10px] font-black text-brand-600 uppercase mb-2 block ml-1">Acompte Initial (F)</label><input type="number" className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black text-brand-600 outline-none" value={newOrderData.avance || ''} placeholder="0" onChange={e => setNewOrderData({...newOrderData, avance: parseInt(e.target.value)||0})}/></div>
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Prix Total de la Commande (F)</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-gray-900 outline-none bg-white" value={newOrderData.prixTotal || ''} placeholder="0" onChange={e => setNewOrderData({...newOrderData, prixTotal: parseInt(e.target.value)||0})}/></div>
+                                <div><label className="text-[10px] font-black text-brand-600 uppercase mb-2 block ml-1">Acompte Versé Immédiatement (F)</label><input type="number" className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black text-brand-600 outline-none bg-white" value={newOrderData.avance || ''} placeholder="0" onChange={e => setNewOrderData({...newOrderData, avance: parseInt(e.target.value)||0})}/></div>
                             </div>
                             {((newOrderData.avance || 0) > 0) && (
-                                <div className="bg-brand-900 p-6 rounded-2xl text-white shadow-lg animate-in slide-in-from-top-4"><label className="text-[10px] font-black text-brand-300 uppercase mb-3 block">Compte source pour l'encaissement d'accompte :</label><select className="w-full p-4 bg-white/10 border border-white/20 rounded-2xl font-black outline-none text-white" value={initialAccountId} onChange={e => setInitialAccountId(e.target.value)}><option value="" className="text-gray-900">-- Choisir Compte --</option>{comptes.map(c => <option key={c.id} value={c.id} className="text-gray-900">{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                                <div className="bg-brand-900 p-6 rounded-2xl text-white shadow-lg animate-in slide-in-from-top-4"><label className="text-[10px] font-black text-brand-300 uppercase mb-3 block">Caisse de réception de l'acompte :</label><select className="w-full p-4 bg-white/10 border border-white/20 rounded-2xl font-black outline-none text-white" value={initialAccountId} onChange={e => setInitialAccountId(e.target.value)}><option value="" className="text-gray-900">-- Choisir Compte --</option>{comptes.map(c => <option key={c.id} value={c.id} className="text-gray-900">{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
                             )}
                          </div>
                          <div className="p-8 bg-white border-t flex justify-end gap-4 shrink-0">
                             <button onClick={() => setOrderModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-xs hover:text-gray-600 transition-colors">Annuler</button>
-                            <button onClick={handleCreateOrUpdateOrder} className="px-16 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs shadow-2xl active:scale-95 transition-all hover:bg-black flex items-center gap-2"><Save size={18}/> {isEditingOrder ? 'Enregistrer modifs' : 'Créer Commande'}</button>
+                            <button onClick={handleCreateOrUpdateOrder} disabled={!newOrderData.clientId} className="px-16 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs shadow-2xl active:scale-95 transition-all hover:bg-black flex items-center gap-2 disabled:opacity-30"><Save size={18}/> {isEditingOrder ? 'Enregistrer modifs' : 'Créer Commande'}</button>
                          </div>
                     </div>
                 </div>

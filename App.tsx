@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Client, Commande, Employe, RoleEmploye, StatutCommande, Depense, Boutique, Fournisseur, CommandeFournisseur, StatutCommandeFournisseur, StatutPaiement, Article, MouvementStock, TypeMouvement, CompteFinancier, TransactionTresorerie, Pointage, GalleryItem, CompanyAssets, SessionUser, ModePaiement, TacheProduction, ReceptionFournisseur } from './types';
+import { Client, Commande, Employe, RoleEmploye, StatutCommande, Depense, Boutique, Fournisseur, CommandeFournisseur, StatutCommandeFournisseur, StatutPaiement, Article, MouvementStock, TypeMouvement, CompteFinancier, TransactionTresorerie, Pointage, GalleryItem, CompanyAssets, SessionUser, ModePaiement, TacheProduction, ReceptionFournisseur, Consommation } from './types';
 import { mockBoutiques, mockEmployes, mockPointages, mockClients, mockCommandes, mockDepenses, mockArticles, mockCommandesFournisseurs, mockMouvements, mockComptes, mockTransactionsTresorerie, mockGalleryItems, mockCompanyAssets, mockFournisseurs } from './services/mockData';
 import { useSyncState } from './hooks/useSyncState';
 import Sidebar from './components/Sidebar';
@@ -109,7 +109,6 @@ const App: React.FC = () => {
                         newGlobalStatus = StatutCommande.PRET; 
                         break;
                     default:
-                        // Pour les autres actions, on ne change pas forcément le statut global automatiquement
                         break;
                 }
             }
@@ -188,7 +187,6 @@ const App: React.FC = () => {
         const order = commandesFournisseurs.find(o => o.id === orderId);
         if (!order) return;
 
-        // 1. Mettre à jour les quantités reçues sur la commande
         const updatedCommandes = commandesFournisseurs.map(o => {
             if (o.id !== orderId) return o;
             
@@ -218,7 +216,6 @@ const App: React.FC = () => {
         });
         setCommandesFournisseurs(updatedCommandes);
 
-        // 2. Mettre à jour les stocks réels des articles
         const updatedArticles = articles.map(art => {
             let articleUpdated = false;
             const newStock = { ...art.stockParLieu };
@@ -231,7 +228,6 @@ const App: React.FC = () => {
                         newStock[lieuId][l.variante] = (newStock[lieuId][l.variante] || 0) + qRecNow;
                         articleUpdated = true;
 
-                        // Logger le mouvement de stock
                         const mvt: MouvementStock = {
                             id: `MVT_${Date.now()}_${l.id}`,
                             date,
@@ -347,7 +343,61 @@ const App: React.FC = () => {
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 custom-scrollbar">
                     {currentView === 'dashboard' && <Dashboard commandes={commandes} employes={employes} depenses={depenses} clients={clients} />}
                     {currentView === 'ventes' && <SalesView articles={articles} boutiques={boutiques} clients={clients} commandes={commandes} onMakeSale={(s) => { setCommandes(prev => [s.order, ...prev]); if(s.transaction) setTransactions(prev => [s.transaction, ...prev]); if(s.newComptes) setComptes(s.newComptes); }} onAddPayment={handleGlobalAddPayment} comptes={comptes} onCancelSale={() => {}} companyAssets={companyAssets} currentUser={user} />}
-                    {currentView === 'production' && <ProductionView commandes={commandes} employes={employes} clients={clients} articles={articles} userRole={user.role} onUpdateStatus={(id, s) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, statut: s } : c))} onCreateOrder={(o, cons, meth, acc) => { setCommandes(prev => [o, ...prev]); if (o.avance > 0 && acc) { setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + o.avance } : c)); const acTransaction: TransactionTresorerie = { id: `TR_AC_${Date.now()}`, date: new Date().toISOString().split('T')[0], type: 'ENCAISSEMENT', montant: o.avance, compteId: acc, description: `Acompte initial : ${o.clientNom}`, categorie: 'VENTE', createdBy: user?.nom }; setTransactions(prev => [acTransaction, ...prev]); } }} onUpdateOrder={handleUpdateOrder} onAddPayment={handleGlobalAddPayment} onUpdatePayment={handleGlobalUpdatePayment} onDeletePayment={handleGlobalDeletePayment} onAddTask={handleAddTaskToOrder} onUpdateTask={handleUpdateTask} onArchiveOrder={(id) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} comptes={comptes} companyAssets={companyAssets} />}
+                    {currentView === 'production' && <ProductionView 
+                        commandes={commandes} 
+                        employes={employes} 
+                        clients={clients} 
+                        articles={articles} 
+                        userRole={user.role} 
+                        onUpdateStatus={(id, s) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, statut: s } : c))} 
+                        onCreateOrder={(o, cons, meth, acc) => { 
+                            setCommandes(prev => [o, ...prev]); 
+                            if (o.avance > 0 && acc) { 
+                                setComptes(prev => prev.map(c => c.id === acc ? { ...c, solde: c.solde + o.avance } : c)); 
+                                const acTransaction: TransactionTresorerie = { id: `TR_AC_${Date.now()}`, date: new Date().toISOString().split('T')[0], type: 'ENCAISSEMENT', montant: o.avance, compteId: acc, description: `Acompte initial : ${o.clientNom}`, categorie: 'VENTE', createdBy: user?.nom }; 
+                                setTransactions(prev => [acTransaction, ...prev]); 
+                            } 
+                            
+                            // LOGIQUE DEDUCTION STOCK CONSOMMATIONS
+                            if (cons && cons.length > 0) {
+                                const updatedArticles = [...articles];
+                                cons.forEach(cItem => {
+                                    const artIdx = updatedArticles.findIndex(a => a.id === cItem.articleId);
+                                    if (artIdx !== -1) {
+                                        const art = updatedArticles[artIdx];
+                                        const newStock = { ...art.stockParLieu };
+                                        if (!newStock['ATELIER']) newStock['ATELIER'] = {};
+                                        newStock['ATELIER'][cItem.variante] = (newStock['ATELIER'][cItem.variante] || 0) - cItem.quantite;
+                                        updatedArticles[artIdx] = { ...art, stockParLieu: newStock };
+
+                                        // Enregistrer le mouvement
+                                        const mvt: MouvementStock = {
+                                            id: `MVT_CONS_${Date.now()}_${cItem.id}`,
+                                            date: new Date().toISOString(),
+                                            articleId: art.id,
+                                            articleNom: art.nom,
+                                            variante: cItem.variante,
+                                            type: TypeMouvement.CONSOMMATION,
+                                            quantite: -cItem.quantite,
+                                            lieuId: 'ATELIER',
+                                            commentaire: `Production Commande #${o.id.slice(-6)}`
+                                        };
+                                        setMouvements(prev => [mvt, ...prev]);
+                                    }
+                                });
+                                setArticles(updatedArticles);
+                            }
+                        }} 
+                        onUpdateOrder={handleUpdateOrder} 
+                        onAddPayment={handleGlobalAddPayment} 
+                        onUpdatePayment={handleGlobalUpdatePayment} 
+                        onDeletePayment={handleGlobalDeletePayment} 
+                        onAddTask={handleAddTaskToOrder} 
+                        onUpdateTask={handleUpdateTask} 
+                        onArchiveOrder={(id) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} 
+                        comptes={comptes} 
+                        companyAssets={companyAssets} 
+                    />}
                     {currentView === 'stock' && <StockView articles={articles} boutiques={boutiques} mouvements={mouvements} userRole={user.role} onAddMouvement={(m) => setMouvements(prev => [m, ...prev])} onAddBoutique={(b) => setBoutiques(prev => [...prev, b])} onUpdateBoutique={(b) => setBoutiques(prev => prev.map(item => item.id === b.id ? b : item))} onDeleteBoutique={(id) => setBoutiques(prev => prev.filter(b => b.id !== id))} />}
                     {currentView === 'approvisionnement' && <ProcurementView commandesFournisseurs={commandesFournisseurs} fournisseurs={fournisseurs} articles={articles} boutiques={boutiques} onAddOrder={(o, accId) => { setCommandesFournisseurs(prev => [o, ...prev]); if (o.montantPaye > 0 && accId) setComptes(prev => prev.map(c => c.id === accId ? { ...c, solde: c.solde - o.montantPaye } : c)); }} onUpdateOrder={(o) => setCommandesFournisseurs(prev => prev.map(cmd => cmd.id === o.id ? o : cmd))} onReceiveOrder={handleReceiveProcurementOrder} onAddPayment={handleAddProcurementPayment} onUpdateArticle={(a) => setArticles(prev => prev.map(art => art.id === a.id ? a : art))} onArchiveOrder={(id) => setCommandesFournisseurs(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} comptes={comptes} />}
                     {currentView === 'fournisseurs' && <SuppliersView fournisseurs={fournisseurs} commandesFournisseurs={commandesFournisseurs} onAddFournisseur={(f) => setFournisseurs(prev => [...prev, f])} onUpdateFournisseur={(f) => setFournisseurs(prev => prev.map(item => item.id === f.id ? f : item))} onDeleteFournisseur={(id) => setFournisseurs(prev => prev.filter(f => f.id !== id))} onAddPayment={() => {}} comptes={comptes} />}
