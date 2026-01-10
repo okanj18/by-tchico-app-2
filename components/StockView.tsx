@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { Article, Boutique, MouvementStock, TypeMouvement, RoleEmploye } from '../types';
 import { Box, ArrowRightLeft, History, AlertTriangle, Building, Search, Package, X, Save, TrendingUp, TrendingDown, BarChart2, Filter, Edit, Layers, Plus, Trash2, LayoutGrid, List, CheckCircle, AlertOctagon, ArrowRight, Eye, Settings2 } from 'lucide-react';
@@ -31,11 +32,6 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
     const [isBoutiqueModalOpen, setIsBoutiqueModalOpen] = useState(false);
     const [isManageBoutiquesModalOpen, setIsManageBoutiquesModalOpen] = useState(false);
     const [selectedArticleForDetail, setSelectedArticleForDetail] = useState<Article | null>(null); 
-
-    // Quick Edit Stock State
-    const [isQuickEditModalOpen, setIsQuickEditModalOpen] = useState(false);
-    const [quickEditArticle, setQuickEditArticle] = useState<Article | null>(null);
-    const [stockEdits, setStockEdits] = useState<Record<string, number>>({}); 
 
     // Form States 
     const [selectedArticleId, setSelectedArticleId] = useState('');
@@ -77,7 +73,7 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
     const getArticleTotalInShop = (a: Article, shopId: string): number => {
         const variants = a.stockParLieu[shopId];
         if (!variants) return 0;
-        return Object.values(variants).reduce((acc: number, qty: number) => acc + qty, 0);
+        return Object.values(variants).reduce((acc: number, qty: any) => acc + (qty as number), 0);
     };
 
     const filteredArticles = articles.filter(a => {
@@ -138,11 +134,11 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
     // --- ACTIONS ---
     const handleTransfer = () => {
         if (!selectedArticleId || !selectedSourceId || !selectedDestId || quantity <= 0) {
-            alert("Veuillez remplir tous les champs et saisir une quantité valide.");
+            alert("Veuillez remplir tous les champs.");
             return;
         }
         if (selectedSourceId === selectedDestId) {
-            alert("La source et la destination doivent être différentes.");
+            alert("Source et destination identiques.");
             return;
         }
         const article = articles.find(a => a.id === selectedArticleId);
@@ -151,13 +147,12 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
         const stockSource = article.stockParLieu[selectedSourceId]?.[variantToMove] || 0;
 
         if (stockSource < quantity) {
-            const boutiqueSource = boutiques.find(b => b.id === selectedSourceId)?.nom || selectedSourceId;
-            alert(`⚠️ STOCK INSUFFISANT\n\nImpossible de transférer ${quantity} ${article.unite}.\nLe stock actuel à "${boutiqueSource}" est de : ${stockSource}.`);
+            alert(`Stock insuffisant (${stockSource} dispo).`);
             return;
         }
 
-        const mOut: MouvementStock = {
-            id: `M${Date.now()}_TR`,
+        const mTransfer: MouvementStock = {
+            id: `M${Date.now()}_TR_${Math.random().toString(36).substr(2, 5)}`,
             date: new Date().toISOString(),
             articleId: article.id,
             articleNom: article.nom,
@@ -168,75 +163,9 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
             lieuDestinationId: selectedDestId,
             commentaire: reason || `Transfert vers ${boutiques.find(b => b.id === selectedDestId)?.nom}`
         };
-        onAddMouvement(mOut);
+        onAddMouvement(mTransfer);
         setIsTransferModalOpen(false);
         resetForm();
-    };
-
-    // Fix: replaced undefined variable 'item' with 'article.id' in handleAddToMassList
-    const handleAddToMassList = () => {
-        if (!massSourceId) { alert("Veuillez sélectionner une boutique source."); return; }
-        if (!massTempArticleId || massTempQty <= 0) { return; }
-        const article = articles.find(a => a.id === massTempArticleId);
-        if (!article) return;
-        const variantToMove = massTempVariant || 'Standard';
-        const stockSource = article.stockParLieu[massSourceId]?.[variantToMove] || 0;
-        const existingInList = massTransferList.find(i => i.articleId === article.id && i.variante === variantToMove);
-        const qtyAlreadyQueued = existingInList ? existingInList.quantite : 0;
-
-        if (stockSource < (massTempQty + qtyAlreadyQueued)) {
-            alert(`Stock insuffisant. Disponible: ${stockSource}, Déjà dans la liste: ${qtyAlreadyQueued}, Demandé: ${massTempQty}`);
-            return;
-        }
-
-        if (existingInList) {
-            setMassTransferList(prev => prev.map(item => item.tempId === existingInList.tempId ? { ...item, quantite: item.quantite + massTempQty } : item));
-        } else {
-            setMassTransferList(prev => [...prev, {
-                tempId: Date.now().toString(),
-                articleId: article.id,
-                articleNom: article.nom,
-                variante: variantToMove,
-                quantite: massTempQty,
-                unite: article.unite
-            }]);
-        }
-        setMassTempQty(0);
-    };
-
-    const handleRemoveFromMassList = (tempId: string) => {
-        if (window.confirm("Voulez-vous retirer cet article de la liste de transfert ?")) {
-            setMassTransferList(prev => prev.filter(i => i.tempId !== tempId));
-        }
-    };
-
-    const executeMassTransfer = () => {
-        if (!massSourceId || !massDestId || massTransferList.length === 0) {
-            alert("Informations incomplètes.");
-            return;
-        }
-        if (massSourceId === massDestId) {
-            alert("La source et la destination doivent être différentes.");
-            return;
-        }
-        const destName = boutiques.find(b => b.id === massDestId)?.nom || 'Autre';
-        massTransferList.forEach(item => {
-            const mOut: MouvementStock = {
-                id: `M${Date.now()}_TR_MASS_${Math.floor(Math.random() * 1000)}`,
-                date: new Date().toISOString(),
-                articleId: item.articleId,
-                articleNom: item.articleNom,
-                variante: item.variante,
-                type: TypeMouvement.TRANSFERT,
-                quantite: -item.quantite,
-                lieuId: massSourceId,
-                lieuDestinationId: massDestId,
-                commentaire: `Transfert de masse vers ${destName}`
-            };
-            onAddMouvement(mOut);
-        });
-        setIsMassTransferModalOpen(false);
-        resetMassForm();
     };
 
     const handleAdjustment = () => {
@@ -250,12 +179,12 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
         if (adjustmentType === 'REMOVE') {
             const currentStock = article.stockParLieu[selectedSourceId]?.[variantToAdj] || 0;
             if (currentStock < quantity) {
-                alert(`Stock insuffisant pour retirer ${quantity}. Stock actuel: ${currentStock}`);
+                alert(`Stock insuffisant.`);
                 return;
             }
         }
         const mAdj: MouvementStock = {
-            id: `M${Date.now()}_ADJ`,
+            id: `M${Date.now()}_ADJ_${Math.random().toString(36).substr(2, 5)}`,
             date: new Date().toISOString(),
             articleId: article.id,
             articleNom: article.nom,
@@ -270,59 +199,11 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
         resetForm();
     };
 
-    const handleSaveBoutique = () => {
-        if (!newBoutique.nom || !newBoutique.lieu) return;
-        
-        if (editingBoutiqueId) {
-            onUpdateBoutique?.({
-                id: editingBoutiqueId,
-                nom: newBoutique.nom,
-                lieu: newBoutique.lieu
-            });
-            setEditingBoutiqueId(null);
-        } else {
-            onAddBoutique({
-                id: `B${Date.now()}`,
-                nom: newBoutique.nom,
-                lieu: newBoutique.lieu
-            });
-        }
-        setIsBoutiqueModalOpen(false);
-        setNewBoutique({ nom: '', lieu: '' });
-    };
-
-    const handleDeleteBoutiqueConfirm = (b: Boutique) => {
-        if (b.id === 'ATELIER') {
-            alert("Impossible de supprimer l'Atelier Central (Production).");
-            return;
-        }
-        
-        // Vérifier si des articles ont du stock dans cette boutique
-        const hasStock = articles.some(a => getArticleTotalInShop(a, b.id) > 0);
-        if (hasStock) {
-            if (!window.confirm(`⚠️ Attention : La boutique "${b.nom}" contient encore des articles en stock. Voulez-vous vraiment la supprimer ? Les niveaux de stock locaux seront perdus.`)) {
-                return;
-            }
-        } else if (!window.confirm(`Confirmer la suppression de la boutique "${b.nom}" ?`)) {
-            return;
-        }
-
-        onDeleteBoutique?.(b.id);
-    };
-
-    const openEditBoutique = (b: Boutique) => {
-        setNewBoutique({ nom: b.nom, lieu: b.lieu });
-        setEditingBoutiqueId(b.id);
-        setIsBoutiqueModalOpen(true);
-    };
-
-    // Objets sélectionnés pour l'affichage dynamique
     const selectedArticleObj = articles.find(a => a.id === selectedArticleId);
     const massSelectedArticleObj = articles.find(a => a.id === massTempArticleId);
 
     return (
         <div className="h-[calc(100vh-8rem)] flex flex-col space-y-4">
-            {/* --- HEADER ET BOUTONS --- */}
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                     <Box className="text-brand-600" /> Gestion des Stocks
@@ -339,7 +220,6 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
                 </div>
             </div>
 
-            {/* --- STATS CARDS --- */}
             {viewMode === 'LEVELS' && (
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-2">
                     <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between"><div><p className="text-xs text-gray-500 uppercase font-bold">Total Références</p><p className="text-2xl font-bold text-gray-900">{articles.length}</p></div><Box size={24} className="text-gray-300"/></div>
@@ -349,491 +229,242 @@ const StockView: React.FC<StockViewProps> = ({ articles, boutiques, mouvements, 
                 </div>
             )}
 
-            {/* --- FILTERS & ACTIONS BAR --- */}
-            {viewMode !== 'ANALYSIS' && (
-                <div className="flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center">
-                    <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
-                        <div className="relative flex-1 sm:min-w-[250px]">
-                            <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
-                            <input type="text" placeholder={viewMode === 'LEVELS' ? "Rechercher un article..." : "Rechercher un mouvement..."} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500" />
-                        </div>
-                        {viewMode === 'LEVELS' && (
-                            <div className="flex bg-white border border-gray-200 p-1 rounded-lg overflow-x-auto">
-                                {['ALL', 'AVAILABLE', 'LOW', 'OUT'].map(filter => (
-                                    <button key={filter} onClick={() => setStockFilter(filter as any)} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors whitespace-nowrap ${stockFilter === filter ? (filter === 'OUT' ? 'bg-red-100 text-red-700' : filter === 'LOW' ? 'bg-orange-100 text-orange-700' : filter === 'AVAILABLE' ? 'bg-green-100 text-green-700' : 'bg-gray-800 text-white') : 'text-gray-500 hover:bg-gray-50'}`}>{filter === 'ALL' ? 'Tous' : filter === 'AVAILABLE' ? 'Disponibles' : filter === 'LOW' ? 'Faible' : 'En Rupture'}</button>
-                                ))}
-                            </div>
-                        )}
+            <div className="flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center">
+                <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
+                    <div className="relative flex-1 sm:min-w-[250px]">
+                        <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                        <input type="text" placeholder={viewMode === 'LEVELS' ? "Rechercher un article..." : "Rechercher un mouvement..."} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500" />
                     </div>
-
-                    {canManageStock && (
-                        <div className="flex gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap">
-                            <button onClick={() => { resetForm(); setIsTransferModalOpen(true); }} className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors text-sm"><ArrowRightLeft size={16} /> Transfert</button>
-                            <button onClick={() => { resetMassForm(); setIsMassTransferModalOpen(true); }} className="flex-1 sm:flex-none bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors text-sm"><Layers size={16} /> En Masse</button>
-                            <button onClick={() => { resetForm(); setIsAdjustmentModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors text-sm"><AlertTriangle size={16} /> Ajustement</button>
-                            <div className="flex gap-1">
-                                <button onClick={() => { setEditingBoutiqueId(null); setNewBoutique({nom:'', lieu:''}); setIsBoutiqueModalOpen(true); }} className="flex-1 sm:flex-none bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-l-lg flex items-center justify-center gap-2 font-medium transition-colors text-sm border-r border-gray-700"><Plus size={16} /> Boutique</button>
-                                <button onClick={() => setIsManageBoutiquesModalOpen(true)} className="bg-gray-800 hover:bg-gray-900 text-white px-2 py-2 rounded-r-lg" title="Gérer les boutiques"><Settings2 size={16}/></button>
-                            </div>
-                        </div>
-                    )}
                 </div>
-            )}
 
-            {/* --- MAIN CONTENT AREA --- */}
+                {canManageStock && (
+                    <div className="flex gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap">
+                        <button onClick={() => { resetForm(); setIsTransferModalOpen(true); }} className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors text-sm"><ArrowRightLeft size={16} /> Transfert</button>
+                        <button onClick={() => { resetForm(); setIsAdjustmentModalOpen(true); }} className="flex-1 sm:flex-none bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors text-sm"><AlertTriangle size={16} /> Ajustement</button>
+                    </div>
+                )}
+            </div>
+
             <div className="flex-1 overflow-y-auto bg-white rounded-xl shadow-sm border border-gray-200">
                 {viewMode === 'LEVELS' ? (
-                    levelsViewMode === 'LIST' ? (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-gray-50 text-gray-600 font-medium sticky top-0 z-10 border-b border-gray-200">
-                                    <tr>
-                                        <th className="py-3 px-4">Article</th>
-                                        <th className="py-3 px-4">Type</th>
-                                        <th className="py-3 px-4 text-center">Total Global</th>
-                                        {boutiques.map(b => (
-                                            <th key={b.id} className="py-3 px-4 text-center border-l border-gray-100">{b.nom}</th>
-                                        ))}
-                                        <th className="py-3 px-4 text-center">Détails</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {filteredArticles.map(article => {
-                                        const total = getArticleTotal(article);
-                                        const statusColor = total === 0 ? 'text-red-500' : total <= article.seuilAlerte ? 'text-orange-500' : 'text-green-600';
-                                        return (
-                                            <tr key={article.id} className="hover:bg-gray-50">
-                                                <td className="py-3 px-4 font-bold text-gray-800">{article.nom}</td>
-                                                <td className="py-3 px-4 text-gray-500 text-xs">{article.categorie}</td>
-                                                <td className={`py-3 px-4 text-center font-bold ${statusColor} bg-gray-50`}>{total} {article.unite}</td>
-                                                {boutiques.map(b => {
-                                                    const shopTotal = getArticleTotalInShop(article, b.id);
-                                                    return (
-                                                        <td key={b.id} className="py-3 px-4 text-center border-l border-gray-100 text-gray-700">
-                                                            {shopTotal > 0 ? shopTotal : <span className="text-gray-300">-</span>}
-                                                        </td>
-                                                    );
-                                                })}
-                                                <td className="py-3 px-4 text-center">
-                                                    <button 
-                                                        onClick={() => setSelectedArticleForDetail(article)}
-                                                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                                        title="Voir détails par variante"
-                                                    >
-                                                        <Eye size={16}/>
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    ) : (
-                        <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {filteredArticles.map(article => (
-                                <div key={article.id} className="bg-white border rounded-lg p-4 shadow-sm relative">
-                                    <div className="flex justify-between items-start mb-2">
-                                        <h3 className="font-bold text-gray-800 pr-8">{article.nom}</h3>
-                                        <span className={`text-xs font-bold px-2 py-1 rounded ${getArticleTotal(article) <= article.seuilAlerte ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
-                                            {getArticleTotal(article)} {article.unite}
-                                        </span>
-                                    </div>
-                                    <button 
-                                        onClick={() => setSelectedArticleForDetail(article)}
-                                        className="absolute top-4 right-4 text-blue-500 hover:bg-blue-50 p-1 rounded"
-                                        title="Voir Détails"
-                                    >
-                                        <Eye size={16}/>
-                                    </button>
-                                    <div className="space-y-1 mt-3">
-                                        {boutiques.map(b => {
-                                            const qty = getArticleTotalInShop(article, b.id);
-                                            return (
-                                                <div key={b.id} className="flex justify-between text-sm border-b border-gray-100 pb-1 last:border-0">
-                                                    <span className="text-gray-500">{b.nom}</span>
-                                                    <span className={`font-medium ${qty > 0 ? 'text-gray-800' : 'text-gray-300'}`}>{qty}</span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )
-                ) : viewMode === 'HISTORY' ? (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-50 text-gray-600 font-medium sticky top-0 z-10 border-b border-gray-200">
+                                <tr>
+                                    <th className="py-3 px-4">Article</th>
+                                    <th className="py-3 px-4">Type</th>
+                                    <th className="py-3 px-4 text-center">Total Global</th>
+                                    {boutiques.map(b => (
+                                        <th key={b.id} className="py-3 px-4 text-center border-l border-gray-100">{b.nom}</th>
+                                    ))}
+                                    <th className="py-3 px-4 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {filteredArticles.map(article => {
+                                    const total = getArticleTotal(article);
+                                    const statusColor = total === 0 ? 'text-red-500' : total <= article.seuilAlerte ? 'text-orange-500' : 'text-green-600';
+                                    return (
+                                        <tr key={article.id} className="hover:bg-gray-50 transition-colors">
+                                            <td className="py-3 px-4 font-bold text-gray-800 uppercase tracking-tighter">{article.nom}</td>
+                                            <td className="py-3 px-4 text-gray-500 text-[10px] font-black uppercase">{article.categorie}</td>
+                                            <td className={`py-3 px-4 text-center font-black ${statusColor} bg-gray-50/50`}>{total} {article.unite}</td>
+                                            {boutiques.map(b => {
+                                                const shopTotal = getArticleTotalInShop(article, b.id);
+                                                return (
+                                                    <td key={b.id} className="py-3 px-4 text-center border-l border-gray-100 text-gray-700 font-bold">
+                                                        {shopTotal > 0 ? shopTotal : <span className="text-gray-200">-</span>}
+                                                    </td>
+                                                );
+                                            })}
+                                            <td className="py-3 px-4 text-center">
+                                                <button 
+                                                    onClick={() => setSelectedArticleForDetail(article)}
+                                                    className="p-2 text-brand-600 hover:bg-brand-50 rounded-xl transition-all border border-transparent hover:border-brand-100"
+                                                    title="Détails par variante"
+                                                >
+                                                    <Eye size={18}/>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 text-gray-600 font-medium sticky top-0 z-10 border-b border-gray-200">
                                 <tr>
                                     <th className="py-3 px-4">Date</th>
                                     <th className="py-3 px-4">Article</th>
-                                    <th className="py-3 px-4">Type Mouvement</th>
+                                    <th className="py-3 px-4">Action</th>
                                     <th className="py-3 px-4">Quantité</th>
                                     <th className="py-3 px-4">Lieu</th>
-                                    <th className="py-3 px-4">Détail</th>
+                                    <th className="py-3 px-4">Commentaire</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {filteredMouvements.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(m => (
                                     <tr key={m.id} className="hover:bg-gray-50">
-                                        <td className="py-3 px-4 text-gray-500">{new Date(m.date).toLocaleDateString()}</td>
-                                        <td className="py-3 px-4 font-medium text-gray-800">{m.articleNom} <span className="text-xs text-gray-400">({m.variante})</span></td>
+                                        <td className="py-3 px-4 text-[10px] font-bold text-gray-400">{new Date(m.date).toLocaleDateString()}</td>
+                                        <td className="py-3 px-4 font-bold text-gray-800 uppercase text-xs">{m.articleNom} <span className="text-[10px] text-gray-400 font-normal">({m.variante})</span></td>
                                         <td className="py-3 px-4">
-                                            <span className={`px-2 py-1 rounded text-xs font-bold 
-                                                ${m.type === TypeMouvement.VENTE || m.type === TypeMouvement.CONSOMMATION ? 'bg-orange-100 text-orange-800' : 
-                                                  m.type === TypeMouvement.ACHAT || m.type === TypeMouvement.PRODUCTION ? 'bg-green-100 text-green-800' : 
-                                                  'bg-blue-100 text-blue-800'}`}>
+                                            <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase border 
+                                                ${m.type === TypeMouvement.VENTE || m.type === TypeMouvement.CONSOMMATION ? 'bg-orange-50 text-orange-700 border-orange-100' : 
+                                                  m.type === TypeMouvement.ACHAT || m.type === TypeMouvement.PRODUCTION ? 'bg-green-50 text-green-700 border-green-100' : 
+                                                  'bg-blue-50 text-blue-700 border-blue-100'}`}>
                                                 {m.type}
                                             </span>
                                         </td>
-                                        <td className={`py-3 px-4 font-bold ${m.quantite > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        <td className={`py-3 px-4 font-black ${m.quantite > 0 ? 'text-green-600' : 'text-red-600'}`}>
                                             {m.quantite > 0 ? '+' : ''}{m.quantite}
                                         </td>
-                                        <td className="py-3 px-4 text-gray-600">
-                                            {boutiques.find(b => b.id === m.lieuId)?.nom} 
-                                            {m.lieuDestinationId && <span className="text-gray-400"> → {boutiques.find(b => b.id === m.lieuDestinationId)?.nom}</span>}
+                                        <td className="py-3 px-4 text-gray-600 text-xs font-bold uppercase">
+                                            {boutiques.find(b => b.id === m.lieuId)?.nom || 'Inconnu'} 
+                                            {m.lieuDestinationId && <span className="text-gray-300"> → {boutiques.find(b => b.id === m.lieuDestinationId)?.nom}</span>}
                                         </td>
-                                        <td className="py-3 px-4 text-gray-500 text-xs italic">{m.commentaire}</td>
+                                        <td className="py-3 px-4 text-gray-400 text-[10px] font-medium italic">{m.commentaire}</td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
-                ) : (
-                    <div className="p-8 text-center text-gray-400">
-                        <BarChart2 size={48} className="mx-auto mb-2 opacity-20"/>
-                        <p>Module d'analyse des flux en cours de développement.</p>
-                    </div>
                 )}
             </div>
 
-            {/* --- MODAL GESTION BOUTIQUES --- */}
-            {isManageBoutiquesModalOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in fade-in zoom-in duration-200">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-xl font-bold flex items-center gap-2 text-gray-800">
-                                <Building size={20} className="text-brand-600"/> Liste des Points de Vente
-                            </h3>
-                            <button onClick={() => setIsManageBoutiquesModalOpen(false)} className="p-1 hover:bg-gray-100 rounded-full text-gray-400"><X size={24}/></button>
-                        </div>
-                        
-                        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
-                            {boutiques.map(b => (
-                                <div key={b.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100 group transition-all hover:bg-white hover:border-brand-200 hover:shadow-sm">
-                                    <div>
-                                        <p className="font-bold text-gray-800 uppercase text-xs">{b.nom}</p>
-                                        <p className="text-[10px] text-gray-400 font-medium uppercase mt-0.5">{b.lieu}</p>
-                                    </div>
-                                    {b.id !== 'ATELIER' && (
-                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button onClick={() => openEditBoutique(b)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Edit size={16}/></button>
-                                            <button onClick={() => handleDeleteBoutiqueConfirm(b)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>
-                                        </div>
-                                    )}
-                                    {b.id === 'ATELIER' && (
-                                        <span className="text-[8px] font-black uppercase text-gray-300 tracking-widest">Siège (Fixe)</span>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-
-                        <div className="mt-6 flex justify-end">
-                            <button onClick={() => setIsManageBoutiquesModalOpen(false)} className="px-6 py-2 bg-gray-800 text-white rounded-lg font-bold">Fermer</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* --- MODAL DETAILS STOCK PAR VARIANTE --- */}
+            {/* MODAL DÉTAILS PAR VARIANTE - ACTIVÉ */}
             {selectedArticleForDetail && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-[60] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl p-6 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
-                        <div className="flex justify-between items-center mb-4 shrink-0">
-                            <h3 className="text-xl font-bold flex items-center gap-2 text-gray-800">
-                                <Box className="text-brand-600" /> Détails Stock : {selectedArticleForDetail.nom}
-                            </h3>
-                            <button onClick={() => setSelectedArticleForDetail(null)} className="hover:bg-gray-100 p-1 rounded-full text-gray-500"><X size={24}/></button>
+                <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in">
+                    <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in border border-brand-100">
+                        <div className="p-8 border-b flex justify-between items-center bg-white shrink-0">
+                            <div>
+                                <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tighter">{selectedArticleForDetail.nom}</h3>
+                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em]">{selectedArticleForDetail.categorie}</p>
+                            </div>
+                            <button onClick={() => setSelectedArticleForDetail(null)} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><X size={28} className="text-gray-400"/></button>
                         </div>
-                        
-                        <div className="flex-1 overflow-auto border rounded-lg">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-gray-50 text-gray-600 font-medium sticky top-0">
-                                    <tr>
-                                        <th className="p-3">Variante</th>
-                                        <th className="p-3 text-center bg-gray-100 font-bold border-l border-r border-gray-200">TOTAL</th>
-                                        {boutiques.map(b => (
-                                            <th key={b.id} className="p-3 text-center border-r border-gray-100">{b.nom}</th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {selectedArticleForDetail.variantes.length > 0 ? (
-                                        selectedArticleForDetail.variantes.map(variant => {
-                                            return (
-                                                <tr key={variant} className="hover:bg-gray-50">
-                                                    <td className="p-3 font-medium text-gray-800">{variant}</td>
-                                                    <td className="p-3 text-center font-bold bg-gray-50 border-l border-r border-gray-200">
-                                                        {(() => {
-                                                            const tot = (Object.values(selectedArticleForDetail.stockParLieu) as Record<string, number>[]).reduce((acc: number, place) => acc + (Number(place[variant]) || 0), 0);
-                                                            return tot;
-                                                        })()}
-                                                    </td>
-                                                    {boutiques.map(b => (
-                                                        <td key={b.id} className="p-3 text-center border-r border-gray-100 text-gray-600">
-                                                            {selectedArticleForDetail.stockParLieu[b.id]?.[variant] || '-'}
-                                                        </td>
-                                                    ))}
-                                                </tr>
-                                            );
-                                        })
-                                    ) : (
-                                        <tr className="hover:bg-gray-50">
-                                            <td className="p-3 font-medium text-gray-800">Standard</td>
-                                            <td className="p-3 text-center font-bold bg-gray-50 border-l border-r border-gray-200">
-                                                {getArticleTotal(selectedArticleForDetail)}
-                                            </td>
-                                            {boutiques.map(b => (
-                                                <td key={b.id} className="p-3 text-center border-r border-gray-100 text-gray-600">
-                                                    {selectedArticleForDetail.stockParLieu[b.id]?.['Standard'] || '-'}
-                                                </td>
-                                            ))}
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
+                        <div className="p-8 overflow-y-auto max-h-[70vh] custom-scrollbar bg-gray-50/30">
+                            <div className="space-y-4">
+                                {selectedArticleForDetail.variantes.length > 0 ? (
+                                    selectedArticleForDetail.variantes.map(variant => (
+                                        <div key={variant} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm group hover:border-brand-300 transition-all">
+                                            <div className="flex justify-between items-center mb-4 border-b border-gray-50 pb-3">
+                                                <span className="font-black text-brand-900 uppercase text-xs tracking-widest">{variant}</span>
+                                                <span className="text-lg font-black text-gray-800">
+                                                    {Object.values(selectedArticleForDetail.stockParLieu).reduce((acc: number, p: any) => acc + (p[variant] || 0), 0)} {selectedArticleForDetail.unite}
+                                                </span>
+                                            </div>
+                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                                {boutiques.map(b => {
+                                                    const q = selectedArticleForDetail.stockParLieu[b.id]?.[variant] || 0;
+                                                    return (
+                                                        <div key={b.id} className="bg-gray-50/50 p-3 rounded-xl border border-gray-100 text-center">
+                                                            <p className="text-[8px] font-black text-gray-400 uppercase mb-1 truncate">{b.nom}</p>
+                                                            <p className={`text-sm font-black ${q > 0 ? 'text-gray-800' : 'text-gray-200'}`}>{q}</p>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm">
+                                        <div className="flex justify-between items-center mb-6 border-b pb-4">
+                                            <span className="font-black text-brand-900 uppercase text-xs tracking-widest">STOCK STANDARD</span>
+                                            <span className="text-2xl font-black text-gray-800">
+                                                {Object.values(selectedArticleForDetail.stockParLieu).reduce((acc: number, p: any) => acc + (p['Standard'] || 0), 0)} {selectedArticleForDetail.unite}
+                                            </span>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            {boutiques.map(b => {
+                                                const q = selectedArticleForDetail.stockParLieu[b.id]?.['Standard'] || 0;
+                                                return (
+                                                    <div key={b.id} className="bg-gray-50 p-4 rounded-2xl border border-gray-100 text-center">
+                                                        <p className="text-[10px] font-black text-gray-400 uppercase mb-1 truncate">{b.nom}</p>
+                                                        <p className={`text-xl font-black ${q > 0 ? 'text-brand-900' : 'text-gray-200'}`}>{q}</p>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                        <div className="mt-4 flex justify-end">
-                            <button onClick={() => setSelectedArticleForDetail(null)} className="px-4 py-2 bg-gray-800 text-white rounded font-medium hover:bg-gray-900">Fermer</button>
+                        <div className="p-6 bg-gray-50 border-t flex justify-end shrink-0">
+                            <button onClick={() => setSelectedArticleForDetail(null)} className="px-10 py-3 bg-brand-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Fermer la fiche</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* --- MODAL TRANSFERT --- */}
+            {/* MODAL TRANSFERT */}
             {isTransferModalOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
-                        <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-800">
-                            <ArrowRightLeft className="text-blue-600" /> Transfert de Stock
-                        </h3>
+                <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-md animate-in zoom-in">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 border border-brand-100">
+                        <div className="flex justify-between items-center mb-6 shrink-0 border-b pb-4">
+                            <h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3 text-blue-600"><ArrowRightLeft /> Transfert de Stock</h3>
+                            <button onClick={() => setIsTransferModalOpen(false)}><X size={28} className="text-gray-300"/></button>
+                        </div>
                         <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Article</label>
-                                <select className="w-full p-2 border border-gray-300 rounded" value={selectedArticleId} onChange={e => setSelectedArticleId(e.target.value)}>
-                                    <option value="">-- Sélectionner --</option>
-                                    {articles.map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}
-                                </select>
+                            <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1.5 block ml-1">Article</label>
+                                <select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black uppercase text-xs" value={selectedArticleId} onChange={e => setSelectedArticleId(e.target.value)}><option value="">-- Choisir Article --</option>{articles.map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}</select>
                             </div>
                             {selectedArticleObj && selectedArticleObj.variantes.length > 0 && (
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Variante</label>
-                                    <select className="w-full p-2 border border-gray-300 rounded" value={selectedVariant} onChange={e => setSelectedVariant(e.target.value)}>
-                                        <option value="">-- Sélectionner --</option>
-                                        {selectedArticleObj.variantes.map(v => <option key={v} value={v}>{v}</option>)}
-                                    </select>
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1.5 block ml-1">Variante / Taille</label>
+                                    <select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black uppercase text-xs" value={selectedVariant} onChange={e => setSelectedVariant(e.target.value)}><option value="">-- Choisir Variante --</option>{selectedArticleObj.variantes.map(v => <option key={v} value={v}>{v}</option>)}</select>
                                 </div>
                             )}
                             <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Source (De)</label>
-                                    <select className="w-full p-2 border border-gray-300 rounded" value={selectedSourceId} onChange={e => setSelectedSourceId(e.target.value)}>
-                                        <option value="">-- Choisir --</option>
-                                        {boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Destination (Vers)</label>
-                                    <select className="w-full p-2 border border-gray-300 rounded" value={selectedDestId} onChange={e => setSelectedDestId(e.target.value)}>
-                                        <option value="">-- Choisir --</option>
-                                        {boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}
-                                    </select>
-                                </div>
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1.5 block ml-1">Origine</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-black uppercase text-[10px]" value={selectedSourceId} onChange={e => setSelectedSourceId(e.target.value)}><option value="">-- De --</option>{boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}</select></div>
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1.5 block ml-1">Destination</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-black uppercase text-[10px]" value={selectedDestId} onChange={e => setSelectedDestId(e.target.value)}><option value="">-- Vers --</option>{boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}</select></div>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Quantité</label>
-                                <input type="number" className="w-full p-2 border border-gray-300 rounded" value={quantity} onChange={e => setQuantity(parseInt(e.target.value) || 0)} />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Motif / Commentaire</label>
-                                <input type="text" className="w-full p-2 border border-gray-300 rounded" value={reason} onChange={e => setReason(e.target.value)} placeholder="Ex: Réassort boutique" />
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1.5 block ml-1">Quantité</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-brand-600" value={quantity || ''} onChange={e => setQuantity(parseFloat(e.target.value) || 0)} /></div>
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1.5 block ml-1">Motif</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold text-xs" value={reason} onChange={e => setReason(e.target.value)} placeholder="Réassort..."/></div>
                             </div>
                         </div>
-                        <div className="flex justify-end gap-3 mt-6">
-                            <button onClick={() => setIsTransferModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Annuler</button>
-                            <button onClick={handleTransfer} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">Valider</button>
+                        <div className="flex justify-end gap-3 mt-8 pt-4 border-t shrink-0">
+                            <button onClick={() => setIsTransferModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px]">Annuler</button>
+                            <button onClick={handleTransfer} disabled={!selectedArticleId || !selectedSourceId || !selectedDestId || quantity <= 0} className="px-10 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all disabled:opacity-30">Confirmer</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* --- MODAL AJUSTEMENT --- */}
+            {/* MODAL AJUSTEMENT */}
             {isAdjustmentModalOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
-                        <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-800">
-                            <AlertTriangle className="text-orange-600" /> Ajustement de Stock
-                        </h3>
-                        <div className="bg-orange-50 border border-orange-100 p-3 rounded text-sm text-orange-800 mb-4">
-                            Utilisez ceci pour corriger les erreurs d'inventaire, pertes ou vols.
+                <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-md animate-in zoom-in">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 border border-brand-100">
+                        <div className="flex justify-between items-center mb-6 shrink-0 border-b pb-4">
+                            <h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3 text-orange-600"><AlertTriangle /> Ajustement de Stock</h3>
+                            <button onClick={() => setIsAdjustmentModalOpen(false)}><X size={28} className="text-gray-300"/></button>
                         </div>
                         <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Article</label>
-                                <select className="w-full p-2 border border-gray-300 rounded" value={selectedArticleId} onChange={e => setSelectedArticleId(e.target.value)}>
-                                    <option value="">-- Sélectionner --</option>
-                                    {articles.map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}
-                                </select>
+                            <div className="grid grid-cols-2 gap-4">
+                                <button onClick={() => setAdjustmentType('ADD')} className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${adjustmentType === 'ADD' ? 'bg-green-50 border-green-600 text-green-700 shadow-sm' : 'bg-white border-gray-100 text-gray-300'}`}>Ajouter (+)</button>
+                                <button onClick={() => setAdjustmentType('REMOVE')} className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${adjustmentType === 'REMOVE' ? 'bg-red-50 border-red-600 text-red-700 shadow-sm' : 'bg-white border-gray-100 text-gray-300'}`}>Retirer (-)</button>
+                            </div>
+                            <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1.5 block ml-1">Article</label>
+                                <select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black uppercase text-xs" value={selectedArticleId} onChange={e => setSelectedArticleId(e.target.value)}><option value="">-- Choisir Article --</option>{articles.map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}</select>
                             </div>
                             {selectedArticleObj && selectedArticleObj.variantes.length > 0 && (
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Variante</label>
-                                    <select className="w-full p-2 border border-gray-300 rounded" value={selectedVariant} onChange={e => setSelectedVariant(e.target.value)}>
-                                        <option value="">-- Sélectionner --</option>
-                                        {selectedArticleObj.variantes.map(v => <option key={v} value={v}>{v}</option>)}
-                                    </select>
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1.5 block ml-1">Variante spécifique</label>
+                                    <select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black uppercase text-xs" value={selectedVariant} onChange={e => setSelectedVariant(e.target.value)}><option value="">-- Choisir Variante --</option>{selectedArticleObj.variantes.map(v => <option key={v} value={v}>{v}</option>)}</select>
                                 </div>
                             )}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Lieu</label>
-                                <select className="w-full p-2 border border-gray-300 rounded" value={selectedSourceId} onChange={e => setSelectedSourceId(e.target.value)}>
-                                    <option value="">-- Choisir --</option>
-                                    {boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}
-                                </select>
+                            <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1.5 block ml-1">Lieu concerné</label>
+                                <select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black uppercase text-xs" value={selectedSourceId} onChange={e => setSelectedSourceId(e.target.value)}><option value="">-- Choisir Emplacement --</option>{boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}</select>
                             </div>
-                            <div className="flex gap-4">
-                                <div className="flex-1">
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                                    <div className="flex bg-gray-100 p-1 rounded">
-                                        <button onClick={() => setAdjustmentType('ADD')} className={`flex-1 py-1 rounded text-sm font-bold ${adjustmentType === 'ADD' ? 'bg-white shadow text-green-600' : 'text-gray-500'}`}>Ajout (+)</button>
-                                        <button onClick={() => setAdjustmentType('REMOVE')} className={`flex-1 py-1 rounded text-sm font-bold ${adjustmentType === 'REMOVE' ? 'bg-white shadow text-red-600' : 'text-gray-500'}`}>Retrait (-)</button>
-                                    </div>
-                                </div>
-                                <div className="flex-1">
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Quantité</label>
-                                    <input type="number" className="w-full p-2 border border-gray-300 rounded" value={quantity} onChange={e => setQuantity(parseInt(e.target.value) || 0)} />
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Raison</label>
-                                <input type="text" className="w-full p-2 border border-gray-300 rounded" value={reason} onChange={e => setReason(e.target.value)} placeholder="Ex: Inventaire, Perte..." />
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1.5 block ml-1">Quantité</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-orange-600" value={quantity || ''} onChange={e => setQuantity(parseFloat(e.target.value) || 0)} /></div>
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1.5 block ml-1">Raison (Requis)</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold text-xs" value={reason} onChange={e => setReason(e.target.value)} placeholder="Perte, Inventaire..."/></div>
                             </div>
                         </div>
-                        <div className="flex justify-end gap-3 mt-6">
-                            <button onClick={() => setIsAdjustmentModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Annuler</button>
-                            <button onClick={handleAdjustment} className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 font-bold">Enregistrer</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* --- MODAL TRANSFERT EN MASSE --- */}
-            {isMassTransferModalOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl p-6 animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
-                        <div className="flex justify-between items-center mb-4 shrink-0">
-                            <h3 className="text-xl font-bold flex items-center gap-2 text-gray-800">
-                                <Layers className="text-indigo-600" /> Transfert en Masse
-                            </h3>
-                            <button onClick={() => setIsMassTransferModalOpen(false)} className="hover:bg-gray-100 p-1 rounded-full"><X size={24}/></button>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-4 mb-4 shrink-0">
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Source (Départ)</label>
-                                <select className="w-full p-2 border border-gray-300 rounded bg-gray-50" value={massSourceId} onChange={e => setMassSourceId(e.target.value)}>
-                                    <option value="">-- Choisir --</option>
-                                    {boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Destination (Arrivée)</label>
-                                <select className="w-full p-2 border border-gray-300 rounded bg-indigo-50 border-indigo-100" value={massDestId} onChange={e => setMassDestId(e.target.value)}>
-                                    <option value="">-- Choisir --</option>
-                                    {boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}
-                                </select>
-                            </div>
-                        </div>
-
-                        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-4 shrink-0">
-                            <div className="flex gap-2 items-end">
-                                <div className="flex-1">
-                                    <label className="block text-xs text-gray-500 mb-1">Article à ajouter</label>
-                                    <select className="w-full p-1.5 border border-gray-300 rounded text-sm" value={massTempArticleId} onChange={e => { setMassTempArticleId(e.target.value); setMassTempVariant(''); }}>
-                                        <option value="">-- Sélectionner --</option>
-                                        {articles.map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}
-                                    </select>
-                                </div>
-                                {massSelectedArticleObj && massSelectedArticleObj.variantes.length > 0 && (
-                                    <div className="w-1/3">
-                                        <label className="block text-xs text-gray-500 mb-1">Variante</label>
-                                        <select className="w-full p-1.5 border border-gray-300 rounded text-sm" value={massTempVariant} onChange={e => setMassTempVariant(e.target.value)}>
-                                            <option value="">-- Choisir --</option>
-                                            {massSelectedArticleObj.variantes.map(v => <option key={v} value={v}>{v}</option>)}
-                                        </select>
-                                    </div>
-                                )}
-                                <div className="w-20">
-                                    <label className="block text-xs text-gray-500 mb-1">Qté</label>
-                                    <input type="number" className="w-full p-1.5 border border-gray-300 rounded text-sm" value={massTempQty} onChange={e => setMassTempQty(parseInt(e.target.value) || 0)} />
-                                </div>
-                                <button onClick={handleAddToMassList} className="bg-indigo-600 text-white p-1.5 rounded hover:bg-indigo-700"><Plus size={20}/></button>
-                            </div>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg mb-4">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-gray-50 text-gray-600 font-medium sticky top-0">
-                                    <tr>
-                                        <th className="p-2">Article</th>
-                                        <th className="p-2">Variante</th>
-                                        <th className="p-2 text-center">Quantité</th>
-                                        <th className="p-2 w-10"></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {massTransferList.map(item => (
-                                        <tr key={item.tempId} className="border-b border-gray-100 last:border-0">
-                                            <td className="p-2 font-medium">{item.articleNom}</td>
-                                            <td className="p-2 text-gray-500">{item.variante}</td>
-                                            <td className="p-2 text-center font-bold">{item.quantite} {item.unite}</td>
-                                            <td className="p-2 text-center"><button onClick={() => handleRemoveFromMassList(item.tempId)} className="text-red-400 hover:text-red-600"><Trash2 size={16}/></button></td>
-                                        </tr>
-                                    ))}
-                                    {massTransferList.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400 italic">La liste est vide.</td></tr>}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div className="flex justify-end gap-3 shrink-0">
-                            <button onClick={() => setIsMassTransferModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Annuler</button>
-                            <button onClick={executeMassTransfer} disabled={massTransferList.length === 0} className="px-6 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 font-bold disabled:opacity-50">Confirmer Transfert ({massTransferList.length})</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* --- MODAL BOUTIQUE (Ajout/Edition) --- */}
-            {isBoutiqueModalOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-[70] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in duration-200">
-                        <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-800">
-                            <Building className="text-gray-700" /> {editingBoutiqueId ? 'Modifier la Boutique' : 'Nouvelle Boutique'}
-                        </h3>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Nom</label>
-                                <input type="text" className="w-full p-2 border border-gray-300 rounded" value={newBoutique.nom} onChange={e => setNewBoutique({...newBoutique, nom: e.target.value})} placeholder="Ex: Boutique Centre-Ville" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Lieu / Adresse</label>
-                                <input type="text" className="w-full p-2 border border-gray-300 rounded" value={newBoutique.lieu} onChange={e => setNewBoutique({...newBoutique, lieu: e.target.value})} placeholder="Ex: Dakar, Plateau" />
-                            </div>
-                        </div>
-                        <div className="flex justify-end gap-3 mt-6">
-                            <button onClick={() => { setIsBoutiqueModalOpen(false); setEditingBoutiqueId(null); setNewBoutique({nom:'', lieu:''}); }} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Annuler</button>
-                            <button onClick={handleSaveBoutique} className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900 font-bold">{editingBoutiqueId ? 'Mettre à jour' : 'Créer'}</button>
+                        <div className="flex justify-end gap-3 mt-8 pt-4 border-t shrink-0">
+                            <button onClick={() => setIsAdjustmentModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px]">Annuler</button>
+                            <button onClick={handleAdjustment} disabled={!selectedArticleId || !selectedSourceId || !reason || quantity <= 0} className="px-10 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all disabled:opacity-30">Valider</button>
                         </div>
                     </div>
                 </div>
