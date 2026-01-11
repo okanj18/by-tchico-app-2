@@ -276,7 +276,7 @@ const App: React.FC = () => {
         if (!user) return [];
         if (user.role === RoleEmploye.GARDIEN) return ['rh'];
         if (user.role === RoleEmploye.ADMIN || user.role === RoleEmploye.GERANT) return ['dashboard', 'ventes', 'production', 'stock', 'approvisionnement', 'fournisseurs', 'rh', 'clients', 'finance', 'catalogue', 'galerie', 'catalogue-public'];
-        if (user.role === RoleEmploye.VENDEUR) return ['dashboard', 'ventes', 'clients', 'catalogue-public', 'galerie', 'finance'];
+        if (user.role === RoleEmploye.VENDEUR) return ['dashboard', 'ventes', 'production', 'clients', 'catalogue-public', 'galerie', 'finance'];
         if (user.role === RoleEmploye.CHEF_ATELIER) return ['dashboard', 'production', 'stock', 'approvisionnement', 'fournisseurs', 'clients', 'galerie'];
         return ['dashboard', 'galerie'];
     }, [user]);
@@ -300,6 +300,7 @@ const App: React.FC = () => {
                         clients={clients} 
                         articles={articles} 
                         userRole={user.role} 
+                        userBoutiqueId={user.boutiqueId}
                         onUpdateStatus={(id, s) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, statut: s } : c))} 
                         onCreateOrder={(o, cons, meth, acc) => { 
                             setCommandes(prev => [o, ...prev]); 
@@ -349,6 +350,7 @@ const App: React.FC = () => {
                         onUpdateTask={handleUpdateTask} 
                         onArchiveOrder={(id) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} 
                         comptes={comptes} 
+                        boutiques={boutiques}
                         companyAssets={companyAssets} 
                     />}
                     {currentView === 'stock' && <StockView articles={articles} boutiques={boutiques} mouvements={mouvements} userRole={user.role} onAddMouvement={handleAddMouvementAndApplyStock} onAddBoutique={(b) => setBoutiques(prev => [...prev, b])} onUpdateBoutique={(b) => setBoutiques(prev => prev.map(item => item.id === b.id ? b : item))} onDeleteBoutique={(id) => setBoutiques(prev => prev.filter(b => b.id !== id))} />}

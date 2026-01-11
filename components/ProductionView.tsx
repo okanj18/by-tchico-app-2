@@ -1,7 +1,7 @@
 
-import React, { useState, useMemo } from 'react';
-import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, Consommation, CompteFinancier, CompanyAssets, ModePaiement, TacheProduction, ActionProduction, ElementCommande, LivraisonPartielle } from '../types';
-import { Scissors, Search, Plus, Eye, Edit2, Trash2, X, Save, DollarSign, ClipboardList, UserPlus, Calendar, Layout, Users, Trophy, ChevronLeft, ChevronRight as ChevronRightIcon, Check, Square, CheckSquare, User as UserIcon, List, Ban, CreditCard, Clock, Package, Truck, UserCheck, AlertTriangle, Phone, Info, History, CheckCircle2 } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, Consommation, CompteFinancier, CompanyAssets, ModePaiement, TacheProduction, ActionProduction, ElementCommande, LivraisonPartielle, Boutique } from '../types';
+import { Scissors, Search, Plus, Eye, Edit2, Trash2, X, Save, DollarSign, ClipboardList, UserPlus, Calendar, Layout, Users, Trophy, ChevronLeft, ChevronRight as ChevronRightIcon, Check, Square, CheckSquare, User as UserIcon, List, Ban, CreditCard, Clock, Package, Truck, UserCheck, AlertTriangle, Phone, Info, History, CheckCircle2, Store, Filter } from 'lucide-react';
 
 interface ProductionViewProps {
     commandes: Commande[];
@@ -9,6 +9,7 @@ interface ProductionViewProps {
     clients: Client[];
     articles: Article[];
     userRole: RoleEmploye;
+    userBoutiqueId?: string;
     onUpdateStatus: (id: string, s: StatutCommande | string) => void;
     onCreateOrder: (o: Commande, cons: Consommation[], method: ModePaiement, accId?: string) => void;
     onUpdateOrder: (o: Commande, accId?: string) => void;
@@ -19,16 +20,22 @@ interface ProductionViewProps {
     onUpdateTask: (orderId: string, taskId: string, newStatut: 'A_FAIRE' | 'FAIT') => void;
     onArchiveOrder: (id: string) => void;
     comptes: CompteFinancier[];
+    boutiques: Boutique[];
     companyAssets: CompanyAssets;
 }
 
 const ProductionView: React.FC<ProductionViewProps> = ({ 
-    commandes, employes, clients, articles, userRole, 
-    onUpdateStatus, onCreateOrder, onUpdateOrder, onAddPayment, onUpdatePayment, onDeletePayment, onAddTask, onUpdateTask, onArchiveOrder, comptes, companyAssets 
+    commandes, employes, clients, articles, userRole, userBoutiqueId,
+    onUpdateStatus, onCreateOrder, onUpdateOrder, onAddPayment, onUpdatePayment, onDeletePayment, onAddTask, onUpdateTask, onArchiveOrder, comptes, boutiques, companyAssets 
 }) => {
     const [activeNav, setActiveNav] = useState<'COMMANDES' | 'AGENDA' | 'KANBAN' | 'ARTISANS' | 'PERFORMANCE'>('COMMANDES');
     const [searchTerm, setSearchTerm] = useState('');
     const [activeFilterTab, setActiveFilterTab] = useState<'EN_COURS' | 'PRETS' | 'TOUTES'>('EN_COURS');
+
+    // Nouveaux filtres
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+    const [boutiqueFilter, setBoutiqueFilter] = useState('ALL');
 
     const [orderModalOpen, setOrderModalOpen] = useState(false);
     const [isEditingOrder, setIsEditingOrder] = useState(false);
@@ -39,7 +46,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     
     const [selectedOrder, setSelectedOrder] = useState<Commande | null>(null);
     const [newOrderData, setNewOrderData] = useState<Partial<Commande>>({
-        clientId: '', prixTotal: 0, avance: 0, dateLivraisonPrevue: '', elements: [], consommations: [], description: ''
+        clientId: '', prixTotal: 0, avance: 0, dateLivraisonPrevue: '', elements: [], consommations: [], description: '', boutiqueId: ''
     });
     const [initialAccountId, setInitialAccountId] = useState('');
     const [clientSearchTerm, setClientSearchTerm] = useState('');
@@ -57,6 +64,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [agendaDate, setAgendaDate] = useState(new Date());
     const tailleurs = useMemo(() => employes.filter(e => (e.role === RoleEmploye.TAILLEUR || e.role === RoleEmploye.CHEF_ATELIER) && e.actif !== false), [employes]);
 
+    const isVendeur = userRole === RoleEmploye.VENDEUR;
+
     const searchedClients = useMemo(() => {
         if (!clientSearchTerm) return [];
         return clients.filter(c => c.nom.toLowerCase().includes(clientSearchTerm.toLowerCase()) || c.telephone.includes(clientSearchTerm)).slice(0, 5);
@@ -67,19 +76,52 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const filteredCommandes = useMemo(() => {
         return commandes.filter(c => {
             if (c.archived) return false;
+            
+            // Les vendeurs ne voient que les commandes de leur boutique
+            if (isVendeur && userBoutiqueId && c.boutiqueId !== userBoutiqueId) return false;
+
+            // Filtre par boutique spécifique (pour admins/gérants)
+            if (boutiqueFilter !== 'ALL' && c.boutiqueId !== boutiqueFilter) return false;
+
+            // Filtre par période
+            const cmdDate = new Date(c.dateCommande).getTime();
+            if (startDate) {
+                const start = new Date(startDate).setHours(0, 0, 0, 0);
+                if (cmdDate < start) return false;
+            }
+            if (endDate) {
+                const end = new Date(endDate).setHours(23, 59, 59, 999);
+                if (cmdDate > end) return false;
+            }
+
             const matchesSearch = c.clientNom.toLowerCase().includes(searchTerm.toLowerCase()) || c.id.toLowerCase().includes(searchTerm.toLowerCase());
             let matchesTab = true;
             if (activeFilterTab === 'EN_COURS') matchesTab = c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE;
             else if (activeFilterTab === 'PRETS') matchesTab = c.statut === StatutCommande.PRET;
             return matchesSearch && matchesTab;
         }).sort((a, b) => new Date(b.dateCommande).getTime() - new Date(a.dateCommande).getTime());
-    }, [commandes, searchTerm, activeFilterTab]);
+    }, [commandes, searchTerm, activeFilterTab, isVendeur, userBoutiqueId, boutiqueFilter, startDate, endDate]);
+
+    // Initialisation du formulaire pour une nouvelle commande
+    useEffect(() => {
+        if (orderModalOpen && !isEditingOrder && isVendeur && userBoutiqueId) {
+            setNewOrderData(prev => ({ ...prev, boutiqueId: userBoutiqueId }));
+            
+            // Pré-selection de la caisse de la boutique si elle existe
+            const shopAccount = comptes.find(c => c.boutiqueId === userBoutiqueId && c.type === 'CAISSE');
+            if (shopAccount) setInitialAccountId(shopAccount.id);
+        }
+    }, [orderModalOpen, isEditingOrder, isVendeur, userBoutiqueId, comptes]);
 
     // LOGIQUE KANBAN : CALCUL DES ÉTATS PAR PIÈCE AVEC NOM ARTISAN
     const getKanbanPieces = (status: StatutCommande) => {
         const result: { order: Commande, element: string, qty: number, total: number, isAssigned: boolean, artisanName?: string, action?: ActionProduction }[] = [];
         commandes.forEach(cmd => {
             if (cmd.archived || cmd.statut === StatutCommande.ANNULE || cmd.statut === StatutCommande.LIVRE) return;
+            
+            // Kanban filtré également pour les vendeurs
+            if (isVendeur && userBoutiqueId && cmd.boutiqueId !== userBoutiqueId) return;
+
             cmd.elements?.forEach(el => {
                 const taches = (cmd.taches || []).filter(t => t.elementNom === el.nom);
                 
@@ -155,7 +197,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 tailleursIds: [], prixTotal: newOrderData.prixTotal, avance: newOrderData.avance || 0, 
                 reste: Math.max(0, newOrderData.prixTotal - (newOrderData.avance || 0)), type: 'SUR_MESURE', 
                 quantite: newOrderData.elements!.reduce((acc, el) => acc + el.quantiteTotal, 0), 
-                taches: [], paiements: [], consommations: newOrderData.consommations || [], elements: newOrderData.elements!, livraisons: []
+                taches: [], paiements: [], consommations: newOrderData.consommations || [], elements: newOrderData.elements!, livraisons: [],
+                boutiqueId: newOrderData.boutiqueId || userBoutiqueId || 'ATELIER'
             };
             onCreateOrder(order, newOrderData.consommations || [], 'ESPECE', initialAccountId);
         }
@@ -222,50 +265,108 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     ))}
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={() => { setIsEditingOrder(false); setOrderModalOpen(true); setNewOrderData({ clientId: '', prixTotal: 0, avance: 0, elements: [], consommations: [], description: '' }); setInitialAccountId(''); }} className="bg-brand-900 text-white px-6 py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center gap-2 active:scale-95 transition-all">
+                    <button onClick={() => { setIsEditingOrder(false); setOrderModalOpen(true); setNewOrderData({ clientId: '', prixTotal: 0, avance: 0, elements: [], consommations: [], description: '', boutiqueId: userBoutiqueId || '' }); setInitialAccountId(''); }} className="bg-brand-900 text-white px-6 py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center gap-2 active:scale-95 transition-all">
                         <Plus size={18}/> Nouvelle Commande
                     </button>
-                    <button onClick={() => { setTaskBaseData({ commandeId: '', tailleurId: '', date: new Date().toISOString().split('T')[0] }); setMultiTasks([{ elementNom: '', action: 'COUPE', quantite: 1 }]); setTaskModalOpen(true); }} className="bg-[#ff4e00] hover:bg-[#e64600] text-white px-6 py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center gap-2 active:scale-95 transition-all">
-                        <UserPlus size={18}/> Assigner Tâche
-                    </button>
+                    {userRole !== RoleEmploye.VENDEUR && (
+                        <button onClick={() => { setTaskBaseData({ commandeId: '', tailleurId: '', date: new Date().toISOString().split('T')[0] }); setMultiTasks([{ elementNom: '', action: 'COUPE', quantite: 1 }]); setTaskModalOpen(true); }} className="bg-[#ff4e00] hover:bg-[#e64600] text-white px-6 py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center gap-2 active:scale-95 transition-all">
+                            <UserPlus size={18}/> Assigner Tâche
+                        </button>
+                    )}
                 </div>
             </div>
 
-            {/* VUE COMMANDES RESTAURÉE */}
+            {/* VUE COMMANDES RESTAURÉE AVEC FILTRES AVANCÉS */}
             {activeNav === 'COMMANDES' && (
                 <div className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden animate-in fade-in">
-                    <div className="p-6 border-b flex flex-col md:flex-row justify-between gap-4">
-                         <div className="flex gap-2 overflow-x-auto no-scrollbar">{['EN_COURS','PRETS','TOUTES'].map(t=><button key={t} onClick={()=>setActiveFilterTab(t as any)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeFilterTab===t?'bg-brand-50 text-brand-900 shadow-sm':'text-gray-400'}`}>{t.replace('_',' ')}</button>)}</div>
-                         <div className="relative w-full md:w-80"><Search className="absolute left-4 top-2.5 text-gray-300" size={18}/><input type="text" placeholder="Rechercher..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} className="w-full pl-11 pr-4 py-2 bg-gray-50 border-2 border-transparent rounded-xl text-sm font-bold focus:border-brand-500 outline-none transition-all"/></div>
+                    <div className="p-6 border-b space-y-4">
+                         <div className="flex flex-col md:flex-row justify-between gap-4">
+                            <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                                {['EN_COURS','PRETS','TOUTES'].map(t=><button key={t} onClick={()=>setActiveFilterTab(t as any)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeFilterTab===t?'bg-brand-50 text-brand-900 shadow-sm':'text-gray-400'}`}>{t.replace('_',' ')}</button>)}
+                            </div>
+                            <div className="relative w-full md:w-80">
+                                <Search className="absolute left-4 top-2.5 text-gray-300" size={18}/>
+                                <input type="text" placeholder="Rechercher..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} className="w-full pl-11 pr-4 py-2 bg-gray-50 border-2 border-transparent rounded-xl text-sm font-bold focus:border-brand-500 outline-none transition-all"/>
+                            </div>
+                         </div>
+                         
+                         {/* NOUVELLE BARRE DE FILTRES PÉRIODE ET BOUTIQUE */}
+                         <div className="flex flex-wrap gap-6 items-center bg-gray-50/50 p-4 rounded-2xl border border-gray-100 shadow-inner">
+                            <div className="flex items-center gap-3">
+                                <Calendar size={14} className="text-brand-600"/>
+                                <span className="text-[10px] font-black uppercase text-gray-400">Période :</span>
+                                <div className="flex items-center gap-2 bg-white p-1 rounded-xl border">
+                                    <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} className="p-1.5 border-none bg-transparent text-[10px] font-black uppercase outline-none focus:ring-0"/>
+                                    <span className="text-[9px] font-black text-gray-300">AU</span>
+                                    <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} className="p-1.5 border-none bg-transparent text-[10px] font-black uppercase outline-none focus:ring-0"/>
+                                </div>
+                                {(startDate || endDate) && <button onClick={()=>{setStartDate(''); setEndDate('');}} className="p-1 text-gray-300 hover:text-red-500"><X size={14}/></button>}
+                            </div>
+
+                            {!isVendeur && (
+                                <div className="flex items-center gap-3">
+                                    <Store size={14} className="text-brand-600"/>
+                                    <span className="text-[10px] font-black uppercase text-gray-400">Provenance :</span>
+                                    <select value={boutiqueFilter} onChange={e=>setBoutiqueFilter(e.target.value)} className="bg-white px-3 py-2 border rounded-xl text-[10px] font-black uppercase outline-none focus:ring-2 focus:ring-brand-500 transition-all shadow-sm">
+                                        <option value="ALL">Toutes les Boutiques</option>
+                                        <option value="ATELIER">Atelier Central</option>
+                                        {boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}
+                                    </select>
+                                </div>
+                            )}
+
+                            <div className="ml-auto text-[9px] font-black text-gray-300 uppercase tracking-widest">
+                                {filteredCommandes.length} Commande(s) filtrée(s)
+                            </div>
+                         </div>
                     </div>
+
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 text-[10px] font-black uppercase text-gray-400 tracking-widest border-b">
-                                <tr><th className="p-6">Référence & Client</th><th className="p-6">Composition</th><th className="p-6 text-center">Finance</th><th className="p-6 text-center">État Global</th><th className="p-6 text-right">Actions</th></tr>
+                                <tr><th className="p-6">Référence & Client</th><th className="p-6">Provenance</th><th className="p-6">Composition</th><th className="p-6 text-center">Finance</th><th className="p-6 text-center">État Global</th><th className="p-6 text-right">Actions</th></tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {filteredCommandes.map(cmd => (
-                                    <tr key={cmd.id} className="hover:bg-brand-50/20">
-                                        <td className="p-6"><div><p className="font-black text-gray-800 uppercase tracking-tighter text-base">{cmd.clientNom}</p><p className="text-[10px] text-gray-400 font-bold">#{cmd.id.slice(-6)} • {new Date(cmd.dateCommande).toLocaleDateString()}</p></div></td>
-                                        <td className="p-6"><div className="flex flex-wrap gap-1">{cmd.elements?.map(e=><span key={e.id} className="px-2 py-0.5 bg-white border border-gray-200 rounded text-[9px] font-black uppercase">{e.nom} ({e.quantiteTotal})</span>)}</div></td>
-                                        <td className="p-6 text-center"><div><p className="font-black text-gray-900">{cmd.prixTotal.toLocaleString()} F</p><p className={`text-[10px] font-black uppercase ${cmd.reste>0?'text-red-500':'text-green-600'}`}>{cmd.reste>0?`Reste : ${cmd.reste.toLocaleString()} F`:'Payé'}</p></div></td>
-                                        <td className="p-6 text-center"><span className="px-4 py-2 bg-white border-2 border-gray-100 rounded-2xl text-[10px] font-black text-gray-600 uppercase tracking-widest">{cmd.statut.toUpperCase()}</span></td>
-                                        <td className="p-6 text-right">
-                                            <div className="flex justify-end gap-2">
-                                                <button onClick={()=>{setSelectedOrder(cmd);setDetailModalOpen(true);}} className="p-2.5 bg-white text-blue-600 border border-blue-100 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"><Eye size={18}/></button>
-                                                <button onClick={()=>{setSelectedOrder(cmd);setPayData({...payData,amount:cmd.reste, editingPaymentId: null});setPaymentModalOpen(true);}} className="p-2.5 bg-white text-emerald-600 border border-emerald-100 rounded-xl hover:bg-emerald-600 hover:text-white shadow-sm" title="Encaisser"><DollarSign size={18}/></button>
-                                                <button onClick={()=>{if(window.confirm("Annuler ?"))onUpdateStatus(cmd.id,StatutCommande.ANNULE);}} className="p-2.5 bg-white text-red-300 border border-red-50 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"><Ban size={18}/></button>
-                                            </div>
+                                {filteredCommandes.map(cmd => {
+                                    const boutiqueOrigine = boutiques.find(b => b.id === cmd.boutiqueId);
+                                    return (
+                                        <tr key={cmd.id} className="hover:bg-brand-50/20">
+                                            <td className="p-6"><div><p className="font-black text-gray-800 uppercase tracking-tighter text-base">{cmd.clientNom}</p><p className="text-[10px] text-gray-400 font-bold">#{cmd.id.slice(-6)} • {new Date(cmd.dateCommande).toLocaleDateString()}</p></div></td>
+                                            <td className="p-6">
+                                                <div className="flex items-center gap-2">
+                                                    <Store size={14} className="text-gray-300"/>
+                                                    <span className="text-[10px] font-black uppercase text-gray-500">{boutiqueOrigine?.nom || "Atelier Central"}</span>
+                                                </div>
+                                            </td>
+                                            <td className="p-6"><div className="flex flex-wrap gap-1">{cmd.elements?.map(e=><span key={e.id} className="px-2 py-0.5 bg-white border border-gray-200 rounded text-[9px] font-black uppercase">{e.nom} ({e.quantiteTotal})</span>)}</div></td>
+                                            <td className="p-6 text-center"><div><p className="font-black text-gray-900">{cmd.prixTotal.toLocaleString()} F</p><p className={`text-[10px] font-black uppercase ${cmd.reste>0?'text-red-500':'text-green-600'}`}>{cmd.reste>0?`Reste : ${cmd.reste.toLocaleString()} F`:'Payé'}</p></div></td>
+                                            <td className="p-6 text-center"><span className="px-4 py-2 bg-white border-2 border-gray-100 rounded-2xl text-[10px] font-black text-gray-600 uppercase tracking-widest">{cmd.statut.toUpperCase()}</span></td>
+                                            <td className="p-6 text-right">
+                                                <div className="flex justify-end gap-2">
+                                                    <button onClick={()=>{setSelectedOrder(cmd);setDetailModalOpen(true);}} className="p-2.5 bg-white text-blue-600 border border-blue-100 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"><Eye size={18}/></button>
+                                                    <button onClick={()=>{setSelectedOrder(cmd);setPayData({...payData,amount:cmd.reste, editingPaymentId: null});setPaymentModalOpen(true);}} className="p-2.5 bg-white text-emerald-600 border border-emerald-100 rounded-xl hover:bg-emerald-600 hover:text-white shadow-sm" title="Encaisser"><DollarSign size={18}/></button>
+                                                    {userRole !== RoleEmploye.VENDEUR && (
+                                                        <button onClick={()=>{if(window.confirm("Annuler ?"))onUpdateStatus(cmd.id,StatutCommande.ANNULE);}} className="p-2.5 bg-white text-red-300 border border-red-50 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"><Ban size={18}/></button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                                {filteredCommandes.length === 0 && (
+                                    <tr>
+                                        <td colSpan={6} className="p-20 text-center text-gray-300 font-black uppercase tracking-widest text-xs italic">
+                                            Aucune commande ne correspond aux filtres sélectionnés
                                         </td>
                                     </tr>
-                                ))}
+                                )}
                             </tbody>
                         </table>
                     </div>
                 </div>
             )}
 
-            {/* AGENDA RESTAURÉ */}
+            {/* AGENDA RESTAURÉ (Accessible par tout le monde pour visibilité mais actions limitées) */}
             {activeNav === 'AGENDA' && (
                 <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden flex flex-col min-h-[600px] animate-in fade-in">
                     <div className="p-6 border-b flex justify-between items-center bg-gray-50/50">
@@ -284,15 +385,18 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         <td className="p-6 border-r font-black text-gray-700 uppercase text-xs sticky left-0 bg-white z-10 shadow-sm">{artisan.nom}</td>
                                         {Array.from({length:7}).map((_,i)=>{
                                             const d=new Date(agendaDate);d.setDate(agendaDate.getDate()+i);const dStr=d.toISOString().split('T')[0];
-                                            const dayTasks=(commandes.flatMap(c=>(c.taches||[]).map(t=>({...t,orderId:c.id,clientNom:c.clientNom}))).filter(t=>t.tailleurId===artisan.id && t.date===dStr));
+                                            const dayTasks=(commandes.flatMap(c=>(c.taches||[]).map(t=>({...t,orderId:c.id,clientNom:c.clientNom, boutiqueId: c.boutiqueId}))).filter(t=>t.tailleurId===artisan.id && t.date===dStr));
                                             return (
-                                                <td key={i} onClick={()=>{setTaskBaseData({commandeId:'',tailleurId:artisan.id,date:dStr});setMultiTasks([{elementNom:'',action:'COUPE',quantite:1}]);setTaskModalOpen(true);}} className="p-2 border-r bg-gray-50/20 cursor-cell hover:bg-brand-50 transition-colors">
+                                                <td key={i} onClick={()=>{ if(userRole !== RoleEmploye.VENDEUR) { setTaskBaseData({commandeId:'',tailleurId:artisan.id,date:dStr});setMultiTasks([{elementNom:'',action:'COUPE',quantite:1}]);setTaskModalOpen(true); } }} className={`p-2 border-r bg-gray-50/20 transition-colors ${userRole !== RoleEmploye.VENDEUR ? 'cursor-cell hover:bg-brand-50' : ''}`}>
                                                     <div className="flex flex-col gap-1 overflow-y-auto max-h-32">
-                                                        {dayTasks.map(t=>(
-                                                            <div key={t.id} onClick={(e)=>{e.stopPropagation();onUpdateTask(t.orderId,t.id,t.statut==='A_FAIRE'?'FAIT':'A_FAIRE');}} className={`p-1.5 rounded-lg border text-[8px] font-black uppercase truncate flex items-center gap-1.5 cursor-pointer shadow-sm transition-all hover:scale-105 ${t.statut==='FAIT'?'bg-green-100 border-green-200 text-green-700':'bg-white border-brand-100 text-brand-900'}`}>
-                                                                {t.statut==='FAIT'?<CheckSquare size={10}/>:<Square size={10}/>} {t.clientNom.split(' ')[0]} : {t.elementNom}({t.quantite})
-                                                            </div>
-                                                        ))}
+                                                        {dayTasks.map(t=>{
+                                                            const isOwnOrder = isVendeur && t.boutiqueId === userBoutiqueId;
+                                                            return (
+                                                                <div key={t.id} onClick={(e)=>{ if(!isVendeur) { e.stopPropagation(); onUpdateTask(t.orderId,t.id,t.statut==='A_FAIRE'?'FAIT':'A_FAIRE'); } }} className={`p-1.5 rounded-lg border text-[8px] font-black uppercase truncate flex items-center gap-1.5 shadow-sm transition-all hover:scale-105 ${t.statut==='FAIT'?'bg-green-100 border-green-200 text-green-700':'bg-white border-brand-100 text-brand-900'} ${isOwnOrder ? 'ring-2 ring-brand-400' : ''}`}>
+                                                                    {t.statut==='FAIT'?<CheckSquare size={10}/>:<Square size={10}/>} {t.clientNom.split(' ')[0]} : {t.elementNom}({t.quantite})
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                 </td>
                                             );
@@ -318,7 +422,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 </div>
                                 <div className="flex-1 overflow-y-auto space-y-4 pr-1 custom-scrollbar">
                                     {items.map((item, pIdx) => (
-                                        <div key={`${item.order.id}-${item.element}-${pIdx}`} className={`p-6 rounded-[1.5rem] border shadow-sm transition-all hover:shadow-xl ${item.isAssigned ? 'bg-brand-50 border-brand-200' : 'bg-white border-gray-100'}`}>
+                                        <div key={`${item.order.id}-${item.element}-${pIdx}`} className={`p-6 rounded-[1.5rem] border shadow-sm transition-all hover:shadow-xl ${item.isAssigned ? 'bg-brand-50 border-brand-200' : 'bg-white border-gray-100'} ${isVendeur && item.order.boutiqueId === userBoutiqueId ? 'ring-2 ring-brand-500 shadow-brand-100' : ''}`}>
                                             <div className="space-y-3">
                                                 <div className="flex justify-between items-start">
                                                     <div onClick={()=>{setSelectedOrder(item.order);setDetailModalOpen(true);}} className="cursor-pointer">
@@ -337,7 +441,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                         </div>
                                                     </div>
                                                 ) : (
-                                                    status !== StatutCommande.PRET && (
+                                                    status !== StatutCommande.PRET && userRole !== RoleEmploye.VENDEUR && (
                                                         <button 
                                                             onClick={() => {
                                                                 setTaskBaseData({commandeId: item.order.id, tailleurId: '', date: new Date().toISOString().split('T')[0]});
@@ -379,7 +483,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                     <div className="bg-gray-50 p-4 rounded-2xl border text-center"><p className="text-[8px] font-black text-gray-400 uppercase mb-1">Missions actives</p><p className="text-2xl font-black text-gray-800">{activeTasks.length}</p></div>
                                     <div className="bg-green-50 p-4 rounded-2xl border border-green-100 text-center"><p className="text-[8px] font-black text-green-400 uppercase mb-1">Disponibilité</p><p className="text-[10px] font-black text-green-700 uppercase">En Poste</p></div>
                                 </div>
-                                <button onClick={()=>{setTaskBaseData({commandeId:'',tailleurId:artisan.id,date:new Date().toISOString().split('T')[0]});setMultiTasks([{elementNom:'',action:'COUPE',quantite:1}]);setTaskModalOpen(true);}} className="w-full py-4 bg-gray-50 hover:bg-brand-900 hover:text-white font-black uppercase text-[10px] tracking-widest rounded-xl border border-dashed border-gray-300 transition-all">Assigner Travail</button>
+                                {userRole !== RoleEmploye.VENDEUR && (
+                                    <button onClick={()=>{setTaskBaseData({commandeId:'',tailleurId:artisan.id,date:new Date().toISOString().split('T')[0]});setMultiTasks([{elementNom:'',action:'COUPE',quantite:1}]);setTaskModalOpen(true);}} className="w-full py-4 bg-gray-50 hover:bg-brand-900 hover:text-white font-black uppercase text-[10px] tracking-widest rounded-xl border border-dashed border-gray-300 transition-all">Assigner Travail</button>
+                                )}
                             </div>
                         );
                     })}
@@ -434,7 +540,12 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         <p className="text-sm font-bold text-brand-900">{selectedOrder.description || "Aucune description globale"}</p>
                                     </div>
                                 </div>
-                                <div className="text-right"><p className="text-[10px] font-black text-gray-400 uppercase mb-1">Livraison Prévue</p><div className="px-4 py-2 bg-brand-50 text-brand-900 rounded-xl text-[10px] font-black uppercase tracking-widest border border-brand-100 flex items-center gap-2"><Calendar size={12}/> {new Date(selectedOrder.dateLivraisonPrevue).toLocaleDateString()}</div></div>
+                                <div className="text-right">
+                                    <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Boutique émettrice</p>
+                                    <div className="text-xs font-black uppercase text-brand-900 mb-4">{boutiques.find(b => b.id === selectedOrder.boutiqueId)?.nom || "Atelier Central"}</div>
+                                    <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Livraison Prévue</p>
+                                    <div className="px-4 py-2 bg-brand-50 text-brand-900 rounded-xl text-[10px] font-black uppercase tracking-widest border border-brand-100 flex items-center gap-2"><Calendar size={12}/> {new Date(selectedOrder.dateLivraisonPrevue).toLocaleDateString()}</div>
+                                </div>
                             </div>
                             
                             <div className="space-y-4">
@@ -688,7 +799,15 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             )}
                             <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Montant à encaisser (F)</label><input type="number" className="w-full p-5 border-2 border-brand-100 rounded-2xl text-2xl font-black text-brand-600 focus:border-brand-600 outline-none transition-all shadow-sm" value={payData.amount||''} placeholder="0" onChange={e=>setPayData({...payData,amount:parseInt(e.target.value)||0})}/></div>
                             <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Mode de règlement</label><select className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black bg-white outline-none" value={payData.method} onChange={e=>setPayData({...payData, method: e.target.value as any})}><option value="ESPECE">Espèce</option><option value="WAVE">Wave</option><option value="ORANGE_MONEY">Orange Money</option><option value="VIREMENT">Virement</option></select></div>
-                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Caisse / Destination</label><select className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black bg-white outline-none" value={payData.accId} onChange={e=>setPayData({...payData,accId:e.target.value})}><option value="">-- Choisir Caisse --</option>{comptes.map(c=><option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Caisse / Destination</label>
+                                <select className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black bg-white outline-none" value={payData.accId} onChange={e=>setPayData({...payData,accId:e.target.value})}>
+                                    <option value="">-- Choisir Caisse --</option>
+                                    {comptes
+                                        .filter(c => !userBoutiqueId || c.boutiqueId === userBoutiqueId || userRole === RoleEmploye.ADMIN || userRole === RoleEmploye.GERANT)
+                                        .map(c=><option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)
+                                    }
+                                </select>
+                            </div>
                         </div>
                         <div className="flex justify-end gap-3 mt-10 pt-5 border-t"><button onClick={()=>setPaymentModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={()=>{
                             if(!payData.accId || payData.amount <= 0) return; 
@@ -716,13 +835,36 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[95vh] border border-brand-100 overflow-hidden animate-in zoom-in">
                          <div className="p-8 bg-white border-b flex justify-between items-center shrink-0"><h3 className="text-2xl font-black text-gray-800 uppercase tracking-tighter">{isEditingOrder?'Modifier':'Nouvelle'} Commande</h3><button onClick={()=>setOrderModalOpen(false)}><X size={28} className="text-gray-400"/></button></div>
                          <div className="p-8 space-y-6 overflow-y-auto flex-1 custom-scrollbar bg-gray-50/30">
-                            <div className="relative"><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Client Titulaire</label>
-                                {!newOrderData.clientId ? (
-                                    <div className="relative"><Search className="absolute left-4 top-3.5 text-gray-300" size={20}/><input type="text" className="w-full pl-12 p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white focus:border-brand-500 outline-none transition-all shadow-sm" placeholder="Rechercher client..." value={clientSearchTerm} onChange={e=>{setClientSearchTerm(e.target.value);setShowClientResults(true);}} onFocus={()=>setShowClientResults(true)}/>
-                                        {showClientResults && searchedClients.length>0 && (<div className="absolute top-full left-0 w-full mt-2 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[700]">{searchedClients.map(c=>(<button key={c.id} onClick={()=>{setNewOrderData({...newOrderData,clientId:c.id});setShowClientResults(false);}} className="w-full p-4 text-left hover:bg-brand-50 border-b last:border-0 flex items-center justify-between group transition-colors"><div><p className="font-black text-gray-800 uppercase text-xs">{c.nom}</p><p className="text-[10px] text-gray-400 font-bold">{c.telephone}</p></div><div className="p-2 bg-gray-100 rounded-lg group-hover:bg-brand-600 group-hover:text-white transition-colors"><Plus size={16}/></div></button>))}</div>)}
-                                    </div>
-                                ) : (<div className="flex items-center justify-between bg-brand-900 text-white p-4 rounded-2xl shadow-lg"><div className="flex items-center gap-3"><div className="p-2 bg-white/20 rounded-xl"><UserIcon size={20}/></div><div><p className="text-xs font-black uppercase">{selectedClientName}</p></div></div><button onClick={()=>setNewOrderData({...newOrderData,clientId:''})} className="p-2 hover:bg-white/10 rounded-full text-brand-300"><X size={20}/></button></div>)}
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* SELECTION BOUTIQUE (POUR ADMINS) OU INFO BOUTIQUE (POUR VENDEURS) */}
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Boutique émettrice</label>
+                                    {isVendeur ? (
+                                        <div className="w-full p-4 border-2 border-brand-100 bg-brand-50 rounded-2xl font-black uppercase text-xs text-brand-900">
+                                            {boutiques.find(b => b.id === userBoutiqueId)?.nom || "Inconnu"}
+                                        </div>
+                                    ) : (
+                                        <select 
+                                            className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white"
+                                            value={newOrderData.boutiqueId}
+                                            onChange={e => setNewOrderData({...newOrderData, boutiqueId: e.target.value})}
+                                        >
+                                            <option value="">-- Sélectionner Boutique --</option>
+                                            <option value="ATELIER">Atelier Central</option>
+                                            {boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}
+                                        </select>
+                                    )}
+                                </div>
+                                <div className="relative"><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Client Titulaire</label>
+                                    {!newOrderData.clientId ? (
+                                        <div className="relative"><Search className="absolute left-4 top-3.5 text-gray-300" size={20}/><input type="text" className="w-full pl-12 p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white focus:border-brand-500 outline-none transition-all shadow-sm" placeholder="Rechercher client..." value={clientSearchTerm} onChange={e=>{setClientSearchTerm(e.target.value);setShowClientResults(true);}} onFocus={()=>setShowClientResults(true)}/>
+                                            {showClientResults && searchedClients.length>0 && (<div className="absolute top-full left-0 w-full mt-2 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[700]">{searchedClients.map(c=>(<button key={c.id} onClick={()=>{setNewOrderData({...newOrderData,clientId:c.id});setShowClientResults(false);}} className="w-full p-4 text-left hover:bg-brand-50 border-b last:border-0 flex items-center justify-between group transition-colors"><div><p className="font-black text-gray-800 uppercase text-xs">{c.nom}</p><p className="text-[10px] text-gray-400 font-bold">{c.telephone}</p></div><div className="p-2 bg-gray-100 rounded-lg group-hover:bg-brand-600 group-hover:text-white transition-colors"><Plus size={16}/></div></button>))}</div>)}
+                                        </div>
+                                    ) : (<div className="flex items-center justify-between bg-brand-900 text-white p-4 rounded-2xl shadow-lg"><div className="flex items-center gap-3"><div className="p-2 bg-white/20 rounded-xl"><UserIcon size={20}/></div><div><p className="text-xs font-black uppercase">{selectedClientName}</p></div></div><button onClick={()=>setNewOrderData({...newOrderData,clientId:''})} className="p-2 hover:bg-white/10 rounded-full text-brand-300"><X size={20}/></button></div>)}
+                                </div>
                             </div>
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Date Livraison Prévue</label><input type="date" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white" value={newOrderData.dateLivraisonPrevue} onChange={e=>setNewOrderData({...newOrderData,dateLivraisonPrevue:e.target.value})}/></div>
                                 <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Prix Total (F)</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-gray-900 bg-white shadow-sm" value={newOrderData.prixTotal||''} placeholder="0" onChange={e=>setNewOrderData({...newOrderData,prixTotal:parseInt(e.target.value)||0})}/></div>
@@ -747,43 +889,56 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 <div className="flex flex-wrap gap-2">{(newOrderData.elements||[]).map(el=>(<div key={el.id} className="bg-brand-50 border border-brand-200 px-4 py-2 rounded-xl flex items-center gap-3"><span className="text-[10px] font-black text-brand-900 uppercase">{el.nom} ({el.quantiteTotal})</span><button onClick={()=>setNewOrderData({...newOrderData,elements:newOrderData.elements?.filter(x=>x.id!==el.id)})} className="text-red-300 hover:text-red-500 transition-colors"><X size={14}/></button></div>))}</div>
                             </div>
 
-                            {/* CONSOMMATION STOCK RESTAURÉ */}
-                            <div className="bg-orange-50/50 p-6 rounded-[2rem] border border-orange-100 space-y-4 shadow-inner">
-                                <h4 className="text-[10px] font-black text-orange-700 uppercase tracking-widest flex items-center gap-2"><Package size={14}/> Sortie Stock Matière</h4>
-                                <div className="flex flex-col md:flex-row gap-2">
-                                    <select className="flex-1 p-3 border-2 border-orange-100 rounded-xl text-[10px] font-black uppercase bg-white" value={tempCons.articleId} onChange={e => setTempCons({ ...tempCons, articleId: e.target.value, variante: 'Standard' })}>
-                                        <option value="">-- Choisir Matière --</option>
-                                        {articles.filter(a => a.typeArticle === 'MATIERE_PREMIERE').map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}
-                                    </select>
-                                    <div className="flex gap-2">
-                                        <input 
-                                            type="text" 
-                                            inputMode="decimal"
-                                            placeholder="Qté" 
-                                            className="w-20 p-3 border-2 border-orange-100 rounded-xl text-center font-black bg-white focus:border-brand-600 outline-none" 
-                                            value={tempCons.quantite || ''} 
-                                            onChange={e => {
-                                                const val = e.target.value;
-                                                // Permet de taper des nombres avec virgule ou point
-                                                if (val === '' || /^[0-9]+([.,][0-9]*)?$/.test(val)) {
-                                                    setTempCons({...tempCons, quantite: val as any});
-                                                }
-                                            }} 
-                                        />
-                                        <button onClick={handleAddConsommation} className="p-3 bg-orange-600 text-white rounded-xl hover:bg-orange-700 shadow-md transition-all active:scale-95"><Plus size={20}/></button>
+                            {/* CONSOMMATION STOCK RESTAURÉ (Accessible uniquement par ceux qui ont le droit de gérer l'atelier) */}
+                            {userRole !== RoleEmploye.VENDEUR && (
+                                <div className="bg-orange-50/50 p-6 rounded-[2rem] border border-orange-100 space-y-4 shadow-inner">
+                                    <h4 className="text-[10px] font-black text-orange-700 uppercase tracking-widest flex items-center gap-2"><Package size={14}/> Sortie Stock Matière (Pré-affectation)</h4>
+                                    <div className="flex flex-col md:flex-row gap-2">
+                                        <select className="flex-1 p-3 border-2 border-orange-100 rounded-xl text-[10px] font-black uppercase bg-white" value={tempCons.articleId} onChange={e => setTempCons({ ...tempCons, articleId: e.target.value, variante: 'Standard' })}>
+                                            <option value="">-- Choisir Matière --</option>
+                                            {articles.filter(a => a.typeArticle === 'MATIERE_PREMIERE').map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}
+                                        </select>
+                                        <div className="flex gap-2">
+                                            <input 
+                                                type="text" 
+                                                inputMode="decimal"
+                                                placeholder="Qté" 
+                                                className="w-20 p-3 border-2 border-orange-100 rounded-xl text-center font-black bg-white focus:border-brand-600 outline-none" 
+                                                value={tempCons.quantite || ''} 
+                                                onChange={e => {
+                                                    const val = e.target.value;
+                                                    if (val === '' || /^[0-9]+([.,][0-9]*)?$/.test(val)) {
+                                                        setTempCons({...tempCons, quantite: val as any});
+                                                    }
+                                                }} 
+                                            />
+                                            <button onClick={handleAddConsommation} className="p-3 bg-orange-600 text-white rounded-xl hover:bg-orange-700 shadow-md transition-all active:scale-95"><Plus size={20}/></button>
+                                        </div>
                                     </div>
+                                    <div className="flex flex-wrap gap-2">{(newOrderData.consommations||[]).map((c,idx)=>(<div key={idx} className="bg-white border border-orange-100 px-4 py-2 rounded-xl flex items-center gap-3 shadow-sm"><span className="text-[10px] font-black text-orange-900 uppercase">{articles.find(a=>a.id===c.articleId)?.nom} ({c.quantite})</span><button onClick={()=>setNewOrderData({...newOrderData,consommations:newOrderData.consommations?.filter((_,i)=>i!==idx)})} className="text-red-300 hover:text-red-500"><X size={14}/></button></div>))}</div>
                                 </div>
-                                <div className="flex flex-wrap gap-2">{(newOrderData.consommations||[]).map((c,idx)=>(<div key={idx} className="bg-white border border-orange-100 px-4 py-2 rounded-xl flex items-center gap-3 shadow-sm"><span className="text-[10px] font-black text-orange-900 uppercase">{articles.find(a=>a.id===c.articleId)?.nom} ({c.quantite})</span><button onClick={()=>setNewOrderData({...newOrderData,consommations:newOrderData.consommations?.filter((_,i)=>i!==idx)})} className="text-red-300 hover:text-red-500"><X size={14}/></button></div>))}</div>
-                            </div>
+                            )}
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="text-[10px] font-black text-brand-600 uppercase mb-2 block ml-1">Acompte Immédiat (F)</label><input type="number" className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black text-brand-600 bg-white shadow-sm" value={newOrderData.avance||''} placeholder="0" onChange={e=>setNewOrderData({...newOrderData,avance:parseInt(e.target.value)||0})}/></div>
                                 {(newOrderData.avance||0)>0 && (
-                                    <div><label className="text-[10px] font-black text-brand-900 uppercase mb-2 block ml-1">Caisse {isEditingOrder ? 'de correction' : 'de réception'}</label><select className="w-full p-4 border-2 border-brand-300 rounded-2xl font-black bg-white" value={initialAccountId} onChange={e=>setInitialAccountId(e.target.value)}><option value="">-- Sélectionner --</option>{comptes.map(c=><option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                                    <div><label className="text-[10px] font-black text-brand-900 uppercase mb-2 block ml-1">Caisse {isEditingOrder ? 'de correction' : 'de réception'}</label>
+                                        <select 
+                                            className="w-full p-4 border-2 border-brand-300 rounded-2xl font-black bg-white" 
+                                            value={initialAccountId} 
+                                            onChange={e=>setInitialAccountId(e.target.value)}
+                                        >
+                                            <option value="">-- Sélectionner --</option>
+                                            {comptes
+                                                .filter(c => !userBoutiqueId || c.boutiqueId === userBoutiqueId || userRole === RoleEmploye.ADMIN || userRole === RoleEmploye.GERANT)
+                                                .map(c=><option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)
+                                            }
+                                        </select>
+                                    </div>
                                 )}
                             </div>
                          </div>
-                         <div className="p-8 bg-white border-t flex justify-end gap-4 shrink-0"><button onClick={()=>setOrderModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-xs">Annuler</button><button onClick={handleCreateOrUpdateOrder} disabled={!newOrderData.clientId || !newOrderData.elements?.length} className="px-16 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs shadow-2xl active:scale-95 transition-all flex items-center gap-2 disabled:opacity-30"><Save size={18}/> Valider</button></div>
+                         <div className="p-8 bg-white border-t flex justify-end gap-4 shrink-0"><button onClick={()=>setOrderModalOpen(false)} className="px-8 py-4 text-gray-400 font-black uppercase text-xs">Annuler</button><button onClick={handleCreateOrUpdateOrder} disabled={!newOrderData.clientId || !newOrderData.elements?.length || (!newOrderData.boutiqueId && !userBoutiqueId)} className="px-16 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs shadow-2xl active:scale-95 transition-all flex items-center gap-2 disabled:opacity-30"><Save size={18}/> Valider</button></div>
                     </div>
                 </div>
             )}
