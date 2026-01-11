@@ -1,8 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Article, Boutique, Client, Commande, StatutCommande, ModePaiement, CompteFinancier, CompanyAssets, SessionUser } from '../types';
+import { Article, Boutique, Client, Commande, StatutCommande, ModePaiement, CompteFinancier, CompanyAssets, SessionUser, Consommation } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Search, ShoppingCart, User, Printer, History, X, CheckCircle, AlertTriangle, Plus, Trash2, Wallet, Ban, FileText, Minus, Save, UserX, ClipboardList, Layers, DollarSign, Store, Tag } from 'lucide-react';
+import { Search, ShoppingCart, User, Printer, History, X, CheckCircle, AlertTriangle, Plus, Trash2, Wallet, Ban, FileText, Minus, Save, UserX, ClipboardList, Layers, DollarSign, Store, Tag, Scissors, Eye, Clock } from 'lucide-react';
 
 interface SalesViewProps {
     articles: Article[];
@@ -15,10 +15,11 @@ interface SalesViewProps {
     onCancelSale: (orderId: string, refundAccountId: string) => void;
     companyAssets?: CompanyAssets;
     currentUser: SessionUser | null;
+    onCreateCustomOrder?: (o: Commande, cons: Consommation[], method: ModePaiement, accId?: string) => void;
 }
 
 const SalesView: React.FC<SalesViewProps> = ({ 
-    articles, boutiques, clients, commandes, onMakeSale, onAddPayment, comptes, onCancelSale, companyAssets, currentUser 
+    articles, boutiques, clients, commandes, onMakeSale, onAddPayment, comptes, onCancelSale, companyAssets, currentUser, onCreateCustomOrder
 }) => {
     const [cart, setCart] = useState<{ id: string, articleId: string, variante: string, nom: string, prix: number, quantite: number }[]>([]);
     const [selectedClientId, setSelectedClientId] = useState<string>('');
@@ -29,10 +30,17 @@ const SalesView: React.FC<SalesViewProps> = ({
     const [tvaEnabled, setTvaEnabled] = useState(false);
     const [remise, setRemise] = useState<number>(0);
 
-    const [activeTab, setActiveTab] = useState<'POS' | 'HISTORY'>('POS');
+    const [activeTab, setActiveTab] = useState<'POS' | 'CUSTOM' | 'HISTORY'>('POS');
     const [productSearch, setProductSearch] = useState('');
     const [historySearch, setHistorySearch] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('TOUT');
+
+    // State pour création commande sur mesure
+    const [isCustomOrderModalOpen, setIsCustomOrderModalOpen] = useState(false);
+    const [newCustomOrder, setNewCustomOrder] = useState<Partial<Commande>>({
+        clientId: '', prixTotal: 0, avance: 0, elements: [], description: '', dateLivraisonPrevue: ''
+    });
+    const [tempElement, setTempElement] = useState({ nom: '', quantite: 1 });
 
     const [selectedOrderDetails, setSelectedOrderDetails] = useState<Commande | null>(null);
     const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
@@ -56,6 +64,88 @@ const SalesView: React.FC<SalesViewProps> = ({
         }
     }, [currentUser, boutiques, comptes]);
 
+    // --- FIX: Missing name generatePrintContent ---
+    /**
+     * Génère un ticket de caisse imprimable pour une vente.
+     */
+    const generatePrintContent = (sale: Commande) => {
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) return;
+
+        const itemsHtml = (sale.detailsVente || []).map(item => `
+            <tr>
+                <td style="padding: 5px 0;">${item.nomArticle} (${item.variante}) x${item.quantite}</td>
+                <td style="text-align: right; padding: 5px 0;">${(item.prixUnitaire * item.quantite).toLocaleString()} F</td>
+            </tr>
+        `).join('');
+
+        printWindow.document.write(`
+            <html>
+                <head>
+                    <title>Ticket de Caisse - ${COMPANY_CONFIG.name}</title>
+                    <style>
+                        body { font-family: 'Courier New', Courier, monospace; padding: 10px; width: 280px; margin: auto; }
+                        .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
+                        .footer { text-align: center; border-top: 1px dashed #000; padding-top: 10px; margin-top: 10px; font-size: 10px; color: #666; }
+                        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+                        .total { font-weight: bold; border-top: 1px solid #000; margin-top: 10px; padding-top: 5px; font-size: 14px; }
+                        .info { font-size: 10px; margin-bottom: 5px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <h2 style="margin: 0;">${COMPANY_CONFIG.name}</h2>
+                        <p style="margin: 2px 0; font-size: 10px;">${COMPANY_CONFIG.tagline}</p>
+                        <p style="margin: 2px 0; font-size: 10px;">${COMPANY_CONFIG.address}</p>
+                        <p style="margin: 2px 0; font-size: 10px;">${COMPANY_CONFIG.phone}</p>
+                    </div>
+                    <div class="info">
+                        <p style="margin: 2px 0;">Date: ${new Date(sale.dateCommande).toLocaleString()}</p>
+                        <p style="margin: 2px 0;">Ticket: #${sale.id.slice(-6)}</p>
+                        <p style="margin: 2px 0;">Client: ${sale.clientNom}</p>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr style="border-bottom: 1px solid #eee;">
+                                <th style="text-align: left; padding: 5px 0;">Article</th>
+                                <th style="text-align: right; padding: 5px 0;">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${itemsHtml}
+                        </tbody>
+                    </table>
+                    <div class="total">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>TOTAL TTC</span>
+                            <span>${sale.prixTotal.toLocaleString()} F</span>
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <p>Merci de votre visite !</p>
+                        <p>v${COMPANY_CONFIG.version}</p>
+                    </div>
+                    <script>
+                        window.onload = function() {
+                            window.print();
+                            setTimeout(function() { window.close(); }, 500);
+                        };
+                    </script>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
+    };
+
+    // --- FIX: Missing name openCancelModal ---
+    /**
+     * Ouvre le modal de confirmation d'annulation pour une vente.
+     */
+    const openCancelModal = (sale: Commande) => {
+        setSelectedOrderForCancel(sale);
+        setIsCancelModalOpen(true);
+    };
+
     const filteredArticles = useMemo(() => {
         return articles.filter(a => 
             a.typeArticle === 'PRODUIT_FINI' && 
@@ -74,6 +164,13 @@ const SalesView: React.FC<SalesViewProps> = ({
             .filter(c => c.clientNom.toLowerCase().includes(historySearch.toLowerCase()) || c.id.toLowerCase().includes(historySearch.toLowerCase()))
             .sort((a,b) => new Date(b.dateCommande).getTime() - new Date(a.dateCommande).getTime());
     }, [commandes, historySearch, currentUser]);
+
+    const customOrders = useMemo(() => {
+        return commandes
+            .filter(c => c.type === 'SUR_MESURE' && !c.archived)
+            .filter(c => currentUser?.role === 'ADMIN' || currentUser?.role === 'GERANT' || c.boutiqueId === currentUser?.boutiqueId)
+            .sort((a,b) => new Date(b.dateCommande).getTime() - new Date(a.dateCommande).getTime());
+    }, [commandes, currentUser]);
 
     const cartTotal = cart.reduce((acc, item) => acc + (item.prix * item.quantite), 0);
     const tvaAmount = tvaEnabled ? Math.round((cartTotal - remise) * COMPANY_CONFIG.tvaRate) : 0;
@@ -152,6 +249,42 @@ const SalesView: React.FC<SalesViewProps> = ({
         setCart([]); setAmountPaid(0); setRemise(0); setSelectedClientId(''); setActiveTab('HISTORY'); 
     };
 
+    const handleSaveCustomOrder = () => {
+        if (!newCustomOrder.clientId || !newCustomOrder.prixTotal || !newCustomOrder.elements?.length) {
+            alert("Veuillez remplir les informations obligatoires (Client, Composition, Prix).");
+            return;
+        }
+
+        const client = clients.find(c => c.id === newCustomOrder.clientId);
+        const order: Commande = {
+            id: `CMD_SM_${Date.now()}`,
+            clientId: newCustomOrder.clientId!,
+            clientNom: client?.nom || 'Inconnu',
+            boutiqueId: selectedBoutiqueId,
+            description: newCustomOrder.description || 'Commande Sur-Mesure',
+            dateCommande: new Date().toISOString(),
+            dateLivraisonPrevue: newCustomOrder.dateLivraisonPrevue || '',
+            statut: StatutCommande.EN_ATTENTE,
+            tailleursIds: [],
+            prixTotal: newCustomOrder.prixTotal!,
+            avance: newCustomOrder.avance || 0,
+            reste: Math.max(0, newCustomOrder.prixTotal! - (newCustomOrder.avance || 0)),
+            type: 'SUR_MESURE',
+            quantite: newCustomOrder.elements!.reduce((acc, el) => acc + el.quantiteTotal, 0),
+            elements: newCustomOrder.elements,
+            paiements: [],
+            consommations: [],
+            taches: []
+        };
+
+        if (onCreateCustomOrder) {
+            onCreateCustomOrder(order, [], 'ESPECE', accountId);
+            setIsCustomOrderModalOpen(false);
+            setNewCustomOrder({ clientId: '', prixTotal: 0, avance: 0, elements: [], description: '', dateLivraisonPrevue: '' });
+            setActiveTab('CUSTOM');
+        }
+    };
+
     const openPaymentModal = (order: Commande) => {
         setSelectedOrderForPayment(order); setPayAmount(order.reste); 
         const shopAccount = comptes.find(c => c.boutiqueId === order.boutiqueId && c.type === 'CAISSE');
@@ -165,31 +298,12 @@ const SalesView: React.FC<SalesViewProps> = ({
         setPaymentModalOpen(false); setSelectedOrderForPayment(null);
     };
 
-    const generatePrintContent = (order: Commande, mode: 'TICKET' | 'DEVIS' | 'LIVRAISON' = 'TICKET') => {
-        const printWindow = window.open('', '', 'width=400,height=600');
-        if (!printWindow) return;
-        const itemsHtml = order.detailsVente?.map(item => `<div style="display:flex; justify-content:space-between; margin-bottom: 5px;"><span>${item.nomArticle} ${item.variante !== 'Standard' ? '(' + item.variante + ')' : ''} x${item.quantite}</span><span>${(item.quantite * item.prixUnitaire).toLocaleString()}</span></div>`).join('') || '';
-        const logoUrl = companyAssets?.logoStr || `${window.location.origin}${COMPANY_CONFIG.logoUrl}`;
-        const html = `<html><head><title>Impression Doc</style></head><body><div style="font-family:monospace; font-size:12px;"><div style="text-align:center"><img src="${logoUrl}" style="max-height:60px"/><br/><h3>${COMPANY_CONFIG.name}</h3><p>${COMPANY_CONFIG.address}</p><h4>${mode} #${order.id.slice(-6)}</h4></div><div style="border-top:1px dashed #000; padding:10px 0">${itemsHtml}</div><div style="border-top:1px dashed #000; padding:10px 0; font-weight:bold; font-size:14px;"><div style="display:flex; justify-content:space-between"><span>TOTAL TTC</span><span>${order.prixTotal.toLocaleString()} F</span></div></div></div><script>window.print();</script></body></html>`;
-        printWindow.document.write(html); printWindow.document.close();
-    };
-
-    const openCancelModal = (order: Commande) => {
-        setSelectedOrderForCancel(order); setRefundAccountId(''); setIsCancelModalOpen(true);
-    };
-
-    const handleConfirmCancel = () => {
-        if (!selectedOrderForCancel) return;
-        if (selectedOrderForCancel.avance > 0 && !refundAccountId) { alert("Choisir compte source pour le remboursement."); return; }
-        onCancelSale(selectedOrderForCancel.id, refundAccountId);
-        setIsCancelModalOpen(false); setSelectedOrderForCancel(null);
-    };
-
     return (
         <div className="h-[calc(100vh-8rem)] flex flex-col space-y-4">
             <div className="flex justify-between items-center bg-white p-2 rounded-lg shadow-sm border border-gray-200">
                 <div className="flex gap-2">
                     <button onClick={() => setActiveTab('POS')} className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors ${activeTab === 'POS' ? 'bg-brand-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100'}`}><ShoppingCart size={18} /> Point de Vente</button>
+                    <button onClick={() => setActiveTab('CUSTOM')} className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors ${activeTab === 'CUSTOM' ? 'bg-brand-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100'}`}><Scissors size={18} /> Commandes Sur-Mesure</button>
                     <button onClick={() => setActiveTab('HISTORY')} className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors ${activeTab === 'HISTORY' ? 'bg-brand-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100'}`}><History size={18} /> Historique</button>
                 </div>
                 <div className="flex items-center gap-4">
@@ -207,6 +321,7 @@ const SalesView: React.FC<SalesViewProps> = ({
                 </div>
             </div>
 
+            {/* TAB POINT DE VENTE DIRECT */}
             {activeTab === 'POS' && (
                 <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden">
                     <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
@@ -218,7 +333,6 @@ const SalesView: React.FC<SalesViewProps> = ({
                         </div>
                         <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 align-content-start">
                             {filteredArticles.map(article => {
-                                const hasVariants = article.variantes && article.variantes.length > 0;
                                 const shopStockRec = (article.stockParLieu[selectedBoutiqueId] || {}) as Record<string, number>;
                                 const totalStockInShop = (Object.values(shopStockRec) as number[]).reduce((acc: number, q: number) => acc + q, 0);
 
@@ -232,7 +346,7 @@ const SalesView: React.FC<SalesViewProps> = ({
                                         <div className="mt-auto">
                                             <p className="font-black text-brand-600 text-sm mb-2">{article.prixVenteDefault.toLocaleString()} F</p>
                                             
-                                            {hasVariants ? (
+                                            {article.variantes && article.variantes.length > 0 ? (
                                                 <div className="grid grid-cols-2 gap-1">
                                                     {article.variantes.map(v => {
                                                         const vStock = shopStockRec[v] || 0;
@@ -291,19 +405,11 @@ const SalesView: React.FC<SalesViewProps> = ({
                             <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-100">
                                 <div className="flex flex-col gap-1">
                                     <label className="text-[9px] font-black text-red-500 uppercase ml-1 flex items-center gap-1"><Tag size={10}/> Remise (F)</label>
-                                    <input 
-                                        type="number" 
-                                        className="w-full p-2 border border-red-100 rounded text-xs font-black text-red-600 bg-white" 
-                                        placeholder="0" 
-                                        value={remise || ''} 
-                                        onChange={(e) => setRemise(parseInt(e.target.value) || 0)}
-                                    />
+                                    <input type="number" className="w-full p-2 border border-red-100 rounded text-xs font-black text-red-600 bg-white" placeholder="0" value={remise || ''} onChange={(e) => setRemise(parseInt(e.target.value) || 0)} />
                                 </div>
                                 <div className="flex flex-col gap-1 text-right">
                                     <label className="text-[9px] font-black text-gray-400 uppercase mr-1">Total TTC</label>
-                                    <div className="text-xl font-black text-brand-600">
-                                        {finalTotal.toLocaleString()} F
-                                    </div>
+                                    <div className="text-xl font-black text-brand-600">{finalTotal.toLocaleString()} F</div>
                                 </div>
                             </div>
 
@@ -317,7 +423,254 @@ const SalesView: React.FC<SalesViewProps> = ({
                 </div>
             )}
 
-            {/* History Tab remains unchanged */}
+            {/* TAB COMMANDES SUR MESURE (POUR VENDEURS) */}
+            {activeTab === 'CUSTOM' && (
+                <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden animate-in fade-in">
+                    <div className="p-4 bg-gray-50 border-b flex justify-between items-center shrink-0">
+                        <h3 className="font-bold text-gray-800 flex items-center gap-2 uppercase text-xs tracking-widest"><Scissors size={18} className="text-brand-600"/> Gestion Sur-Mesure</h3>
+                        <button onClick={() => { setIsCustomOrderModalOpen(true); }} className="bg-brand-900 text-white px-6 py-2.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg flex items-center gap-2 active:scale-95 transition-all"><Plus size={16}/> Nouvelle Commande</button>
+                    </div>
+                    <div className="flex-1 overflow-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-white border-b sticky top-0 z-10 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                <tr><th className="p-4">Date & Réf</th><th className="p-4">Client</th><th className="p-4">Composition</th><th className="p-4 text-center">État Atelier</th><th className="p-4 text-right">Finances</th><th className="p-4 text-right">Actions</th></tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {customOrders.map(order => (
+                                    <tr key={order.id} className="hover:bg-brand-50/20">
+                                        <td className="p-4">
+                                            <p className="font-bold text-gray-800">{new Date(order.dateCommande).toLocaleDateString()}</p>
+                                            <p className="text-[10px] text-gray-400 font-mono">#{order.id.slice(-6)}</p>
+                                        </td>
+                                        <td className="p-4 font-black text-gray-700 uppercase">{order.clientNom}</td>
+                                        <td className="p-4">
+                                            <div className="flex flex-wrap gap-1">
+                                                {order.elements?.map((el, i) => (
+                                                    <span key={i} className="px-2 py-0.5 bg-gray-100 rounded text-[10px] font-bold uppercase">{el.nom} ({el.quantiteTotal})</span>
+                                                ))}
+                                            </div>
+                                        </td>
+                                        <td className="p-4 text-center">
+                                            <span className="px-3 py-1 bg-white border border-gray-100 rounded-full text-[10px] font-black uppercase text-gray-500 shadow-sm">{order.statut}</span>
+                                        </td>
+                                        <td className="p-4 text-right">
+                                            <p className="font-bold text-gray-800">{order.prixTotal.toLocaleString()} F</p>
+                                            <p className={`text-[10px] font-black ${order.reste > 0 ? 'text-red-500' : 'text-green-600'}`}>{order.reste > 0 ? `Reste: ${order.reste.toLocaleString()} F` : 'Payé'}</p>
+                                        </td>
+                                        <td className="p-4 text-right">
+                                            <div className="flex justify-end gap-1">
+                                                <button onClick={() => { setSelectedOrderDetails(order); }} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Eye size={16}/></button>
+                                                {order.reste > 0 && <button onClick={() => openPaymentModal(order)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Encaisser Versement"><DollarSign size={16}/></button>}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {customOrders.length === 0 && (
+                                    <tr><td colSpan={6} className="p-20 text-center text-gray-300 font-black uppercase text-xs">Aucune commande sur-mesure enregistrée pour cette boutique.</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {/* TAB HISTORIQUE VENTES DIRECTES */}
+            {activeTab === 'HISTORY' && (
+                <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden animate-in fade-in">
+                    <div className="p-4 bg-gray-50 border-b flex flex-col sm:flex-row justify-between items-center gap-4 shrink-0">
+                        <h3 className="font-bold text-gray-800 flex items-center gap-2 uppercase text-xs tracking-widest"><History size={18}/> Ventes Réalisées</h3>
+                        <div className="relative w-full sm:w-64">
+                            <Search className="absolute left-3 top-2 text-gray-400" size={16} />
+                            <input type="text" placeholder="Chercher vente..." value={historySearch} onChange={(e) => setHistorySearch(e.target.value)} className="w-full pl-9 pr-3 py-1.5 border border-gray-300 rounded-lg text-sm"/>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-white border-b sticky top-0 z-10 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                <tr><th className="p-4">Date</th><th className="p-4">Client</th><th className="p-4">Articles</th><th className="p-4 text-right">Montant</th><th className="p-4 text-center">Actions</th></tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {salesHistory.map(sale => (
+                                    <tr key={sale.id} className="hover:bg-gray-50">
+                                        <td className="p-4 text-gray-600">{new Date(sale.dateCommande).toLocaleDateString()}</td>
+                                        <td className="p-4 font-bold text-gray-800">{sale.clientNom}</td>
+                                        <td className="p-4">
+                                            <div className="flex flex-wrap gap-1">
+                                                {sale.detailsVente?.map((item, i) => (
+                                                    <span key={i} className="px-2 py-0.5 bg-gray-100 rounded text-[10px] text-gray-600">{item.nomArticle} x{item.quantite}</span>
+                                                ))}
+                                            </div>
+                                        </td>
+                                        <td className="p-4 text-right font-black text-brand-700">{sale.prixTotal.toLocaleString()} F</td>
+                                        <td className="p-4 text-center">
+                                            <div className="flex justify-center gap-1">
+                                                <button onClick={() => generatePrintContent(sale)} className="p-1.5 text-gray-500 hover:text-brand-600 rounded" title="Imprimer Ticket"><Printer size={16}/></button>
+                                                <button onClick={() => openCancelModal(sale)} className="p-1.5 text-red-300 hover:text-red-500 rounded" title="Annuler Vente"><Ban size={16}/></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL NOUVELLE COMMANDE SUR MESURE */}
+            {isCustomOrderModalOpen && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-md animate-in zoom-in">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] border border-brand-100 overflow-hidden">
+                        <div className="p-6 bg-white border-b flex justify-between items-center shrink-0">
+                            <h3 className="text-xl font-black text-gray-800 uppercase tracking-tighter">Nouvelle Commande Sur-Mesure</h3>
+                            <button onClick={() => setIsCustomOrderModalOpen(false)}><X size={28} className="text-gray-400"/></button>
+                        </div>
+                        <div className="p-8 space-y-6 overflow-y-auto flex-1 bg-gray-50/30 custom-scrollbar">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Client</label>
+                                    <select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-white" value={newCustomOrder.clientId} onChange={e => setNewCustomOrder({...newCustomOrder, clientId: e.target.value})}>
+                                        <option value="">-- Sélectionner Client --</option>
+                                        {clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Date Livraison Souhaitée</label>
+                                    <input type="date" className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold" value={newCustomOrder.dateLivraisonPrevue} onChange={e => setNewCustomOrder({...newCustomOrder, dateLivraisonPrevue: e.target.value})}/>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Description Globale (Modèle/Tissu)</label>
+                                <textarea className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-white h-24" value={newCustomOrder.description} onChange={e => setNewCustomOrder({...newCustomOrder, description: e.target.value})} placeholder="Ex: Robe de soirée en soie, Grand Boubou Bazin..."/>
+                            </div>
+                            <div className="bg-white p-6 rounded-2xl border border-gray-100 space-y-4 shadow-inner">
+                                <h4 className="text-[10px] font-black text-brand-700 uppercase tracking-widest flex items-center gap-2"><Scissors size={14}/> Composition de la commande</h4>
+                                <div className="flex gap-2">
+                                    <input type="text" placeholder="Pièce (ex: Veste)" className="flex-1 p-3 border-2 border-gray-100 rounded-xl text-xs font-black uppercase" value={tempElement.nom} onChange={e => setTempElement({...tempElement, nom: e.target.value})} />
+                                    <input type="number" placeholder="Qté" className="w-20 p-3 border-2 border-gray-100 rounded-xl text-center font-black" value={tempElement.quantite} onChange={e => setTempElement({...tempElement, quantite: parseInt(e.target.value)||1})} />
+                                    <button onClick={() => { if(!tempElement.nom) return; setNewCustomOrder({...newCustomOrder, elements: [...(newCustomOrder.elements||[]), { id: `EL_${Date.now()}`, nom: tempElement.nom.toUpperCase(), quantiteTotal: tempElement.quantite }]}); setTempElement({nom:'', quantite:1}); }} className="p-3 bg-brand-900 text-white rounded-xl hover:bg-black transition-all"><Plus size={20}/></button>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {newCustomOrder.elements?.map((el, idx) => (
+                                        <div key={idx} className="bg-brand-50 border border-brand-200 px-3 py-1.5 rounded-lg flex items-center gap-2">
+                                            <span className="text-[10px] font-black text-brand-900 uppercase">{el.nom} ({el.quantiteTotal})</span>
+                                            <button onClick={() => setNewCustomOrder({...newCustomOrder, elements: newCustomOrder.elements?.filter((_,i) => i!==idx)})} className="text-red-300 hover:text-red-500"><X size={14}/></button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Prix Total de la prestation (F)</label><input type="number" className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black text-brand-700 text-xl" value={newCustomOrder.prixTotal || ''} onChange={e => setNewCustomOrder({...newCustomOrder, prixTotal: parseInt(e.target.value)||0})} placeholder="0"/></div>
+                                <div><label className="text-[10px] font-black text-brand-600 uppercase mb-2 block">Acompte Immédiat (F)</label><input type="number" className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black text-brand-600 text-xl bg-brand-50/50" value={newCustomOrder.avance || ''} onChange={e => setNewCustomOrder({...newCustomOrder, avance: parseInt(e.target.value)||0})} placeholder="0"/></div>
+                            </div>
+                            { (newCustomOrder.avance || 0) > 0 && (
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-900 uppercase mb-2 block">Caisse d'encaissement</label>
+                                    <select className="w-full p-3 border-2 border-brand-300 rounded-xl font-black bg-white" value={accountId} onChange={e => setAccountId(e.target.value)}>
+                                        <option value="">-- Choisir Caisse --</option>
+                                        {comptes.filter(c => c.boutiqueId === selectedBoutiqueId).map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
+                                    </select>
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-6 bg-white border-t flex justify-end gap-3 shrink-0">
+                            <button onClick={() => setIsCustomOrderModalOpen(false)} className="px-6 py-3 text-gray-400 font-black uppercase text-xs">Annuler</button>
+                            <button onClick={handleSaveCustomOrder} disabled={!newCustomOrder.clientId || !newCustomOrder.prixTotal || !newCustomOrder.elements?.length || ((newCustomOrder.avance||0)>0 && !accountId)} className="px-12 py-3 bg-brand-900 text-white rounded-xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all disabled:opacity-30 flex items-center gap-2"><Save size={18}/> Enregistrer Commande</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL ENCAISSEMENT RELIQUAT */}
+            {paymentModalOpen && selectedOrderForPayment && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[700] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-[2.5rem] p-10 w-full max-sm shadow-2xl border border-brand-100 animate-in zoom-in">
+                        <div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3"><DollarSign className="text-green-600"/> Encaisser Versement</h3><button onClick={()=>setPaymentModalOpen(false)}><X size={28} className="text-gray-400"/></button></div>
+                        <div className="space-y-6">
+                            <div className="bg-gray-50 p-6 rounded-3xl text-center border shadow-inner"><p className="text-[10px] font-black text-gray-400 uppercase mb-1">Reste à percevoir</p><p className="text-3xl font-black text-gray-900">{selectedOrderForPayment.reste.toLocaleString()} F</p></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Montant à encaisser (F)</label><input type="number" className="w-full p-5 border-2 border-brand-100 rounded-2xl text-2xl font-black text-brand-600 focus:border-brand-600 outline-none transition-all shadow-sm" value={payAmount||''} placeholder="0" onChange={e=>setPayAmount(parseInt(e.target.value)||0)}/></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Mode de règlement</label><select className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black bg-white outline-none" value={payMethod} onChange={e=>setPayMethod(e.target.value as any)}><option value="ESPECE">Espèce</option><option value="WAVE">Wave</option><option value="ORANGE_MONEY">Orange Money</option></select></div>
+                            <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Caisse de réception</label><select className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black bg-white outline-none" value={payAccount} onChange={e=>setPayAccount(e.target.value)}><option value="">-- Choisir Caisse --</option>{comptes.filter(c => c.boutiqueId === selectedBoutiqueId).map(c=><option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                        </div>
+                        <div className="flex justify-end gap-3 mt-10 pt-5 border-t"><button onClick={()=>setPaymentModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px]">Annuler</button><button onClick={handleConfirmPayment} disabled={!payAccount || payAmount <= 0} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">Confirmer Encaissement</button></div>
+                    </div>
+                </div>
+            )}
+
+            {/* DETAILS COMMANDE SUR MESURE */}
+            {selectedOrderDetails && (
+                <div className="fixed inset-0 bg-brand-900/90 z-[600] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in">
+                    <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in border border-brand-100">
+                        <div className="p-8 border-b flex justify-between items-center bg-white shrink-0">
+                            <div><h3 className="text-2xl font-black text-gray-800 uppercase tracking-tighter">Suivi Commande</h3><p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Réf: #{selectedOrderDetails.id.slice(-6)}</p></div>
+                            <button onClick={() => setSelectedOrderDetails(null)} className="p-3 bg-gray-50 text-gray-400 rounded-xl hover:bg-gray-100"><X size={24}/></button>
+                        </div>
+                        <div className="p-8 space-y-6">
+                            <div className="flex justify-between items-center bg-gray-50 p-6 rounded-3xl border">
+                                <div><p className="text-[10px] font-black text-gray-400 uppercase mb-1">État actuel à l'Atelier</p><p className="text-lg font-black text-brand-900 uppercase tracking-widest">{selectedOrderDetails.statut}</p></div>
+                                <Clock size={32} className="text-brand-300"/>
+                            </div>
+                            <div className="space-y-4">
+                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4">Articles en fabrication</h4>
+                                <div className="space-y-2">
+                                    {selectedOrderDetails.elements?.map((el, i) => (
+                                        <div key={i} className="bg-white p-4 rounded-2xl border flex justify-between items-center shadow-sm">
+                                            <span className="font-black text-gray-800 uppercase text-xs">{el.nom}</span>
+                                            <span className="text-xs font-black text-gray-400">Qté: {el.quantiteTotal}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="bg-brand-900 text-white p-6 rounded-3xl flex justify-between items-center">
+                                <div><p className="text-[10px] font-black text-brand-300 uppercase mb-1">Reste à payer</p><p className="text-3xl font-black">{selectedOrderDetails.reste.toLocaleString()} F</p></div>
+                                <button onClick={() => { setSelectedOrderDetails(null); openPaymentModal(selectedOrderDetails); }} className="px-6 py-3 bg-brand-500 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg">Encaisser</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL ANNULATION VENTE */}
+            {isCancelModalOpen && selectedOrderForCancel && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[700] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-[2rem] p-8 w-full max-w-sm shadow-2xl border border-brand-100 animate-in zoom-in">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4">
+                            <h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3 text-red-600"><AlertTriangle /> Annuler Vente</h3>
+                            <button onClick={() => setIsCancelModalOpen(false)}><X size={28} className="text-gray-400"/></button>
+                        </div>
+                        <div className="space-y-4">
+                            <p className="text-sm text-gray-500 text-center mb-4">Voulez-vous vraiment annuler la vente de <strong>{selectedOrderForCancel.clientNom}</strong> ?<br/>Le stock sera réintégré.</p>
+                            
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Compte pour le remboursement</label>
+                                <select 
+                                    className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black bg-white outline-none" 
+                                    value={refundAccountId} 
+                                    onChange={e => setRefundAccountId(e.target.value)}
+                                >
+                                    <option value="">-- Choisir Source --</option>
+                                    {comptes.filter(c => c.boutiqueId === selectedOrderForCancel.boutiqueId).map(c => (
+                                        <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-3 mt-8 pt-4 border-t">
+                            <button onClick={() => setIsCancelModalOpen(false)} className="px-6 py-3 text-gray-400 font-black uppercase text-[10px]">Abandonner</button>
+                            <button 
+                                onClick={() => {
+                                    if (!refundAccountId) return;
+                                    onCancelSale(selectedOrderForCancel.id, refundAccountId);
+                                    setIsCancelModalOpen(false);
+                                }} 
+                                disabled={!refundAccountId}
+                                className="px-10 py-3 bg-red-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 disabled:opacity-30"
+                            >
+                                Confirmer Annulation
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
