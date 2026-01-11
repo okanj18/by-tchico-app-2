@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Depense, Commande, Boutique, RoleEmploye, Fournisseur, CommandeFournisseur, Client, CompteFinancier, TransactionTresorerie, TypeCompte, StatutCommande, StatutCommandeFournisseur, SessionUser, StatutPaiement } from '../types';
-import { Wallet, TrendingUp, TrendingDown, DollarSign, Plus, Trash2, Building, Store, Scissors, BarChart2, FileText, Calendar, X, Printer, AlertOctagon, ArrowUpCircle, ArrowDownCircle, Landmark, Banknote, Smartphone, ArrowRightLeft, ArrowRight, Edit2, PieChart, Info, Percent, CheckCircle, AlertCircle, ChevronDown, ListFilter, BarChart3, MinusCircle, PlusCircle, Search, Lightbulb } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, DollarSign, Plus, Trash2, Building, Store, Scissors, BarChart2, FileText, Calendar, X, Printer, AlertOctagon, ArrowUpCircle, ArrowDownCircle, Landmark, Banknote, Smartphone, ArrowRightLeft, ArrowRight, Edit2, PieChart, Info, Percent, CheckCircle, AlertCircle, ChevronDown, ListFilter, BarChart3, MinusCircle, PlusCircle, Search, Lightbulb, User, Truck, Download } from 'lucide-react';
 import { COMPANY_CONFIG } from '../config';
 
 interface FinanceViewProps {
@@ -49,6 +49,11 @@ const FinanceView: React.FC<FinanceViewProps> = ({
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
     const [isWithdrawalModalOpen, setIsWithdrawalModalOpen] = useState(false);
+    
+    // Nouveaux Modals pour les Rapports
+    const [isUnpaidModalOpen, setIsUnpaidModalOpen] = useState(false);
+    const [isDebtModalOpen, setIsDebtModalOpen] = useState(false);
+    const [reportSearchTerm, setReportSearchTerm] = useState('');
 
     // Form States
     const [newExpense, setNewExpense] = useState<Partial<Depense>>({
@@ -97,6 +102,39 @@ const FinanceView: React.FC<FinanceViewProps> = ({
 
     const creancesClientsTotal = useMemo(() => commandes.filter(c => c.statut !== StatutCommande.ANNULE && !c.archived).reduce((acc, c) => acc + c.reste, 0), [commandes]);
     const dettesFournisseursTotal = useMemo(() => commandesFournisseurs.filter(c => c.statut !== StatutCommandeFournisseur.ANNULE && !c.archived).reduce((acc, c) => acc + (c.montantTotal - c.montantPaye), 0), [commandesFournisseurs]);
+
+    // Groupement des impayés par client
+    const listImpayes = useMemo(() => {
+        const map = new Map<string, { clientNom: string, totalReste: number, count: number, lastDate: string }>();
+        commandes.filter(c => c.statut !== StatutCommande.ANNULE && !c.archived && c.reste > 0).forEach(c => {
+            const existing = map.get(c.clientId) || { clientNom: c.clientNom, totalReste: 0, count: 0, lastDate: '' };
+            existing.totalReste += c.reste;
+            existing.count += 1;
+            if (!existing.lastDate || new Date(c.dateCommande) > new Date(existing.lastDate)) {
+                existing.lastDate = c.dateCommande;
+            }
+            map.set(c.clientId, existing);
+        });
+        return Array.from(map.values()).filter(i => i.clientNom.toLowerCase().includes(reportSearchTerm.toLowerCase())).sort((a,b) => b.totalReste - a.totalReste);
+    }, [commandes, reportSearchTerm]);
+
+    // Groupement des dettes par fournisseur
+    const listDettes = useMemo(() => {
+        const map = new Map<string, { supplierNom: string, totalDette: number, count: number, lastDate: string }>();
+        commandesFournisseurs.filter(c => c.statut !== StatutCommandeFournisseur.ANNULE && !c.archived && (c.montantTotal - c.montantPaye) > 0).forEach(c => {
+            const supplier = fournisseurs.find(f => f.id === c.fournisseurId);
+            const name = supplier?.nomEntreprise || "Inconnu";
+            const debt = c.montantTotal - c.montantPaye;
+            const existing = map.get(c.fournisseurId) || { supplierNom: name, totalDette: 0, count: 0, lastDate: '' };
+            existing.totalDette += debt;
+            existing.count += 1;
+            if (!existing.lastDate || new Date(c.dateCommande) > new Date(existing.lastDate)) {
+                existing.lastDate = c.dateCommande;
+            }
+            map.set(c.fournisseurId, existing);
+        });
+        return Array.from(map.values()).filter(i => i.supplierNom.toLowerCase().includes(reportSearchTerm.toLowerCase())).sort((a,b) => b.totalDette - a.totalDette);
+    }, [commandesFournisseurs, fournisseurs, reportSearchTerm]);
 
     const performanceParBoutique = useMemo(() => {
         const now = new Date();
@@ -344,14 +382,14 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                                     <div><p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">CRÉANCES CLIENTS</p><p className="text-3xl font-black text-gray-900 mt-2">{creancesClientsTotal.toLocaleString()} F</p></div>
                                     <div className="p-3 bg-red-50 rounded-full text-red-600 shadow-inner group-hover:scale-110 transition-transform"><AlertCircle size={28}/></div>
                                 </div>
-                                <button className="mt-4 w-full py-2.5 bg-red-50 text-red-700 text-[10px] font-black uppercase rounded-xl hover:bg-red-100 transition-all border border-red-100 flex items-center justify-center gap-2"><Printer size={14}/> Voir Liste Impayés</button>
+                                <button onClick={() => { setReportSearchTerm(''); setIsUnpaidModalOpen(true); }} className="mt-4 w-full py-2.5 bg-red-50 text-red-700 text-[10px] font-black uppercase rounded-xl hover:bg-red-100 transition-all border border-red-100 flex items-center justify-center gap-2"><Printer size={14}/> Voir Liste Impayés</button>
                             </div>
                             <div className="bg-white p-6 rounded-[2rem] border-l-[8px] border-orange-500 shadow-sm relative overflow-hidden flex flex-col justify-between h-44 group hover:shadow-md transition-shadow">
                                 <div className="flex justify-between items-start">
                                     <div><p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">DETTES FOURNISSEURS</p><p className="text-3xl font-black text-gray-900 mt-2">{dettesFournisseursTotal.toLocaleString()} F</p></div>
                                     <div className="p-3 bg-orange-50 rounded-full text-orange-600 shadow-inner group-hover:scale-110 transition-transform"><TrendingDown size={28}/></div>
                                 </div>
-                                <button className="mt-4 w-full py-2.5 bg-orange-50 text-orange-700 text-[10px] font-black uppercase rounded-xl hover:bg-orange-100 transition-all border border-orange-100 flex items-center justify-center gap-2"><Printer size={14}/> Voir Liste Dettes</button>
+                                <button onClick={() => { setReportSearchTerm(''); setIsDebtModalOpen(true); }} className="mt-4 w-full py-2.5 bg-orange-50 text-orange-700 text-[10px] font-black uppercase rounded-xl hover:bg-orange-100 transition-all border border-orange-100 flex items-center justify-center gap-2"><Printer size={14}/> Voir Liste Dettes</button>
                             </div>
                             <div className="bg-white p-6 rounded-[2rem] border-l-[8px] border-blue-500 shadow-sm relative overflow-hidden flex flex-col justify-between h-44 ring-2 ring-blue-50 group hover:shadow-md transition-shadow">
                                 <div className="flex justify-between items-start">
@@ -502,6 +540,86 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                 )}
             </div>
 
+            {/* MODAL LISTE DES IMPAYÉS CLIENTS */}
+            {isUnpaidModalOpen && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] animate-in zoom-in border border-brand-100 overflow-hidden">
+                        <div className="p-6 border-b flex justify-between items-center bg-gray-50">
+                            <h3 className="font-black text-gray-800 uppercase tracking-tighter flex items-center gap-3"><AlertCircle className="text-red-600" /> Créances Clients Détaillées</h3>
+                            <button onClick={() => setIsUnpaidModalOpen(false)} className="p-1 hover:bg-gray-200 rounded-full transition-colors"><X size={28}/></button>
+                        </div>
+                        <div className="p-4 border-b">
+                            <div className="relative">
+                                <Search className="absolute left-4 top-3 text-gray-400" size={18} />
+                                <input type="text" placeholder="Rechercher un client..." value={reportSearchTerm} onChange={e => setReportSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-2.5 bg-gray-50 border-2 border-gray-100 rounded-xl text-sm font-bold focus:border-brand-500 outline-none transition-all shadow-sm" />
+                            </div>
+                        </div>
+                        <div className="p-6 overflow-y-auto custom-scrollbar flex-1">
+                            <table className="w-full text-sm text-left">
+                                <thead className="text-[10px] font-black uppercase text-gray-400 border-b">
+                                    <tr><th className="pb-4">Client</th><th className="pb-4 text-center">Commandes</th><th className="pb-4 text-center">Dernière activité</th><th className="pb-4 text-right">Reste total</th></tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                    {listImpayes.map((i, idx) => (
+                                        <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                                            <td className="py-4 font-black uppercase text-gray-700">{i.clientNom}</td>
+                                            <td className="py-4 text-center font-bold text-gray-400">{i.count} fiche(s)</td>
+                                            <td className="py-4 text-center text-xs font-bold text-gray-400">{new Date(i.lastDate).toLocaleDateString()}</td>
+                                            <td className="py-4 text-right font-black text-red-600 text-base">{i.totalReste.toLocaleString()} F</td>
+                                        </tr>
+                                    ))}
+                                    {listImpayes.length === 0 && <tr><td colSpan={4} className="py-10 text-center text-gray-400 italic">Aucun impayé trouvé.</td></tr>}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div className="p-6 bg-gray-50 border-t flex justify-end gap-3">
+                             <button className="px-6 py-3 bg-white border-2 border-gray-200 text-gray-600 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 hover:bg-gray-100 transition-all"><Download size={14}/> PDF / Excel</button>
+                             <button onClick={() => setIsUnpaidModalOpen(false)} className="px-8 py-3 bg-brand-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg">Fermer</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL LISTE DES DETTES FOURNISSEURS */}
+            {isDebtModalOpen && (
+                <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] animate-in zoom-in border border-brand-100 overflow-hidden">
+                        <div className="p-6 border-b flex justify-between items-center bg-gray-50">
+                            <h3 className="font-black text-gray-800 uppercase tracking-tighter flex items-center gap-3"><TrendingDown className="text-orange-600" /> Dettes Fournisseurs Détaillées</h3>
+                            <button onClick={() => setIsDebtModalOpen(false)} className="p-1 hover:bg-gray-200 rounded-full transition-colors"><X size={28}/></button>
+                        </div>
+                        <div className="p-4 border-b">
+                            <div className="relative">
+                                <Search className="absolute left-4 top-3 text-gray-400" size={18} />
+                                <input type="text" placeholder="Rechercher un fournisseur..." value={reportSearchTerm} onChange={e => setReportSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-2.5 bg-gray-50 border-2 border-gray-100 rounded-xl text-sm font-bold focus:border-brand-500 outline-none transition-all shadow-sm" />
+                            </div>
+                        </div>
+                        <div className="p-6 overflow-y-auto custom-scrollbar flex-1">
+                            <table className="w-full text-sm text-left">
+                                <thead className="text-[10px] font-black uppercase text-gray-400 border-b">
+                                    <tr><th className="pb-4">Fournisseur</th><th className="pb-4 text-center">Commandes</th><th className="pb-4 text-center">Dernier achat</th><th className="pb-4 text-right">Dette totale</th></tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                    {listDettes.map((i, idx) => (
+                                        <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                                            <td className="py-4 font-black uppercase text-gray-700">{i.supplierNom}</td>
+                                            <td className="py-4 text-center font-bold text-gray-400">{i.count} commande(s)</td>
+                                            <td className="py-4 text-center text-xs font-bold text-gray-400">{new Date(i.lastDate).toLocaleDateString()}</td>
+                                            <td className="py-4 text-right font-black text-orange-600 text-base">{i.totalDette.toLocaleString()} F</td>
+                                        </tr>
+                                    ))}
+                                    {listDettes.length === 0 && <tr><td colSpan={4} className="py-10 text-center text-gray-400 italic">Aucune dette fournisseur trouvée.</td></tr>}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div className="p-6 bg-gray-50 border-t flex justify-end gap-3">
+                             <button className="px-6 py-3 bg-white border-2 border-gray-200 text-gray-600 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 hover:bg-gray-100 transition-all"><Download size={14}/> PDF / Excel</button>
+                             <button onClick={() => setIsDebtModalOpen(false)} className="px-8 py-3 bg-brand-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg">Fermer</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* MODAL DEPENSE */}
             {isExpenseModalOpen && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md">
@@ -528,7 +646,7 @@ const FinanceView: React.FC<FinanceViewProps> = ({
 
             {isTransferModalOpen && (<div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md"><div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl border border-brand-100"><div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3 text-blue-600"><ArrowRightLeft size={32}/> Virement Interne</h3><button onClick={() => setIsTransferModalOpen(false)} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><X size={28}/></button></div><div className="space-y-6"><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Montant à transférer</label><input type="number" className="w-full p-4 border-2 border-blue-50 rounded-2xl text-2xl font-black text-blue-900 bg-blue-50/30 outline-none" value={transferData.montant || ''} onChange={e => setTransferData({...transferData, montant: parseInt(e.target.value)||0})} placeholder="0" /></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Source</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-xs" value={transferData.sourceId} onChange={e => setTransferData({...transferData, sourceId: e.target.value})}><option value="">-- Choisir --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Destination</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-xs" value={transferData.destId} onChange={e => setTransferData({...transferData, destId: e.target.value})}><option value="">-- Choisir --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div></div><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Libellé / Motif (Optionnel)</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-gray-50 focus:border-brand-600 outline-none shadow-sm" value={transferData.note} onChange={e => setTransferData({...transferData, note: e.target.value})} placeholder="Ex: Réapprovisionnement caisse boutique..." /></div></div><div className="flex justify-end gap-3 mt-10 pt-4 border-t"><button onClick={() => setIsTransferModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={handleTransfer} disabled={transferData.montant <= 0 || !transferData.sourceId || !transferData.destId} className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-blue-100 active:scale-95 transition-all">Confirmer</button></div></div></div>)}
 
-            {/* MODAL NOUVEAU COMPTE / MODIFICATION COMPTE */}
+            {/* MODAL NOUVELLE COMPTE / MODIFICATION COMPTE */}
             {isAccountModalOpen && (<div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md"><div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl border border-brand-100"><div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3"><Plus size={32} className="text-brand-600"/> {editingAccountId ? 'Modifier Compte' : 'Nouveau Compte'}</h3><button onClick={() => { setIsAccountModalOpen(false); setEditingAccountId(null); }} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><X size={28}/></button></div><div className="space-y-6"><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Nom du compte</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 uppercase focus:border-brand-600 outline-none shadow-sm" value={newAccount.nom} onChange={e => setNewAccount({...newAccount, nom: e.target.value})} placeholder="Ex: Caisse Boutique" /></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Type</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 outline-none text-xs" value={newAccount.type} onChange={e => setNewAccount({...newAccount, type: e.target.value as any})}><option value="CAISSE">Caisse (Espèce)</option><option value="BANQUE">Banque (Virement/Chèque)</option><option value="MOBILE_MONEY">Mobile Money (Wave/OM)</option></select></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Numéro de compte / Identifiant</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none" value={newAccount.numero} onChange={e => setNewAccount({...newAccount, numero: e.target.value})} placeholder="Ex: 77 123 45 67 ou IBAN" /></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Solde Initial</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none disabled:opacity-50" value={newAccount.solde || ''} onChange={e => setNewAccount({...newAccount, solde: parseInt(e.target.value)||0})} placeholder="0" disabled={!!editingAccountId} /></div></div><div className="flex justify-end gap-3 mt-10 pt-5 border-t"><button onClick={() => { setIsAccountModalOpen(false); setEditingAccountId(null); }} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={handleSaveAccount} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">{editingAccountId ? 'Mettre à jour' : 'Créer Compte'}</button></div></div></div>)}
         </div>
     );
