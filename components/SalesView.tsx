@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Article, Boutique, Client, Commande, StatutCommande, ModePaiement, CompteFinancier, CompanyAssets, SessionUser } from '../types';
 import { COMPANY_CONFIG } from '../config';
-import { Search, ShoppingCart, User, Printer, History, X, CheckCircle, AlertTriangle, Plus, Trash2, Wallet, Ban, FileText, Minus, Save, UserX, ClipboardList, Layers, DollarSign, Store } from 'lucide-react';
+import { Search, ShoppingCart, User, Printer, History, X, CheckCircle, AlertTriangle, Plus, Trash2, Wallet, Ban, FileText, Minus, Save, UserX, ClipboardList, Layers, DollarSign, Store, Tag } from 'lucide-react';
 
 interface SalesViewProps {
     articles: Article[];
@@ -271,8 +271,42 @@ const SalesView: React.FC<SalesViewProps> = ({
                             {cart.length === 0 && <div className="h-full flex flex-col items-center justify-center text-gray-300 opacity-50 py-20"><ShoppingCart size={48}/><p className="text-xs font-black uppercase mt-4">Panier vide</p></div>}
                         </div>
                         <div className="p-4 bg-gray-50 border-t border-gray-200 space-y-3 shrink-0">
-                            <div className="grid grid-cols-2 gap-2"><select className="text-[10px] p-2 border rounded font-black uppercase" value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)}><option value="">Client de Passage</option>{clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select><div className="flex items-center gap-2 bg-white px-2 border rounded"><input type="checkbox" checked={tvaEnabled} onChange={(e) => setTvaEnabled(e.target.checked)} className="rounded text-brand-600"/><span className="text-[10px] font-black uppercase">TVA ({COMPANY_CONFIG.tvaRate*100}%)</span></div></div>
-                            <div className="border-t border-gray-200 pt-2 flex justify-between items-end"><span className="text-sm font-black text-gray-500 uppercase">Total à payer</span><span className="text-xl font-black text-brand-600">{finalTotal.toLocaleString()} F</span></div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[9px] font-black text-gray-400 uppercase ml-1">Client</label>
+                                    <select className="text-[10px] p-2 border rounded font-black uppercase w-full bg-white" value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)}>
+                                        <option value="">Client de Passage</option>
+                                        {clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                                    </select>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[9px] font-black text-gray-400 uppercase ml-1">Options</label>
+                                    <div className="flex items-center gap-2 bg-white p-2 border rounded h-full">
+                                        <input type="checkbox" checked={tvaEnabled} onChange={(e) => setTvaEnabled(e.target.checked)} className="rounded text-brand-600"/>
+                                        <span className="text-[10px] font-black uppercase">TVA ({COMPANY_CONFIG.tvaRate*100}%)</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-100">
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[9px] font-black text-red-500 uppercase ml-1 flex items-center gap-1"><Tag size={10}/> Remise (F)</label>
+                                    <input 
+                                        type="number" 
+                                        className="w-full p-2 border border-red-100 rounded text-xs font-black text-red-600 bg-white" 
+                                        placeholder="0" 
+                                        value={remise || ''} 
+                                        onChange={(e) => setRemise(parseInt(e.target.value) || 0)}
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-1 text-right">
+                                    <label className="text-[9px] font-black text-gray-400 uppercase mr-1">Total TTC</label>
+                                    <div className="text-xl font-black text-brand-600">
+                                        {finalTotal.toLocaleString()} F
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="space-y-2 pt-2 border-t border-gray-200">
                                 <div className="flex gap-2"><select className="flex-1 p-2 border rounded text-xs font-black uppercase" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as ModePaiement)}><option value="ESPECE">Espèce</option><option value="WAVE">Wave</option><option value="ORANGE_MONEY">Orange Money</option></select><input type="number" className="flex-1 p-2 border rounded text-xs font-black text-right bg-white" placeholder="Recu (F)" value={amountPaid || ''} onChange={(e) => setAmountPaid(parseInt(e.target.value) || 0)}/></div>
                                 <select className="w-full p-2 border border-brand-200 rounded text-[10px] font-black uppercase bg-white text-brand-900" value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">-- Caisse de destination --</option>{comptes.filter(c => currentUser?.role === 'ADMIN' || currentUser?.role === 'GERANT' || c.boutiqueId === currentUser?.boutiqueId).map(acc => (<option key={acc.id} value={acc.id}>{acc.nom} ({acc.solde.toLocaleString()} F)</option>))}</select>
@@ -283,7 +317,7 @@ const SalesView: React.FC<SalesViewProps> = ({
                 </div>
             )}
 
-            {/* Rest of the component (History Tab, Modals) remains identical but respects currentUser.boutiqueId filtering */}
+            {/* History Tab remains unchanged */}
         </div>
     );
 };
