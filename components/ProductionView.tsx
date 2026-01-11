@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, Consommation, CompteFinancier, CompanyAssets, ModePaiement, TacheProduction, ActionProduction, ElementCommande } from '../types';
+import { Commande, Employe, Client, Article, StatutCommande, RoleEmploye, Consommation, CompteFinancier, CompanyAssets, ModePaiement, TacheProduction, ActionProduction, ElementCommande, LivraisonPartielle } from '../types';
 import { Scissors, Search, Plus, Eye, Edit2, Trash2, X, Save, DollarSign, ClipboardList, UserPlus, Calendar, Layout, Users, Trophy, ChevronLeft, ChevronRight as ChevronRightIcon, Check, Square, CheckSquare, User as UserIcon, List, Ban, CreditCard, Clock, Package, Truck, UserCheck, AlertTriangle, Phone, Info, History, CheckCircle2 } from 'lucide-react';
 
 interface ProductionViewProps {
@@ -39,7 +39,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     
     const [selectedOrder, setSelectedOrder] = useState<Commande | null>(null);
     const [newOrderData, setNewOrderData] = useState<Partial<Commande>>({
-        clientId: '', prixTotal: 0, avance: 0, dateLivraisonPrevue: '', elements: [], consommations: []
+        clientId: '', prixTotal: 0, avance: 0, dateLivraisonPrevue: '', elements: [], consommations: [], description: ''
     });
     const [initialAccountId, setInitialAccountId] = useState('');
     const [clientSearchTerm, setClientSearchTerm] = useState('');
@@ -47,7 +47,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
     const [tempElement, setTempElement] = useState<{nom: string, quantite: number}>({ nom: '', quantite: 1 });
     const [tempCons, setTempCons] = useState<Consommation>({ articleId: '', variante: 'Standard', quantite: 0 });
-    const [payData, setPayData] = useState({ amount: 0, method: 'ESPECE' as ModePaiement, accId: '', date: new Date().toISOString().split('T')[0], note: '' });
+    const [payData, setPayData] = useState({ amount: 0, method: 'ESPECE' as ModePaiement, accId: '', date: new Date().toISOString().split('T')[0], note: '', editingPaymentId: null as string | null });
     
     const [multiTasks, setMultiTasks] = useState<Partial<TacheProduction>[]>([]);
     const [taskBaseData, setTaskBaseData] = useState({ commandeId: '', tailleurId: '', date: new Date().toISOString().split('T')[0] });
@@ -134,9 +134,17 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         if (!newOrderData.clientId || !newOrderData.prixTotal || !newOrderData.elements?.length) {
             alert("Client, prix et composition requis."); return;
         }
-        if (newOrderData.avance! > 0 && !initialAccountId && !isEditingOrder) {
+
+        // VALIDATION : Acompte <= Total
+        if ((newOrderData.avance || 0) > (newOrderData.prixTotal || 0)) {
+            alert("Le montant de l'acompte ne peut pas être supérieur au montant total de la commande.");
+            return;
+        }
+
+        if (newOrderData.avance! > 0 && !initialAccountId) {
             alert("Veuillez sélectionner une caisse pour l'acompte."); return;
         }
+
         if (isEditingOrder && selectedOrder) {
             onUpdateOrder({ ...selectedOrder, ...newOrderData } as Commande, initialAccountId);
         } else {
@@ -147,7 +155,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 tailleursIds: [], prixTotal: newOrderData.prixTotal, avance: newOrderData.avance || 0, 
                 reste: Math.max(0, newOrderData.prixTotal - (newOrderData.avance || 0)), type: 'SUR_MESURE', 
                 quantite: newOrderData.elements!.reduce((acc, el) => acc + el.quantiteTotal, 0), 
-                taches: [], paiements: [], consommations: newOrderData.consommations || [], elements: newOrderData.elements!
+                taches: [], paiements: [], consommations: newOrderData.consommations || [], elements: newOrderData.elements!, livraisons: []
             };
             onCreateOrder(order, newOrderData.consommations || [], 'ESPECE', initialAccountId);
         }
@@ -214,7 +222,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                     ))}
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={() => { setIsEditingOrder(false); setOrderModalOpen(true); setNewOrderData({ clientId: '', prixTotal: 0, avance: 0, elements: [], consommations: [] }); setInitialAccountId(''); }} className="bg-brand-900 text-white px-6 py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center gap-2 active:scale-95 transition-all">
+                    <button onClick={() => { setIsEditingOrder(false); setOrderModalOpen(true); setNewOrderData({ clientId: '', prixTotal: 0, avance: 0, elements: [], consommations: [], description: '' }); setInitialAccountId(''); }} className="bg-brand-900 text-white px-6 py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center gap-2 active:scale-95 transition-all">
                         <Plus size={18}/> Nouvelle Commande
                     </button>
                     <button onClick={() => { setTaskBaseData({ commandeId: '', tailleurId: '', date: new Date().toISOString().split('T')[0] }); setMultiTasks([{ elementNom: '', action: 'COUPE', quantite: 1 }]); setTaskModalOpen(true); }} className="bg-[#ff4e00] hover:bg-[#e64600] text-white px-6 py-3.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center gap-2 active:scale-95 transition-all">
@@ -245,7 +253,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                         <td className="p-6 text-right">
                                             <div className="flex justify-end gap-2">
                                                 <button onClick={()=>{setSelectedOrder(cmd);setDetailModalOpen(true);}} className="p-2.5 bg-white text-blue-600 border border-blue-100 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"><Eye size={18}/></button>
-                                                <button onClick={()=>{setSelectedOrder(cmd);setPayData({...payData,amount:cmd.reste});setPaymentModalOpen(true);}} className="p-2.5 bg-white text-emerald-600 border border-emerald-100 rounded-xl hover:bg-emerald-600 hover:text-white shadow-sm" title="Encaisser"><DollarSign size={18}/></button>
+                                                <button onClick={()=>{setSelectedOrder(cmd);setPayData({...payData,amount:cmd.reste, editingPaymentId: null});setPaymentModalOpen(true);}} className="p-2.5 bg-white text-emerald-600 border border-emerald-100 rounded-xl hover:bg-emerald-600 hover:text-white shadow-sm" title="Encaisser"><DollarSign size={18}/></button>
                                                 <button onClick={()=>{if(window.confirm("Annuler ?"))onUpdateStatus(cmd.id,StatutCommande.ANNULE);}} className="p-2.5 bg-white text-red-300 border border-red-50 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"><Ban size={18}/></button>
                                             </div>
                                         </td>
@@ -415,8 +423,17 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             </div>
                         </div>
                         <div className="p-10 overflow-y-auto flex-1 bg-gray-50/30 space-y-8 custom-scrollbar">
+                            {/* DESCRIPTION GLOBALE ET CLIENT */}
                             <div className="bg-white p-8 rounded-3xl border border-brand-100 shadow-sm flex flex-col md:flex-row justify-between items-start gap-4">
-                                <div><p className="text-[10px] font-black text-gray-400 uppercase mb-1">Client Titulaire</p><p className="text-2xl font-black text-gray-900 uppercase">{selectedOrder.clientNom}</p><div className="flex items-center gap-2 mt-1 text-brand-600 font-bold"><Phone size={14}/> {clients.find(c => c.id === selectedOrder.clientId)?.telephone || 'Contact non spécifié'}</div></div>
+                                <div>
+                                    <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Client Titulaire</p>
+                                    <p className="text-2xl font-black text-gray-900 uppercase">{selectedOrder.clientNom}</p>
+                                    <div className="flex items-center gap-2 mt-1 text-brand-600 font-bold"><Phone size={14}/> {clients.find(c => c.id === selectedOrder.clientId)?.telephone || 'Contact non spécifié'}</div>
+                                    <div className="mt-4 p-4 bg-brand-50 border border-brand-100 rounded-2xl">
+                                        <p className="text-[10px] font-black text-brand-400 uppercase mb-1">Description Globale</p>
+                                        <p className="text-sm font-bold text-brand-900">{selectedOrder.description || "Aucune description globale"}</p>
+                                    </div>
+                                </div>
                                 <div className="text-right"><p className="text-[10px] font-black text-gray-400 uppercase mb-1">Livraison Prévue</p><div className="px-4 py-2 bg-brand-50 text-brand-900 rounded-xl text-[10px] font-black uppercase tracking-widest border border-brand-100 flex items-center gap-2"><Calendar size={12}/> {new Date(selectedOrder.dateLivraisonPrevue).toLocaleDateString()}</div></div>
                             </div>
                             
@@ -476,13 +493,45 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 </div>
                             </div>
 
+                            {/* HISTORIQUE DES LIVRAISONS */}
+                            <div className="space-y-4">
+                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4 flex items-center gap-2"><Truck size={14}/> Historique des Livraisons</h4>
+                                <div className="bg-white rounded-3xl border border-brand-100 overflow-hidden shadow-sm">
+                                    <table className="w-full text-xs text-left">
+                                        <thead className="bg-gray-50 text-[8px] font-black text-gray-400 uppercase tracking-[0.2em] border-b">
+                                            <tr><th className="p-4">Date</th><th className="p-4">Articles Remis</th><th className="p-4 text-right">Statut</th></tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-50">
+                                            {(selectedOrder.livraisons || []).map((liv) => (
+                                                <tr key={liv.id} className="hover:bg-gray-50">
+                                                    <td className="p-4 text-gray-400 font-bold">{new Date(liv.date).toLocaleDateString()}</td>
+                                                    <td className="p-4">
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {liv.details.map((d, idx) => (
+                                                                <span key={idx} className="px-2 py-0.5 bg-brand-50 text-brand-900 border border-brand-100 rounded text-[9px] font-black uppercase">
+                                                                    {d.elementNom} ({d.quantite})
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-4 text-right font-black text-green-600 uppercase text-[9px]">Remis</td>
+                                                </tr>
+                                            ))}
+                                            {(!selectedOrder.livraisons || selectedOrder.livraisons.length === 0) && (
+                                                <tr><td colSpan={3} className="p-4 text-center text-gray-300 font-bold uppercase text-[9px] italic">Aucune livraison enregistrée</td></tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
                             {/* HISTORIQUE DES RÈGLEMENTS */}
                             <div className="space-y-4">
                                 <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4 flex items-center gap-2"><History size={14}/> Historique des Règlements</h4>
                                 <div className="bg-white rounded-3xl border border-brand-100 overflow-hidden shadow-sm">
                                     <table className="w-full text-xs text-left">
                                         <thead className="bg-gray-50 text-[8px] font-black text-gray-400 uppercase tracking-[0.2em] border-b">
-                                            <tr><th className="p-4">Date</th><th className="p-4">Libellé</th><th className="p-4 text-right">Encaissement</th></tr>
+                                            <tr><th className="p-4">Date</th><th className="p-4">Libellé</th><th className="p-4 text-right">Encaissement</th><th className="p-4 text-center">Actions</th></tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-50">
                                             {/* Acompte Initial de la Commande */}
@@ -490,23 +539,33 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                 <td className="p-4 text-gray-400 font-bold">{new Date(selectedOrder.dateCommande).toLocaleDateString()}</td>
                                                 <td className="p-4 font-black text-brand-900 uppercase">Acompte à la commande</td>
                                                 <td className="p-4 text-right font-black text-brand-900">{selectedOrder.avance.toLocaleString()} F</td>
+                                                <td className="p-4 text-center">
+                                                    <button onClick={()=>{setDetailModalOpen(false); setNewOrderData(selectedOrder); setIsEditingOrder(true); setOrderModalOpen(true);}} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded transition-colors" title="Modifier via commande"><Edit2 size={12}/></button>
+                                                </td>
                                             </tr>
                                             {/* Versements additionnels */}
                                             {(selectedOrder.paiements || []).map((p) => (
-                                                <tr key={p.id} className="hover:bg-gray-50">
+                                                <tr key={p.id} className="hover:bg-gray-50 group">
                                                     <td className="p-4 text-gray-400 font-bold">{new Date(p.date).toLocaleDateString()}</td>
                                                     <td className="p-4 font-black text-gray-600 uppercase">{p.note || 'Versement Reliquat'}</td>
                                                     <td className="p-4 text-right font-black text-emerald-600">+{p.montant.toLocaleString()} F</td>
+                                                    <td className="p-4 text-center">
+                                                        <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button onClick={()=>{setPayData({amount: p.montant, method: p.moyenPaiement, accId: p.compteId || '', date: new Date(p.date).toISOString().split('T')[0], note: p.note || '', editingPaymentId: p.id}); setPaymentModalOpen(true);}} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded transition-colors"><Edit2 size={12}/></button>
+                                                            <button onClick={()=>{if(window.confirm("Supprimer ce versement ?")) onDeletePayment(selectedOrder.id, p.id, p.compteId || '');}} className="p-1.5 text-red-600 hover:bg-red-100 rounded transition-colors"><Trash2 size={12}/></button>
+                                                        </div>
+                                                    </td>
                                                 </tr>
                                             ))}
                                             {(!selectedOrder.paiements || selectedOrder.paiements.length === 0) && (
-                                                <tr><td colSpan={3} className="p-4 text-center text-gray-300 font-bold uppercase text-[9px] italic">Aucun versement additionnel enregistré</td></tr>
+                                                <tr><td colSpan={4} className="p-4 text-center text-gray-300 font-bold uppercase text-[9px] italic">Aucun versement additionnel enregistré</td></tr>
                                             )}
                                         </tbody>
                                         <tfoot className="bg-brand-900 text-white font-black">
                                             <tr>
                                                 <td colSpan={2} className="p-5 uppercase tracking-widest text-[9px]">Total Déjà Perçu</td>
                                                 <td className="p-5 text-right text-base">{(selectedOrder.prixTotal - selectedOrder.reste).toLocaleString()} F</td>
+                                                <td></td>
                                             </tr>
                                         </tfoot>
                                     </table>
@@ -523,7 +582,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         </div>
                         <div className="p-8 border-t bg-gray-50 flex justify-between gap-3 shrink-0">
                             {selectedOrder.reste > 0 && (
-                                <button onClick={()=>{setPayData({...payData, amount: selectedOrder.reste}); setPaymentModalOpen(true);}} className="px-8 py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl flex items-center gap-2 active:scale-95 transition-all"><DollarSign size={18}/> Encaisser Versement</button>
+                                <button onClick={()=>{setPayData({...payData, amount: selectedOrder.reste, editingPaymentId: null}); setPaymentModalOpen(true);}} className="px-8 py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl flex items-center gap-2 active:scale-95 transition-all"><DollarSign size={18}/> Encaisser Versement</button>
                             )}
                             <div className="flex gap-2 ml-auto">
                                 {selectedOrder.statut === StatutCommande.PRET && <button onClick={()=>{setDetailModalOpen(false); setDeliveryModalOpen(true);}} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl flex items-center gap-2 active:scale-95"><Truck size={18}/> Passer à la Livraison</button>}
@@ -533,7 +592,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                 </div>
             )}
 
-            {/* MODAL LIVRAISON PARTIELLE RESTAURÉ */}
+            {/* MODAL LIVRAISON PARTIELLE RESTAURÉ AVEC HISTORIQUE */}
             {deliveryModalOpen && selectedOrder && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[700] flex items-center justify-center p-4 backdrop-blur-md">
                     <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in border border-brand-100">
@@ -550,11 +609,15 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Quantités remises au client aujourd'hui</label>
                                 {selectedOrder.elements?.map(el => {
                                     const qtyPret = (selectedOrder.taches || []).filter(t => t.elementNom === el.nom && t.action === 'FINITION' && t.statut === 'FAIT').reduce((s: number,t) => s + t.quantite, 0);
+                                    // Déduction de ce qui a déjà été livré
+                                    const alreadyDelivered = (selectedOrder.livraisons || []).flatMap(l => l.details).filter(d => d.elementNom === el.nom).reduce((s, d) => s + d.quantite, 0);
+                                    const deliverableNow = Math.max(0, qtyPret - alreadyDelivered);
+
                                     return (
                                         <div key={el.id} className="flex items-center justify-between p-4 bg-white border rounded-2xl shadow-sm hover:border-brand-300 transition-colors">
                                             <div>
                                                 <span className="font-black text-gray-800 uppercase text-xs">{el.nom}</span>
-                                                <p className="text-[9px] text-gray-400 font-bold uppercase">Terminés : {qtyPret} / {el.quantiteTotal}</p>
+                                                <p className="text-[9px] text-gray-400 font-bold uppercase">Dispo pour remise : {deliverableNow} / {el.quantiteTotal}</p>
                                             </div>
                                             <div className="flex items-center gap-3">
                                                 <span className="text-[9px] font-black text-gray-400">LIVRER :</span>
@@ -562,8 +625,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                     type="number" 
                                                     className="w-16 p-2 bg-gray-50 border-2 border-gray-100 rounded-xl text-center font-black text-xs focus:border-brand-600 outline-none"
                                                     value={deliveryQtys[el.id] || 0}
-                                                    onChange={e => setDeliveryQtys({...deliveryQtys, [el.id]: Math.min(qtyPret, parseInt(e.target.value)||0)})}
-                                                    max={qtyPret}
+                                                    onChange={e => setDeliveryQtys({...deliveryQtys, [el.id]: Math.min(deliverableNow, parseInt(e.target.value)||0)})}
+                                                    max={deliverableNow}
                                                 />
                                             </div>
                                         </div>
@@ -572,18 +635,42 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             </div>
                             <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex items-start gap-3">
                                 <Info className="text-blue-500 shrink-0" size={20}/>
-                                <p className="text-[10px] text-blue-700 font-bold leading-relaxed">Le statut passera à "LIVRÉ" uniquement si toutes les pièces sont remises.</p>
+                                <p className="text-[10px] text-blue-700 font-bold leading-relaxed">Cette action créera un enregistrement dans l'historique des livraisons de cette fiche.</p>
                             </div>
                          </div>
                          <div className="p-8 bg-gray-50 border-t flex justify-end gap-3">
                             <button onClick={()=>setDeliveryModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px]">Annuler</button>
                             <button onClick={()=>{
-                                const totalToDeliver = Object.values(deliveryQtys).reduce((a: number, b: number)=>a+b, 0);
-                                if (totalToDeliver === 0) { alert("Saisissez des quantités."); return; }
-                                const allDelivered = selectedOrder.elements?.every(el => (deliveryQtys[el.id] || 0) >= el.quantiteTotal);
-                                onUpdateStatus(selectedOrder.id, allDelivered ? StatutCommande.LIVRE : StatutCommande.PRET); 
+                                const detailsLiv: { elementNom: string, quantite: number }[] = [];
+                                selectedOrder.elements?.forEach(el => {
+                                    const q = deliveryQtys[el.id] || 0;
+                                    if (q > 0) detailsLiv.push({ elementNom: el.nom, quantite: q });
+                                });
+
+                                if (detailsLiv.length === 0) { alert("Saisissez des quantités à livrer."); return; }
+                                
+                                const newLiv: LivraisonPartielle = {
+                                    id: `LIV_${Date.now()}`,
+                                    date: new Date().toISOString(),
+                                    details: detailsLiv
+                                };
+
+                                const updatedLivraisons = [...(selectedOrder.livraisons || []), newLiv];
+                                
+                                // Calculer si tout est livré au total
+                                const allDelivered = selectedOrder.elements?.every(el => {
+                                    const totalLivred = updatedLivraisons.flatMap(l => l.details).filter(d => d.elementNom === el.nom).reduce((s, d) => s + d.quantite, 0);
+                                    return totalLivred >= el.quantiteTotal;
+                                });
+
+                                onUpdateOrder({ 
+                                    ...selectedOrder, 
+                                    livraisons: updatedLivraisons,
+                                    statut: allDelivered ? StatutCommande.LIVRE : StatutCommande.PRET 
+                                }); 
+                                
                                 setDeliveryModalOpen(false); 
-                                alert(`Livraison de ${totalToDeliver} pièce(s) validée !`);
+                                alert(`Livraison enregistrée avec succès !`);
                             }} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Confirmer Remise Client</button>
                          </div>
                     </div>
@@ -594,14 +681,31 @@ const ProductionView: React.FC<ProductionViewProps> = ({
             {paymentModalOpen && selectedOrder && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[700] flex items-center justify-center p-4 backdrop-blur-md">
                     <div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl border border-brand-100 animate-in zoom-in">
-                        <div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3"><DollarSign className="text-green-600"/> Encaisser Versement</h3><button onClick={()=>setPaymentModalOpen(false)}><X size={28} className="text-gray-400"/></button></div>
+                        <div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3"><DollarSign className="text-green-600"/> {payData.editingPaymentId ? 'Modifier Versement' : 'Encaisser Versement'}</h3><button onClick={()=>setPaymentModalOpen(false)}><X size={28} className="text-gray-400"/></button></div>
                         <div className="space-y-6">
-                            <div className="bg-gray-50 p-6 rounded-3xl text-center border shadow-inner"><p className="text-[10px] font-black text-gray-400 uppercase mb-1">Reste à percevoir</p><p className="text-3xl font-black text-gray-900">{selectedOrder.reste.toLocaleString()} F</p></div>
+                            {!payData.editingPaymentId && (
+                                <div className="bg-gray-50 p-6 rounded-3xl text-center border shadow-inner"><p className="text-[10px] font-black text-gray-400 uppercase mb-1">Reste à percevoir</p><p className="text-3xl font-black text-gray-900">{selectedOrder.reste.toLocaleString()} F</p></div>
+                            )}
                             <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Montant à encaisser (F)</label><input type="number" className="w-full p-5 border-2 border-brand-100 rounded-2xl text-2xl font-black text-brand-600 focus:border-brand-600 outline-none transition-all shadow-sm" value={payData.amount||''} placeholder="0" onChange={e=>setPayData({...payData,amount:parseInt(e.target.value)||0})}/></div>
                             <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Mode de règlement</label><select className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black bg-white outline-none" value={payData.method} onChange={e=>setPayData({...payData, method: e.target.value as any})}><option value="ESPECE">Espèce</option><option value="WAVE">Wave</option><option value="ORANGE_MONEY">Orange Money</option><option value="VIREMENT">Virement</option></select></div>
                             <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1">Caisse / Destination</label><select className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black bg-white outline-none" value={payData.accId} onChange={e=>setPayData({...payData,accId:e.target.value})}><option value="">-- Choisir Caisse --</option>{comptes.map(c=><option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
                         </div>
-                        <div className="flex justify-end gap-3 mt-10 pt-5 border-t"><button onClick={()=>setPaymentModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={()=>{if(!payData.accId || payData.amount <= 0) return; onAddPayment(selectedOrder.id, payData.amount, payData.method, "Règlement solde", payData.date, payData.accId); setPaymentModalOpen(false);}} disabled={!payData.accId || payData.amount <= 0} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">Confirmer Encaissement</button></div>
+                        <div className="flex justify-end gap-3 mt-10 pt-5 border-t"><button onClick={()=>setPaymentModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={()=>{
+                            if(!payData.accId || payData.amount <= 0) return; 
+                            
+                            // Si pas en édition, versement <= reliquat
+                            if (!payData.editingPaymentId && payData.amount > selectedOrder.reste) {
+                                alert(`Le montant saisi (${payData.amount.toLocaleString()} F) dépasse le reliquat restant (${selectedOrder.reste.toLocaleString()} F).`);
+                                return;
+                            }
+                            
+                            if (payData.editingPaymentId) {
+                                onUpdatePayment(selectedOrder.id, payData.editingPaymentId, payData.amount, payData.date, payData.accId);
+                            } else {
+                                onAddPayment(selectedOrder.id, payData.amount, payData.method, payData.note || "Règlement solde", payData.date, payData.accId); 
+                            }
+                            setPaymentModalOpen(false);
+                        }} disabled={!payData.accId || payData.amount <= 0} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">Confirmer</button></div>
                     </div>
                 </div>
             )}
@@ -622,6 +726,18 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Date Livraison Prévue</label><input type="date" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white" value={newOrderData.dateLivraisonPrevue} onChange={e=>setNewOrderData({...newOrderData,dateLivraisonPrevue:e.target.value})}/></div>
                                 <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Prix Total (F)</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black text-gray-900 bg-white shadow-sm" value={newOrderData.prixTotal||''} placeholder="0" onChange={e=>setNewOrderData({...newOrderData,prixTotal:parseInt(e.target.value)||0})}/></div>
+                            </div>
+
+                            {/* NOUVEAU CHAMP DESCRIPTION GLOBALE */}
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Description Globale de la Commande</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white focus:border-brand-500 outline-none transition-all shadow-sm" 
+                                    placeholder="Ex: Tenue de mariage, Uniformes personnel..." 
+                                    value={newOrderData.description || ''} 
+                                    onChange={e => setNewOrderData({...newOrderData, description: e.target.value})} 
+                                />
                             </div>
 
                             {/* COMPOSITION RESTAURÉ */}
@@ -662,8 +778,8 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="text-[10px] font-black text-brand-600 uppercase mb-2 block ml-1">Acompte Immédiat (F)</label><input type="number" className="w-full p-4 border-2 border-brand-100 rounded-2xl font-black text-brand-600 bg-white shadow-sm" value={newOrderData.avance||''} placeholder="0" onChange={e=>setNewOrderData({...newOrderData,avance:parseInt(e.target.value)||0})}/></div>
-                                {(newOrderData.avance||0)>0 && !isEditingOrder && (
-                                    <div><label className="text-[10px] font-black text-brand-900 uppercase mb-2 block ml-1">Caisse de réception</label><select className="w-full p-4 border-2 border-brand-300 rounded-2xl font-black bg-white" value={initialAccountId} onChange={e=>setInitialAccountId(e.target.value)}><option value="">-- Sélectionner --</option>{comptes.map(c=><option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                                {(newOrderData.avance||0)>0 && (
+                                    <div><label className="text-[10px] font-black text-brand-900 uppercase mb-2 block ml-1">Caisse {isEditingOrder ? 'de correction' : 'de réception'}</label><select className="w-full p-4 border-2 border-brand-300 rounded-2xl font-black bg-white" value={initialAccountId} onChange={e=>setInitialAccountId(e.target.value)}><option value="">-- Sélectionner --</option>{comptes.map(c=><option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
                                 )}
                             </div>
                          </div>

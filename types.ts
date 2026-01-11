@@ -165,6 +165,7 @@ export interface PaiementClient {
     montant: number;
     moyenPaiement: ModePaiement;
     note?: string;
+    compteId?: string;
 }
 
 export interface Consommation {
@@ -179,10 +180,10 @@ export type ActionProduction = 'COUPE' | 'COUTURE' | 'BRODERIE' | 'FINITION' | '
 export interface TacheProduction {
     id: string;
     commandeId: string;
+    elementNom: string; 
     action: ActionProduction;
     quantite: number;
     note?: string;
-    elementNom?: string;
     date: string;
     tailleurId: string;
     statut: 'A_FAIRE' | 'FAIT';
@@ -190,8 +191,16 @@ export interface TacheProduction {
 }
 
 export interface ElementCommande {
+    id: string;
     nom: string;
-    quantite: number;
+    quantiteTotal: number;
+}
+
+export interface LivraisonPartielle {
+    id: string;
+    date: string;
+    details: { elementNom: string, quantite: number }[];
+    note?: string;
 }
 
 export interface Commande {
@@ -213,10 +222,9 @@ export interface Commande {
     tva?: number;
     tvaRate?: number;
     remise?: number;
-    quantite: number;
-    elements?: ElementCommande[];
+    quantite: number; 
+    elements?: ElementCommande[]; 
     repartitionStatuts?: Record<string, number>; 
-    repartitionDetails?: Record<string, Record<string, number>>; 
     consommations?: Consommation[];
     detailsVente?: LigneCommande[];
     notes?: string;
@@ -226,6 +234,7 @@ export interface Commande {
     taches?: TacheProduction[];
     isDevis?: boolean;
     signatureClient?: string;
+    livraisons?: LivraisonPartielle[];
 }
 
 export interface Depense {
@@ -237,14 +246,6 @@ export interface Depense {
     boutiqueId?: string;
     compteId?: string;
     createdBy?: string;
-}
-
-export interface Product {
-    id: string;
-    nom: string;
-    prix: number;
-    stock: number;
-    fournisseur: string;
 }
 
 export interface Fournisseur {

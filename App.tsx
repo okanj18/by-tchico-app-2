@@ -56,7 +56,25 @@ const App: React.FC = () => {
     const handleDeleteClient = (id: string) => setClients(prev => prev.filter(c => c.id !== id));
 
     const handleUpdateOrder = (o: Commande, accId?: string) => {
-        setCommandes(prev => prev.map(cmd => cmd.id === o.id ? o : cmd));
+        const oldOrder = commandes.find(c => c.id === o.id);
+        if (oldOrder && accId) {
+            const diffAvance = o.avance - oldOrder.avance;
+            if (diffAvance !== 0) {
+                setComptes(prev => prev.map(c => c.id === accId ? { ...c, solde: c.solde + diffAvance } : c));
+                const corrTrans: TransactionTresorerie = {
+                    id: `TR_EDIT_AC_${Date.now()}`,
+                    date: new Date().toISOString().split('T')[0],
+                    type: diffAvance > 0 ? 'ENCAISSEMENT' : 'DECAISSEMENT',
+                    montant: Math.abs(diffAvance),
+                    compteId: accId,
+                    description: `Correction Acompte : ${o.clientNom} (Commande #${o.id.slice(-6)})`,
+                    categorie: 'VENTE',
+                    createdBy: user?.nom
+                };
+                setTransactions(prev => [corrTrans, ...prev]);
+            }
+        }
+        setCommandes(prev => prev.map(cmd => cmd.id === o.id ? { ...o, reste: Math.max(0, o.prixTotal - (o.avance + (o.paiements?.reduce((acc, p) => acc + p.montant, 0) || 0))) } : cmd));
     };
 
     const handleAddTaskToOrder = (orderId: string, task: TacheProduction) => {
@@ -82,7 +100,7 @@ const App: React.FC = () => {
         setCommandes(prev => prev.map(c => c.id === orderId ? { 
             ...c, 
             reste: Math.max(0, c.reste - amount), 
-            paiements: [...(c.paiements || []), { id: `P_${Date.now()}`, date, montant: amount, moyenPaiement: method, note }] 
+            paiements: [...(c.paiements || []), { id: `P_${Date.now()}`, date, montant: amount, moyenPaiement: method, note, compteId: accId }] 
         } : c));
 
         if (accId) {
@@ -101,18 +119,22 @@ const App: React.FC = () => {
         const oldPayment = order.paiements?.find(p => p.id === paymentId);
         if (!oldPayment) return;
         const diff = newAmount - oldPayment.montant;
+        
         setCommandes(prev => prev.map(c => {
             if (c.id !== orderId) return c;
-            const updatedPaiements = (c.paiements || []).map(p => p.id === paymentId ? { ...p, montant: newAmount, date } : p);
+            const updatedPaiements = (c.paiements || []).map(p => p.id === paymentId ? { ...p, montant: newAmount, date, compteId: accId } : p);
             const totalPaid = c.avance + updatedPaiements.reduce((acc, p) => acc + p.montant, 0);
             return { ...c, paiements: updatedPaiements, reste: Math.max(0, c.prixTotal - totalPaid) };
         }));
-        setComptes(prev => prev.map(c => c.id === accId ? { ...c, solde: c.solde + diff } : c));
-        const corrTrans: TransactionTresorerie = {
-            id: `TR_EDIT_${Date.now()}`, date: date, type: diff > 0 ? 'ENCAISSEMENT' : 'DECAISSEMENT',
-            montant: Math.abs(diff), compteId: accId, description: `Modif. Versement : ${order.clientNom}`, categorie: 'VENTE', createdBy: user?.nom
-        };
-        setTransactions(prev => [corrTrans, ...prev]);
+
+        if (accId) {
+            setComptes(prev => prev.map(c => c.id === accId ? { ...c, solde: c.solde + diff } : c));
+            const corrTrans: TransactionTresorerie = {
+                id: `TR_EDIT_${Date.now()}`, date: date, type: diff > 0 ? 'ENCAISSEMENT' : 'DECAISSEMENT',
+                montant: Math.abs(diff), compteId: accId, description: `Modif. Versement : ${order.clientNom}`, categorie: 'VENTE', createdBy: user?.nom
+            };
+            setTransactions(prev => [corrTrans, ...prev]);
+        }
     };
 
     const handleGlobalDeletePayment = (orderId: string, paymentId: string, accId: string) => {
@@ -120,18 +142,22 @@ const App: React.FC = () => {
         if (!order) return;
         const oldPayment = order.paiements?.find(p => p.id === paymentId);
         if (!oldPayment) return;
+        
         setCommandes(prev => prev.map(c => {
             if (c.id !== orderId) return c;
             const updatedPaiements = (c.paiements || []).filter(p => p.id !== paymentId);
             const totalPaid = c.avance + updatedPaiements.reduce((acc, p) => acc + p.montant, 0);
             return { ...c, paiements: updatedPaiements, reste: Math.max(0, c.prixTotal - totalPaid) };
         }));
-        setComptes(prev => prev.map(c => c.id === accId ? { ...c, solde: c.solde - oldPayment.montant } : c));
-        const delTrans: TransactionTresorerie = {
-            id: `TR_DEL_${Date.now()}`, date: new Date().toISOString().split('T')[0], type: 'DECAISSEMENT',
-            montant: oldPayment.montant, compteId: accId, description: `Annulation Versement : ${order.clientNom}`, categorie: 'VENTE', createdBy: user?.nom
-        };
-        setTransactions(prev => [delTrans, ...prev]);
+
+        if (accId) {
+            setComptes(prev => prev.map(c => c.id === accId ? { ...c, solde: c.solde - oldPayment.montant } : c));
+            const delTrans: TransactionTresorerie = {
+                id: `TR_DEL_${Date.now()}`, date: new Date().toISOString().split('T')[0], type: 'DECAISSEMENT',
+                montant: oldPayment.montant, compteId: accId, description: `Annulation Versement : ${order.clientNom}`, categorie: 'VENTE', createdBy: user?.nom
+            };
+            setTransactions(prev => [delTrans, ...prev]);
+        }
     };
 
     const handleRestoreData = (data: any) => {
