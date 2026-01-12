@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { Client, Commande, MesureHistorique, ModeleRealise } from '../types';
-import { User, Ruler, Plus, X, Save, Edit2, Copy, Check, Search, Mic, Trash2, Mail, ClipboardList, Send, Trophy, Medal, Award, Users, AlertCircle, Calendar, Sparkles, BookOpen, History, Scissors, Camera, Image as ImageIcon, Loader, Download, FileText, ChevronLeft } from 'lucide-react';
+import { User, Ruler, Plus, X, Save, Edit2, Copy, Check, Search, Mic, Trash2, Mail, ClipboardList, Send, Trophy, Medal, Award, Users, AlertCircle, Calendar, Sparkles, BookOpen, History, Scissors, Camera, Image as ImageIcon, Loader, Download, FileText, ChevronLeft, Cake } from 'lucide-react';
 import { parseMeasurementsFromText, recommendFabricMeterage } from '../services/geminiService';
 import { COMPANY_CONFIG } from '../config';
 import { uploadImageToCloud } from '../services/storageService';
@@ -79,13 +79,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
         if (count >= 5) return { label: 'ARGENT', color: 'text-slate-400', bg: 'bg-slate-50', icon: <Medal size={14} className="text-slate-500"/>, border: 'border-slate-200' };
         if (count >= 1) return { label: 'BRONZE', color: 'text-orange-600', bg: 'bg-orange-50', icon: <Award size={14} className="text-orange-600"/>, border: 'border-orange-200' };
         return null;
-    };
-
-    const getMeasurementStatus = (client: Client) => {
-        if (!client.lastOrderDate) return { label: 'Nouveau', color: 'text-blue-500' };
-        const sixMonthsAgo = Date.now() - (6 * 30 * 24 * 60 * 60 * 1000);
-        if (client.lastOrderDate < sixMonthsAgo) return { label: 'À vérifier', color: 'text-orange-500', icon: <AlertCircle size={12}/> };
-        return { label: 'À jour', color: 'text-green-500' };
     };
 
     const handleSave = () => {
@@ -299,6 +292,11 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                                             </div>
                                             <div className="flex gap-4 mt-1 text-[10px] font-black text-gray-500 uppercase">
                                                 <span className="flex items-center gap-1">{selectedClient.telephone}</span>
+                                                {selectedClient.dateAnniversaire && (
+                                                    <span className="flex items-center gap-1 text-pink-600">
+                                                        <Cake size={12}/> {new Date(selectedClient.dateAnniversaire).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -515,10 +513,11 @@ const ClientsView: React.FC<ClientsViewProps> = ({ clients, commandes, onAddClie
                         
                         <div className="p-4 md:p-8 overflow-y-auto flex-1 space-y-8 custom-scrollbar">
                             <section>
-                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-6 border-b pb-2">Contact</h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-6 border-b pb-2">Contact & Informations</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
                                     <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Nom</label><input type="text" value={clientFormData.nom} onChange={e => setClientFormData({...clientFormData, nom: e.target.value.toUpperCase()})} className="w-full p-3 md:p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none uppercase shadow-sm text-sm" /></div>
                                     <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Téléphone</label><input type="text" value={clientFormData.telephone} onChange={e => setClientFormData({...clientFormData, telephone: e.target.value})} className="w-full p-3 md:p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 shadow-sm text-sm" /></div>
+                                    <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase text-pink-600 flex items-center gap-1"><Cake size={10}/> Date d'Anniversaire</label><input type="date" value={clientFormData.dateAnniversaire} onChange={e => setClientFormData({...clientFormData, dateAnniversaire: e.target.value})} className="w-full p-3 md:p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none shadow-sm text-sm text-pink-700" /></div>
                                     <div className="space-y-1"><label className="text-[10px] font-black text-gray-500 uppercase">Email</label><input type="email" value={clientFormData.email} onChange={e => setClientFormData({...clientFormData, email: e.target.value})} className="w-full p-3 md:p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 shadow-sm text-sm" /></div>
                                 </div>
                             </section>
