@@ -28,9 +28,11 @@ const FinanceView: React.FC<FinanceViewProps> = ({
     userBoutiqueId, fournisseurs, commandesFournisseurs, clients, comptes, transactions, 
     onUpdateComptes, onAddTransaction, currentUser 
 }) => {
-    // --- DROITS ---
+    // --- DROITS ET FILTRES DE RÔLE ---
+    const isVendeur = userRole === 'VENDEUR';
     const financePerm = currentUser?.permissions?.finance || 'NONE';
-    const canWriteFinance = userRole === 'ADMIN' || userRole === 'GERANT' || financePerm === 'WRITE';
+    // Les vendeurs peuvent maintenant saisir des dépenses pour leur boutique
+    const canWriteFinance = userRole === 'ADMIN' || userRole === 'GERANT' || financePerm === 'WRITE' || isVendeur;
 
     const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'TREASURY' | 'RENTABILITY' | 'REPORTS' | 'EXPENSES'>('OVERVIEW');
     
@@ -38,8 +40,8 @@ const FinanceView: React.FC<FinanceViewProps> = ({
     const [dateStart, setDateStart] = useState('');
     const [dateEnd, setDateEnd] = useState('');
 
-    // Filtres Spécifiques Dépenses
-    const [expenseBoutiqueFilter, setExpenseBoutiqueFilter] = useState('ALL');
+    // Filtres Spécifiques Dépenses (Initialisé sur la boutique du vendeur si applicable)
+    const [expenseBoutiqueFilter, setExpenseBoutiqueFilter] = useState(isVendeur ? (userBoutiqueId || 'ALL') : 'ALL');
     const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('ALL');
 
     // Modals
@@ -61,7 +63,7 @@ const FinanceView: React.FC<FinanceViewProps> = ({
     });
 
     const [newAccount, setNewAccount] = useState<Partial<CompteFinancier>>({
-        nom: '', type: 'CAISSE', solde: 0, numero: '', boutiqueId: 'ATELIER'
+        nom: '', type: 'CAISSE', solde: 0, numero: '', boutiqueId: userBoutiqueId || 'ATELIER'
     });
 
     const [transferData, setTransferData] = useState({
@@ -81,32 +83,66 @@ const FinanceView: React.FC<FinanceViewProps> = ({
         return d >= start && d <= end;
     };
 
-    const statsCommandes = useMemo(() => commandes.filter(c => isInDateRange(c.dateCommande) && c.statut !== StatutCommande.ANNULE), [commandes, dateStart, dateEnd]);
+    // Filtrage des commandes selon le rôle
+    const statsCommandes = useMemo(() => 
+        commandes.filter(c => 
+            isInDateRange(c.dateCommande) && 
+            c.statut !== StatutCommande.ANNULE &&
+            (!isVendeur || c.boutiqueId === userBoutiqueId)
+        ), 
+    [commandes, dateStart, dateEnd, isVendeur, userBoutiqueId]);
     
-    // Dépenses avec filtres spécifiques
+    // Dépenses filtrées pour le tableau de l'onglet EXPENSES
     const statsDepensesFiltered = useMemo(() => {
         return depenses.filter(d => {
             const matchesDate = isInDateRange(d.date);
-            const matchesBoutique = expenseBoutiqueFilter === 'ALL' || d.boutiqueId === expenseBoutiqueFilter;
+            // Si vendeur, il ne peut voir que sa boutique peu importe le filtre sélectionné par erreur
+            const effectiveBoutiqueFilter = isVendeur ? userBoutiqueId : expenseBoutiqueFilter;
+            const matchesBoutique = effectiveBoutiqueFilter === 'ALL' || d.boutiqueId === effectiveBoutiqueFilter;
             const matchesCategory = expenseCategoryFilter === 'ALL' || d.categorie === expenseCategoryFilter;
             return matchesDate && matchesBoutique && matchesCategory;
         }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [depenses, dateStart, dateEnd, expenseBoutiqueFilter, expenseCategoryFilter]);
+    }, [depenses, dateStart, dateEnd, expenseBoutiqueFilter, expenseCategoryFilter, isVendeur, userBoutiqueId]);
 
-    // Dépenses globales pour les indicateurs (uniquement filtre date)
-    const statsDepensesGlobal = useMemo(() => depenses.filter(d => isInDateRange(d.date)), [depenses, dateStart, dateEnd]);
+    // Dépenses globales pour les indicateurs (filtrées par boutique si vendeur)
+    const statsDepensesGlobal = useMemo(() => 
+        depenses.filter(d => 
+            isInDateRange(d.date) &&
+            (!isVendeur || d.boutiqueId === userBoutiqueId)
+        ), 
+    [depenses, dateStart, dateEnd, isVendeur, userBoutiqueId]);
 
     const totalRecettes = useMemo(() => statsCommandes.reduce((acc, c) => acc + (c.avance + (c.paiements?.reduce((pAcc, p) => pAcc + p.montant, 0) || 0)), 0), [statsCommandes]); 
     const totalChargesPériode = useMemo(() => statsDepensesGlobal.reduce((acc, d) => acc + d.montant, 0), [statsDepensesGlobal]);
     const profitNet = totalRecettes - totalChargesPériode;
 
-    const creancesClientsTotal = useMemo(() => commandes.filter(c => c.statut !== StatutCommande.ANNULE && !c.archived).reduce((acc, c) => acc + c.reste, 0), [commandes]);
-    const dettesFournisseursTotal = useMemo(() => commandesFournisseurs.filter(c => c.statut !== StatutCommandeFournisseur.ANNULE && !c.archived).reduce((acc, c) => acc + (c.montantTotal - c.montantPaye), 0), [commandesFournisseurs]);
+    // Créances et dettes filtrées par boutique pour les vendeurs
+    const creancesClientsTotal = useMemo(() => 
+        commandes.filter(c => 
+            c.statut !== StatutCommande.ANNULE && 
+            !c.archived && 
+            (!isVendeur || c.boutiqueId === userBoutiqueId)
+        ).reduce((acc, c) => acc + c.reste, 0), 
+    [commandes, isVendeur, userBoutiqueId]);
 
-    // Groupement des impayés par client
+    const dettesFournisseursTotal = useMemo(() => 
+        // Note: Les dettes fournisseurs sont souvent globales au siège, mais si liées à des achats boutique...
+        commandesFournisseurs.filter(c => 
+            c.statut !== StatutCommandeFournisseur.ANNULE && 
+            !c.archived
+            // Filtrage optionnel par boutique ici si vos CommandesFournisseurs ont un boutiqueId
+        ).reduce((acc, c) => acc + (c.montantTotal - c.montantPaye), 0), 
+    [commandesFournisseurs]);
+
+    // Groupement des impayés par client (filtré par boutique si vendeur)
     const listImpayes = useMemo(() => {
         const map = new Map<string, { clientNom: string, totalReste: number, count: number, lastDate: string }>();
-        commandes.filter(c => c.statut !== StatutCommande.ANNULE && !c.archived && c.reste > 0).forEach(c => {
+        commandes.filter(c => 
+            c.statut !== StatutCommande.ANNULE && 
+            !c.archived && 
+            c.reste > 0 &&
+            (!isVendeur || c.boutiqueId === userBoutiqueId)
+        ).forEach(c => {
             const existing = map.get(c.clientId) || { clientNom: c.clientNom, totalReste: 0, count: 0, lastDate: '' };
             existing.totalReste += c.reste;
             existing.count += 1;
@@ -116,7 +152,7 @@ const FinanceView: React.FC<FinanceViewProps> = ({
             map.set(c.clientId, existing);
         });
         return Array.from(map.values()).filter(i => i.clientNom.toLowerCase().includes(reportSearchTerm.toLowerCase())).sort((a,b) => b.totalReste - a.totalReste);
-    }, [commandes, reportSearchTerm]);
+    }, [commandes, reportSearchTerm, isVendeur, userBoutiqueId]);
 
     // Groupement des dettes par fournisseur
     const listDettes = useMemo(() => {
@@ -140,28 +176,42 @@ const FinanceView: React.FC<FinanceViewProps> = ({
         const now = new Date();
         const thisMonthStr = now.toISOString().slice(0, 7);
         const thisYearStr = now.getFullYear().toString();
-        return boutiques.map(b => {
-            const ordersBoutique = commandes.filter(c => c.boutiqueId === b.id && c.statut !== StatutCommande.ANNULE);
-            const moisEnCours = ordersBoutique.filter(c => c.dateCommande.startsWith(thisMonthStr)).reduce((acc, c) => acc + (c.avance + (c.paiements?.reduce((pAcc, p) => pAcc + p.montant, 0) || 0)), 0);
-            const anneeEnCours = ordersBoutique.filter(c => c.dateCommande.startsWith(thisYearStr)).reduce((acc, c) => acc + (c.avance + (c.paiements?.reduce((pAcc, p) => pAcc + p.montant, 0) || 0)), 0);
-            return { id: b.id, nom: b.nom, moisEnCours, anneeEnCours };
-        });
-    }, [boutiques, commandes]);
+        return boutiques
+            .filter(b => !isVendeur || b.id === userBoutiqueId) // Uniquement la boutique du vendeur
+            .map(b => {
+                const ordersBoutique = commandes.filter(c => c.boutiqueId === b.id && c.statut !== StatutCommande.ANNULE);
+                const moisEnCours = ordersBoutique.filter(c => c.dateCommande.startsWith(thisMonthStr)).reduce((acc, c) => acc + (c.avance + (c.paiements?.reduce((pAcc, p) => pAcc + p.montant, 0) || 0)), 0);
+                const anneeEnCours = ordersBoutique.filter(c => c.dateCommande.startsWith(thisYearStr)).reduce((acc, c) => acc + (c.avance + (c.paiements?.reduce((pAcc, p) => pAcc + p.montant, 0) || 0)), 0);
+                return { id: b.id, nom: b.nom, moisEnCours, anneeEnCours };
+            });
+    }, [boutiques, commandes, isVendeur, userBoutiqueId]);
 
     const rentabiliteParBoutique = useMemo(() => {
-        return boutiques.map(b => {
-            const revenue = statsCommandes.filter(c => c.boutiqueId === b.id).reduce((acc, c) => acc + (c.avance + (c.paiements?.reduce((pAcc, p) => pAcc + p.montant, 0) || 0)), 0);
-            const charges = statsDepensesGlobal.filter(d => d.boutiqueId === b.id).reduce((acc, d) => acc + d.montant, 0);
-            const result = revenue - charges;
-            return { ...b, revenue, charges, result, isBeneficiaire: result >= 0 };
-        });
-    }, [boutiques, statsCommandes, statsDepensesGlobal]);
+        return boutiques
+            .filter(b => !isVendeur || b.id === userBoutiqueId) // Uniquement la boutique du vendeur
+            .map(b => {
+                const revenue = statsCommandes.filter(c => c.boutiqueId === b.id).reduce((acc, c) => acc + (c.avance + (c.paiements?.reduce((pAcc, p) => pAcc + p.montant, 0) || 0)), 0);
+                const charges = statsDepensesGlobal.filter(d => d.boutiqueId === b.id).reduce((acc, d) => acc + d.montant, 0);
+                const result = revenue - charges;
+                return { ...b, revenue, charges, result, isBeneficiaire: result >= 0 };
+            });
+    }, [boutiques, statsCommandes, statsDepensesGlobal, isVendeur, userBoutiqueId]);
 
     const chargesGenerales = useMemo(() => statsDepensesGlobal.filter(d => !d.boutiqueId || d.boutiqueId === 'ATELIER').reduce((acc, d) => acc + d.montant, 0), [statsDepensesGlobal]);
 
     const filteredTransactions = useMemo(() => {
-        return transactions.filter(t => isInDateRange(t.date)).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [transactions, dateStart, dateEnd]);
+        return transactions.filter(t => {
+            const matchesDate = isInDateRange(t.date);
+            const account = comptes.find(c => c.id === t.compteId);
+            const matchesBoutique = !isVendeur || account?.boutiqueId === userBoutiqueId;
+            return matchesDate && matchesBoutique;
+        }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [transactions, dateStart, dateEnd, isVendeur, userBoutiqueId, comptes]);
+
+    // Comptes filtrés pour le vendeur
+    const filteredComptes = useMemo(() => 
+        comptes.filter(c => !isVendeur || c.boutiqueId === userBoutiqueId),
+    [comptes, isVendeur, userBoutiqueId]);
 
     // --- HANDLERS ---
     const handleSaveExpense = () => {
@@ -235,7 +285,7 @@ const FinanceView: React.FC<FinanceViewProps> = ({
         }
         setIsAccountModalOpen(false);
         setEditingAccountId(null);
-        setNewAccount({ nom: '', type: 'CAISSE', solde: 0, numero: '', boutiqueId: 'ATELIER' });
+        setNewAccount({ nom: '', type: 'CAISSE', solde: 0, numero: '', boutiqueId: userBoutiqueId || 'ATELIER' });
     };
 
     const handleTransfer = () => {
@@ -280,7 +330,9 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                         <Wallet className="text-brand-600" size={32} />
                     </div>
                     <div>
-                        <h2 className="text-3xl font-black text-gray-800 tracking-tighter">Finance & Rentabilité</h2>
+                        <h2 className="text-3xl font-black text-gray-800 tracking-tighter">
+                            {isVendeur ? `Finance Boutique : ${boutiques.find(b => b.id === userBoutiqueId)?.nom || 'Ma Boutique'}` : 'Finance & Rentabilité'}
+                        </h2>
                         <div className="flex items-center gap-2 mt-1">
                             <Calendar size={14} className="text-gray-400" />
                             <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">
@@ -342,19 +394,19 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             <div className="bg-white p-8 rounded-[2.5rem] border-l-[8px] border-green-500 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[160px] group hover:shadow-md transition-shadow">
                                 <div className="flex justify-between items-start">
-                                    <div><p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Recettes (Période)</p><p className="text-4xl font-black text-gray-900 mt-3">{totalRecettes.toLocaleString()} F</p></div>
+                                    <div><p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Recettes {isVendeur ? '(Ma Boutique)' : '(Période)'}</p><p className="text-4xl font-black text-gray-900 mt-3">{totalRecettes.toLocaleString()} F</p></div>
                                     <div className="p-3 text-green-500 group-hover:scale-110 transition-transform"><TrendingUp size={32}/></div>
                                 </div>
                             </div>
                             <div className="bg-white p-8 rounded-[2.5rem] border-l-[8px] border-red-500 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[160px] group hover:shadow-md transition-shadow">
                                 <div className="flex justify-between items-start">
-                                    <div><p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Dépenses (Période)</p><p className="text-4xl font-black text-gray-900 mt-3">{totalChargesPériode.toLocaleString()} F</p></div>
+                                    <div><p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Dépenses {isVendeur ? '(Ma Boutique)' : '(Période)'}</p><p className="text-4xl font-black text-gray-900 mt-3">{totalChargesPériode.toLocaleString()} F</p></div>
                                     <div className="p-3 text-red-500 group-hover:scale-110 transition-transform"><TrendingDown size={32}/></div>
                                 </div>
                             </div>
                             <div className="bg-white p-8 rounded-[2.5rem] border-l-[8px] border-orange-500 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[160px] group hover:shadow-md transition-shadow">
                                 <div className="flex justify-between items-start">
-                                    <div><p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Résultat (Période)</p><p className={`text-4xl font-black mt-3 ${profitNet >= 0 ? 'text-gray-900' : 'text-red-600'}`}>{profitNet.toLocaleString()} F</p></div>
+                                    <div><p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Résultat {isVendeur ? '(Ma Boutique)' : '(Période)'}</p><p className={`text-4xl font-black mt-3 ${profitNet >= 0 ? 'text-gray-900' : 'text-red-600'}`}>{profitNet.toLocaleString()} F</p></div>
                                     <div className="p-3 text-orange-500 group-hover:scale-110 transition-transform"><DollarSign size={32}/></div>
                                 </div>
                             </div>
@@ -439,10 +491,13 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                                 </div>
                             ))}
                         </div>
-                        <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm animate-in slide-in-from-bottom-4 duration-700">
-                             <div className="flex items-center gap-5 mb-8"><div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center border border-gray-100 shadow-inner"><Building className="text-gray-300" size={24}/></div><div><h3 className="text-lg font-black text-gray-800 uppercase tracking-tight">Charges Générales (Siège)</h3><p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Non affectées à une boutique</p></div></div>
-                             <div className="flex justify-between items-center bg-gray-50/50 p-6 rounded-3xl border border-gray-100"><span className="text-xs font-black text-gray-500 uppercase tracking-[0.2em]">Total Charges Communes</span><span className="text-2xl font-black text-red-500">-{chargesGenerales.toLocaleString()} F</span></div>
-                        </div>
+                        
+                        {!isVendeur && (
+                            <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm animate-in slide-in-from-bottom-4 duration-700">
+                                <div className="flex items-center gap-5 mb-8"><div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center border border-gray-100 shadow-inner"><Building className="text-gray-300" size={24}/></div><div><h3 className="text-lg font-black text-gray-800 uppercase tracking-tight">Charges Générales (Siège)</h3><p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Non affectées à une boutique</p></div></div>
+                                <div className="flex justify-between items-center bg-gray-50/50 p-6 rounded-3xl border border-gray-100"><span className="text-xs font-black text-gray-500 uppercase tracking-[0.2em]">Total Charges Communes</span><span className="text-2xl font-black text-red-500">-{chargesGenerales.toLocaleString()} F</span></div>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -450,24 +505,28 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                 {activeTab === 'TREASURY' && (
                     <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0 px-2">
-                            <h3 className="text-xl font-black text-gray-800 uppercase tracking-tighter">Comptes Financiers / Caisse</h3>
+                            <h3 className="text-xl font-black text-gray-800 uppercase tracking-tighter">
+                                {isVendeur ? 'Ma Caisse / Comptes Boutique' : 'Comptes Financiers / Caisse'}
+                            </h3>
                             <div className="flex flex-wrap gap-2">
                                 <button onClick={() => setIsDepositModalOpen(true)} className="bg-[#00a859] hover:bg-[#008f4c] text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all"><PlusCircle size={18}/> Dépôt</button>
                                 <button onClick={() => setIsWithdrawalModalOpen(true)} className="bg-[#ed1c24] hover:bg-[#d61921] text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all"><MinusCircle size={18}/> Retrait</button>
                                 <button onClick={() => setIsTransferModalOpen(true)} className="bg-[#0054ff] hover:bg-[#0047d9] text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all"><ArrowRightLeft size={18}/> Virement</button>
-                                <button onClick={() => { setEditingAccountId(null); setNewAccount({nom: '', type: 'CAISSE', solde: 0, numero: '', boutiqueId: 'ATELIER'}); setIsAccountModalOpen(true); }} className="bg-[#1a1a1a] hover:bg-black text-white px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2 shadow-xl transition-all"><Plus size={20}/> Créer Compte</button>
+                                {!isVendeur && <button onClick={() => { setEditingAccountId(null); setNewAccount({nom: '', type: 'CAISSE', solde: 0, numero: '', boutiqueId: 'ATELIER'}); setIsAccountModalOpen(true); }} className="bg-[#1a1a1a] hover:bg-black text-white px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2 shadow-xl transition-all"><Plus size={20}/> Créer Compte</button>}
                             </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 px-2">
-                            {comptes.map(compte => {
+                            {filteredComptes.map(compte => {
                                 const boutique = boutiques.find(b => b.id === compte.boutiqueId) || (compte.boutiqueId === 'ATELIER' ? {nom: 'Atelier Central'} : null);
                                 return (
                                     <div key={compte.id} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition-all group flex flex-col justify-between h-[160px] relative">
-                                        {/* BOUTONS ACTIONS COMPTE */}
-                                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button onClick={() => handleOpenEditAccount(compte)} className="p-1.5 bg-blue-50 text-blue-600 rounded-lg border border-blue-100 hover:bg-blue-100"><Edit2 size={12}/></button>
-                                            <button onClick={() => handleDeleteAccount(compte.id)} className="p-1.5 bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100"><Trash2 size={12}/></button>
-                                        </div>
+                                        {/* BOUTONS ACTIONS COMPTE (ADMIN UNIQUEMENT) */}
+                                        {!isVendeur && (
+                                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button onClick={() => handleOpenEditAccount(compte)} className="p-1.5 bg-blue-50 text-blue-600 rounded-lg border border-blue-100 hover:bg-blue-100"><Edit2 size={12}/></button>
+                                                <button onClick={() => handleDeleteAccount(compte.id)} className="p-1.5 bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100"><Trash2 size={12}/></button>
+                                            </div>
+                                        )}
 
                                         <div className="flex justify-between items-start">
                                             <div className="flex items-center gap-4">
@@ -482,7 +541,7 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                             })}
                         </div>
                         <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden flex flex-col mx-2">
-                            <div className="p-6 bg-gray-50/50 border-b shrink-0"><h3 className="font-black text-gray-600 uppercase text-[11px] tracking-widest">DERNIERS MOUVEMENTS</h3></div>
+                            <div className="p-6 bg-gray-50/50 border-b shrink-0"><h3 className="font-black text-gray-600 uppercase text-[11px] tracking-widest">DERNIERS MOUVEMENTS {isVendeur && '(Boutique)'}</h3></div>
                             <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-white text-gray-400 font-black uppercase text-[10px] tracking-widest border-b"><tr><th className="p-6">Date</th><th className="p-6">Type</th><th className="p-6">Compte</th><th className="p-6">Description</th><th className="p-6 text-right">Montant</th></tr></thead><tbody className="divide-y divide-gray-50">{filteredTransactions.map(t => { const isEncaiss = t.type.includes('ENCAISSEMENT') || t.type === 'VIREMENT_ENTRANT'; const compte = comptes.find(c => c.id === t.compteId); return (<tr key={t.id} className="hover:bg-gray-50 group transition-colors"><td className="p-6 text-[11px] font-bold text-gray-400">{new Date(t.date).toLocaleDateString()}</td><td className="p-6"><span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase border ${isEncaiss ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'}`}>{t.type.replace('_', ' ')}</span></td><td className="p-6 font-black text-gray-500 text-[10px] uppercase tracking-wider">{compte?.nom}</td><td className="p-6 font-bold text-gray-800 text-sm tracking-tight">{t.description}</td><td className={`p-6 text-right font-black text-lg ${isEncaiss ? 'text-green-600' : 'text-red-600'}`}>{isEncaiss ? '+' : ''}{t.montant.toLocaleString()}</td></tr>); })}</tbody></table></div>
                         </div>
                     </div>
@@ -493,7 +552,13 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                     <div className="space-y-6 animate-in slide-in-from-left-4 duration-300">
                         <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
                             <div className="flex flex-wrap gap-4 items-center">
-                                <select className="p-3 border-2 border-gray-100 rounded-xl font-bold text-sm bg-gray-50 focus:border-brand-500 outline-none transition-all" value={expenseBoutiqueFilter} onChange={e => setExpenseBoutiqueFilter(e.target.value)}><option value="ALL">Toutes les Boutiques</option><option value="ATELIER">Atelier Central</option>{boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}</select>
+                                {!isVendeur && (
+                                    <select className="p-3 border-2 border-gray-100 rounded-xl font-bold text-sm bg-gray-50 focus:border-brand-500 outline-none transition-all" value={expenseBoutiqueFilter} onChange={e => setExpenseBoutiqueFilter(e.target.value)}>
+                                        <option value="ALL">Toutes les Boutiques</option>
+                                        <option value="ATELIER">Atelier Central</option>
+                                        {boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}
+                                    </select>
+                                )}
                                 <select className="p-3 border-2 border-gray-100 rounded-xl font-bold text-sm bg-gray-50 focus:border-brand-500 outline-none transition-all" value={expenseCategoryFilter} onChange={e => setExpenseCategoryFilter(e.target.value)}><option value="ALL">Toutes Catégories</option>{expenseCategories.map(cat => <option key={cat.key} value={cat.key}>{cat.label}</option>)}</select>
                             </div>
                             {canWriteFinance && <button onClick={() => setIsExpenseModalOpen(true)} className="bg-[#d45d1e] hover:bg-[#b54a16] text-white px-8 py-3.5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all flex items-center gap-2"><Plus size={20}/> Nouvelle Dépense</button>}
@@ -525,7 +590,7 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                                                         {canWriteFinance && (
                                                             <div className="flex gap-1 justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                                                                 <button onClick={() => { setNewExpense({...d}); setIsExpenseModalOpen(true); }} className="p-2 text-gray-400 hover:text-blue-600 transition-colors"><Edit2 size={16}/></button>
-                                                                <button onClick={() => { if(window.confirm("Supprimer cette dépense ?")) onDeleteDepense(d.id) }} className="p-2 text-gray-300 hover:text-red-600 transition-colors"><Trash2 size={16}/></button>
+                                                                {!isVendeur && <button onClick={() => { if(window.confirm("Supprimer cette dépense ?")) onDeleteDepense(d.id) }} className="p-2 text-gray-300 hover:text-red-600 transition-colors"><Trash2 size={16}/></button>}
                                                             </div>
                                                         )}
                                                     </td>
@@ -545,7 +610,7 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                 <div className="fixed inset-0 bg-brand-900/80 z-[600] flex items-center justify-center p-4 backdrop-blur-md">
                     <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] animate-in zoom-in border border-brand-100 overflow-hidden">
                         <div className="p-6 border-b flex justify-between items-center bg-gray-50">
-                            <h3 className="font-black text-gray-800 uppercase tracking-tighter flex items-center gap-3"><AlertCircle className="text-red-600" /> Créances Clients Détaillées</h3>
+                            <h3 className="font-black text-gray-800 uppercase tracking-tighter flex items-center gap-3"><AlertCircle className="text-red-600" /> Créances Clients {isVendeur && '(Ma Boutique)'}</h3>
                             <button onClick={() => setIsUnpaidModalOpen(false)} className="p-1 hover:bg-gray-200 rounded-full transition-colors"><X size={28}/></button>
                         </div>
                         <div className="p-4 border-b">
@@ -629,10 +694,31 @@ const FinanceView: React.FC<FinanceViewProps> = ({
                             <div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest">Montant (F)</label><input type="number" className="w-full p-4 border-2 border-red-100 rounded-2xl text-2xl font-black text-red-600 bg-red-50 focus:border-red-600 outline-none transition-all shadow-sm" value={newExpense.montant || ''} onChange={e => setNewExpense({...newExpense, montant: parseInt(e.target.value)||0})} placeholder="0" /></div>
                             <div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest">Libellé / Détail</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-gray-50 focus:border-brand-600 outline-none shadow-sm" value={newExpense.description} onChange={e => setNewExpense({...newExpense, description: e.target.value})} placeholder="Ex: Transport, Facture Senelec..." /></div>
                             <div className="grid grid-cols-2 gap-4">
-                                <div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest">Boutique</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-black bg-gray-50 outline-none text-[10px]" value={newExpense.boutiqueId} onChange={e => setNewExpense({...newExpense, boutiqueId: e.target.value})}><option value="ATELIER">ATELIER CENTRAL</option>{boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}</select></div>
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest">Boutique</label>
+                                    <select 
+                                        className="w-full p-3 border-2 border-gray-100 rounded-xl font-black bg-gray-50 outline-none text-[10px] disabled:opacity-50" 
+                                        value={newExpense.boutiqueId} 
+                                        onChange={e => setNewExpense({...newExpense, boutiqueId: e.target.value})}
+                                        disabled={isVendeur} // Forcer la boutique du vendeur
+                                    >
+                                        <option value="ATELIER">ATELIER CENTRAL</option>
+                                        {boutiques.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}
+                                    </select>
+                                </div>
                                 <div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest">Catégorie</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-black bg-gray-50 outline-none text-[10px]" value={newExpense.categorie} onChange={e => setNewExpense({...newExpense, categorie: e.target.value as any})}>{expenseCategories.map(cat => <option key={cat.key} value={cat.key}>{cat.label}</option>)}</select></div>
                             </div>
-                            <div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest">Compte Source</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 outline-none text-xs" value={newExpense.compteId} onChange={e => setNewExpense({...newExpense, compteId: e.target.value})}><option value="">-- Choisir Caisse --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest">Compte Source</label>
+                                <select 
+                                    className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 outline-none text-xs" 
+                                    value={newExpense.compteId} 
+                                    onChange={e => setNewExpense({...newExpense, compteId: e.target.value})}
+                                >
+                                    <option value="">-- Choisir Caisse --</option>
+                                    {filteredComptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}
+                                </select>
+                            </div>
                         </div>
                         <div className="flex justify-end gap-3 mt-10 pt-5 border-t"><button onClick={() => setIsExpenseModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={handleSaveExpense} className="px-12 py-4 bg-red-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-red-200 active:scale-95 transition-all">Valider</button></div>
                     </div>
@@ -641,13 +727,13 @@ const FinanceView: React.FC<FinanceViewProps> = ({
 
             {/* MODALS DEPOT / RETRAIT / VIREMENT */}
             {(isDepositModalOpen || isWithdrawalModalOpen) && (
-                <div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md"><div className="bg-white rounded-[2.5rem] p-10 w-full max-sm shadow-2xl border border-brand-100"><div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className={`text-xl font-black uppercase tracking-tighter flex items-center gap-3 ${isDepositModalOpen ? 'text-green-600' : 'text-red-600'}`}>{isDepositModalOpen ? <PlusCircle size={28}/> : <MinusCircle size={28}/>}{isDepositModalOpen ? 'Dépôt / Entrée' : 'Retrait / Sortie'}</h3><button onClick={() => { setIsDepositModalOpen(false); setIsWithdrawalModalOpen(false); }} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><X size={28}/></button></div><div className="space-y-6"><div><label className="block text-[11px] font-black text-gray-400 uppercase mb-2 tracking-widest">Compte</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50 outline-none" value={quickTransaction.compteId} onChange={e => setQuickTransaction({...quickTransaction, compteId: e.target.value})}><option value="">-- Choisir Compte --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div><div><label className="block text-[11px] font-black text-gray-400 uppercase mb-2 tracking-widest">Montant</label><input type="number" className={`w-full p-4 border-2 rounded-2xl text-2xl font-black focus:ring-0 outline-none transition-all ${isDepositModalOpen ? 'border-green-100 text-green-600 bg-green-50 focus:border-green-600' : 'border-red-100 text-red-600 bg-red-50 focus:border-red-600'}`} value={quickTransaction.montant || ''} onChange={e => setQuickTransaction({...quickTransaction, montant: parseInt(e.target.value)||0})} placeholder="0" /></div><div><label className="block text-[11px] font-black text-gray-400 uppercase mb-2 tracking-widest">Motif</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-gray-50 focus:border-brand-600 outline-none shadow-sm" value={quickTransaction.motif} onChange={e => setQuickTransaction({...quickTransaction, motif: e.target.value})} placeholder={isDepositModalOpen ? "Ex: Apport personnel" : "Ex: Frais divers"} /></div></div><div className="flex justify-end gap-3 mt-10 pt-5 border-t"><button onClick={() => { setIsDepositModalOpen(false); setIsWithdrawalModalOpen(false); }} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={() => handleQuickTransaction(isDepositModalOpen ? 'ENCAISSEMENT' : 'DECAISSEMENT')} className={`px-12 py-4 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all ${isDepositModalOpen ? 'bg-green-600 shadow-green-100' : 'bg-red-600 shadow-red-100'}`}>Valider</button></div></div></div>
+                <div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md"><div className="bg-white rounded-[2.5rem] p-10 w-full max-sm shadow-2xl border border-brand-100"><div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className={`text-xl font-black uppercase tracking-tighter flex items-center gap-3 ${isDepositModalOpen ? 'text-green-600' : 'text-red-600'}`}>{isDepositModalOpen ? <PlusCircle size={28}/> : <MinusCircle size={28}/>}{isDepositModalOpen ? 'Dépôt / Entrée' : 'Retrait / Sortie'}</h3><button onClick={() => { setIsDepositModalOpen(false); setIsWithdrawalModalOpen(false); }} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><X size={28}/></button></div><div className="space-y-6"><div><label className="block text-[11px] font-black text-gray-400 uppercase mb-2 tracking-widest">Compte</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold bg-gray-50 outline-none" value={quickTransaction.compteId} onChange={e => setQuickTransaction({...quickTransaction, compteId: e.target.value})}><option value="">-- Choisir Compte --</option>{filteredComptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div><div><label className="block text-[11px] font-black text-gray-400 uppercase mb-2 tracking-widest">Montant</label><input type="number" className={`w-full p-4 border-2 rounded-2xl text-2xl font-black focus:ring-0 outline-none transition-all ${isDepositModalOpen ? 'border-green-100 text-green-600 bg-green-50 focus:border-green-600' : 'border-red-100 text-red-600 bg-red-50 focus:border-red-600'}`} value={quickTransaction.montant || ''} onChange={e => setQuickTransaction({...quickTransaction, montant: parseInt(e.target.value)||0})} placeholder="0" /></div><div><label className="block text-[11px] font-black text-gray-400 uppercase mb-2 tracking-widest">Motif</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-gray-50 focus:border-brand-600 outline-none shadow-sm" value={quickTransaction.motif} onChange={e => setQuickTransaction({...quickTransaction, motif: e.target.value})} placeholder={isDepositModalOpen ? "Ex: Apport personnel" : "Ex: Frais divers"} /></div></div><div className="flex justify-end gap-3 mt-10 pt-5 border-t"><button onClick={() => { setIsDepositModalOpen(false); setIsWithdrawalModalOpen(false); }} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={() => handleQuickTransaction(isDepositModalOpen ? 'ENCAISSEMENT' : 'DECAISSEMENT')} className={`px-12 py-4 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all ${isDepositModalOpen ? 'bg-green-600 shadow-green-100' : 'bg-red-600 shadow-red-100'}`}>Valider</button></div></div></div>
             )}
 
-            {isTransferModalOpen && (<div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md"><div className="bg-white rounded-[2.5rem] p-10 w-full max-sm shadow-2xl border border-brand-100"><div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3 text-blue-600"><ArrowRightLeft size={32}/> Virement Interne</h3><button onClick={() => setIsTransferModalOpen(false)} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><X size={28}/></button></div><div className="space-y-6"><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Montant à transférer</label><input type="number" className="w-full p-4 border-2 border-blue-50 rounded-2xl text-2xl font-black text-blue-900 bg-blue-50/30 outline-none" value={transferData.montant || ''} onChange={e => setTransferData({...transferData, montant: parseInt(e.target.value)||0})} placeholder="0" /></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Source</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-xs" value={transferData.sourceId} onChange={e => setTransferData({...transferData, sourceId: e.target.value})}><option value="">-- Choisir --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Destination</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-xs" value={transferData.destId} onChange={e => setTransferData({...transferData, destId: e.target.value})}><option value="">-- Choisir --</option>{comptes.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div></div><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Libellé / Motif (Optionnel)</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-gray-50 focus:border-brand-600 outline-none shadow-sm" value={transferData.note} onChange={e => setTransferData({...transferData, note: e.target.value})} placeholder="Ex: Réapprovisionnement caisse boutique..." /></div></div><div className="flex justify-end gap-3 mt-10 pt-4 border-t"><button onClick={() => setIsTransferModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={handleTransfer} disabled={transferData.montant <= 0 || !transferData.sourceId || !transferData.destId} className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-blue-100 active:scale-95 transition-all">Confirmer</button></div></div></div>)}
+            {isTransferModalOpen && (<div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md"><div className="bg-white rounded-[2.5rem] p-10 w-full max-sm shadow-2xl border border-brand-100"><div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3 text-blue-600"><ArrowRightLeft size={32}/> Virement Interne</h3><button onClick={() => setIsTransferModalOpen(false)} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><X size={28}/></button></div><div className="space-y-6"><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Montant à transférer</label><input type="number" className="w-full p-4 border-2 border-blue-50 rounded-2xl text-2xl font-black text-blue-900 bg-blue-50/30 outline-none" value={transferData.montant || ''} onChange={e => setTransferData({...transferData, montant: parseInt(e.target.value)||0})} placeholder="0" /></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Source</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-xs" value={transferData.sourceId} onChange={e => setTransferData({...transferData, sourceId: e.target.value})}><option value="">-- Choisir --</option>{filteredComptes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.solde.toLocaleString()} F)</option>)}</select></div><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Destination</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-xs" value={transferData.destId} onChange={e => setTransferData({...transferData, destId: e.target.value})}><option value="">-- Choisir --</option>{filteredComptes.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></div></div><div><label className="block text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Libellé / Motif (Optionnel)</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-gray-50 focus:border-brand-600 outline-none shadow-sm" value={transferData.note} onChange={e => setTransferData({...transferData, note: e.target.value})} placeholder="Ex: Réapprovisionnement caisse boutique..." /></div></div><div className="flex justify-end gap-3 mt-10 pt-4 border-t"><button onClick={() => setIsTransferModalOpen(false)} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={handleTransfer} disabled={transferData.montant <= 0 || !transferData.sourceId || !transferData.destId} className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-blue-100 active:scale-95 transition-all">Confirmer</button></div></div></div>)}
 
-            {/* MODAL NOUVELLE COMPTE / MODIFICATION COMPTE */}
-            {isAccountModalOpen && (<div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md"><div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl border border-brand-100 animate-in zoom-in"><div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3"><Plus size={32} className="text-brand-600"/> {editingAccountId ? 'Modifier Compte' : 'Nouveau Compte'}</h3><button onClick={() => { setIsAccountModalOpen(false); setEditingAccountId(null); }} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><X size={28}/></button></div><div className="space-y-6"><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Nom du compte</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 uppercase focus:border-brand-600 outline-none shadow-sm" value={newAccount.nom} onChange={e => setNewAccount({...newAccount, nom: e.target.value})} placeholder="Ex: Caisse Boutique" /></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Type</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 outline-none text-xs" value={newAccount.type} onChange={e => setNewAccount({...newAccount, type: e.target.value as any})}><option value="CAISSE">Caisse (Espèce)</option><option value="BANQUE">Banque (Virement/Chèque)</option><option value="MOBILE_MONEY">Mobile Money (Wave/OM)</option></select></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Boutique d'affectation</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 outline-none text-xs" value={newAccount.boutiqueId} onChange={e => setNewAccount({...newAccount, boutiqueId: e.target.value})}><option value="ATELIER">ATELIER CENTRAL (SÉGE)</option>{boutiques.map(b => <option key={b.id} value={b.id}>{b.nom.toUpperCase()}</option>)}</select></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Numéro de compte / Identifiant</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none" value={newAccount.numero} onChange={e => setNewAccount({...newAccount, numero: e.target.value})} placeholder="Ex: 77 123 45 67 ou IBAN" /></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Solde Initial</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none disabled:opacity-50" value={newAccount.solde || ''} onChange={e => setNewAccount({...newAccount, solde: parseInt(e.target.value)||0})} placeholder="0" disabled={!!editingAccountId} /></div></div><div className="flex justify-end gap-3 mt-10 pt-5 border-t"><button onClick={() => { setIsAccountModalOpen(false); setEditingAccountId(null); }} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={handleSaveAccount} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">{editingAccountId ? 'Mettre à jour' : 'Créer Compte'}</button></div></div></div>)}
+            {/* MODAL NOUVELLE COMPTE (RESTREINT AUX ADMINS) */}
+            {isAccountModalOpen && !isVendeur && (<div className="fixed inset-0 bg-brand-900/80 z-[500] flex items-center justify-center p-4 backdrop-blur-md"><div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl border border-brand-100 animate-in zoom-in"><div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3"><Plus size={32} className="text-brand-600"/> {editingAccountId ? 'Modifier Compte' : 'Nouveau Compte'}</h3><button onClick={() => { setIsAccountModalOpen(false); setEditingAccountId(null); }} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><X size={28}/></button></div><div className="space-y-6"><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Nom du compte</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 uppercase focus:border-brand-600 outline-none shadow-sm" value={newAccount.nom} onChange={e => setNewAccount({...newAccount, nom: e.target.value})} placeholder="Ex: Caisse Boutique" /></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Type</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 outline-none text-xs" value={newAccount.type} onChange={e => setNewAccount({...newAccount, type: e.target.value as any})}><option value="CAISSE">Caisse (Espèce)</option><option value="BANQUE">Banque (Virement/Chèque)</option><option value="MOBILE_MONEY">Mobile Money (Wave/OM)</option></select></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Boutique d'affectation</label><select className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 outline-none text-xs" value={newAccount.boutiqueId} onChange={e => setNewAccount({...newAccount, boutiqueId: e.target.value})}><option value="ATELIER">ATELIER CENTRAL (SÉGE)</option>{boutiques.map(b => <option key={b.id} value={b.id}>{b.nom.toUpperCase()}</option>)}</select></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Numéro de compte / Identifiant</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none" value={newAccount.numero} onChange={e => setNewAccount({...newAccount, numero: e.target.value})} placeholder="Ex: 77 123 45 67 ou IBAN" /></div><div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest mb-1.5">Solde Initial</label><input type="number" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-black bg-gray-50 focus:border-brand-600 outline-none disabled:opacity-50" value={newAccount.solde || ''} onChange={e => setNewAccount({...newAccount, solde: parseInt(e.target.value)||0})} placeholder="0" disabled={!!editingAccountId} /></div></div><div className="flex justify-end gap-3 mt-10 pt-5 border-t"><button onClick={() => { setIsAccountModalOpen(false); setEditingAccountId(null); }} className="px-6 py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Annuler</button><button onClick={handleSaveAccount} className="px-12 py-4 bg-brand-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">{editingAccountId ? 'Mettre à jour' : 'Créer Compte'}</button></div></div></div>)}
         </div>
     );
 };
