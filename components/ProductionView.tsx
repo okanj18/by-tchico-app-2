@@ -62,7 +62,15 @@ const ProductionView: React.FC<ProductionViewProps> = ({
     const [deliveryQtys, setDeliveryQtys] = useState<Record<string, number>>({});
 
     const [agendaDate, setAgendaDate] = useState(new Date());
-    const tailleurs = useMemo(() => employes.filter(e => (e.role === RoleEmploye.TAILLEUR || e.role === RoleEmploye.CHEF_ATELIER) && e.actif !== false), [employes]);
+
+    // Définition élargie des artisans : inclut Tailleurs, Chefs, Stagiaires et Assistants
+    const tailleurs = useMemo(() => employes.filter(e => 
+        (e.role === RoleEmploye.TAILLEUR || 
+         e.role === RoleEmploye.CHEF_ATELIER || 
+         e.role === RoleEmploye.STAGIAIRE || 
+         e.role === RoleEmploye.ASSISTANT) && 
+        e.actif !== false
+    ), [employes]);
 
     const isVendeur = userRole === RoleEmploye.VENDEUR;
 

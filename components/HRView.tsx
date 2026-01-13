@@ -607,7 +607,20 @@ const HRView: React.FC<HRViewProps> = ({
                                 <div className="space-y-6">
                                     <div className="grid grid-cols-2 gap-4">
                                         <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Nom Complet</label><input type="text" className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold uppercase" value={formData.nom} onChange={e => setFormData({...formData, nom: e.target.value.toUpperCase()})} /></div>
-                                        <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Rôle</label><select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as RoleEmploye})}><option value={RoleEmploye.TAILLEUR}>Tailleur</option><option value={RoleEmploye.VENDEUR}>Vendeur</option><option value={RoleEmploye.GERANT}>Gérant</option><option value={RoleEmploye.CHEF_ATELIER}>Chef Atelier</option><option value={RoleEmploye.GARDIEN}>Gardien</option><option value={RoleEmploye.LIVREUR}>Livreur</option></select></div>
+                                        <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Rôle</label>
+                                            <select className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as RoleEmploye})}>
+                                                <option value={RoleEmploye.TAILLEUR}>Tailleur</option>
+                                                <option value={RoleEmploye.STAGIAIRE}>Stagiaire</option>
+                                                <option value={RoleEmploye.CHEF_ATELIER}>Chef Atelier</option>
+                                                <option value={RoleEmploye.ASSISTANT}>Assistant</option>
+                                                <option value={RoleEmploye.VENDEUR}>Vendeur</option>
+                                                <option value={RoleEmploye.GERANT}>Gérant</option>
+                                                <option value={RoleEmploye.GARDIEN}>Gardien</option>
+                                                <option value={RoleEmploye.LIVREUR}>Livreur</option>
+                                                <option value={RoleEmploye.CHAUFFEUR}>Chauffeur</option>
+                                                <option value={RoleEmploye.ADMIN}>Administrateur</option>
+                                            </select>
+                                        </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Téléphone / ID</label><input type="text" className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold" value={formData.telephone} onChange={e => setFormData({...formData, telephone: e.target.value})} /></div>
