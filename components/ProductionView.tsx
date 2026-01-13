@@ -345,7 +345,14 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                                     <div className="flex flex-col gap-1 overflow-y-auto max-h-32">
                                                         {dayTasks.map(t=>{
                                                             return (
-                                                                <div key={t.id} className={`p-1.5 rounded-lg border text-[8px] font-black uppercase truncate flex items-center gap-1.5 shadow-sm transition-all ${t.statut==='FAIT'?'bg-green-100 border-green-200 text-green-700':'bg-white border-brand-100 text-brand-900'}`}>
+                                                                <div 
+                                                                    key={t.id} 
+                                                                    onClick={(e) => { 
+                                                                        e.stopPropagation(); 
+                                                                        if(userRole !== RoleEmploye.VENDEUR) onUpdateTask(t.orderId, t.id, t.statut === 'A_FAIRE' ? 'FAIT' : 'A_FAIRE'); 
+                                                                    }} 
+                                                                    className={`p-1.5 rounded-lg border text-[8px] font-black uppercase truncate flex items-center gap-1.5 shadow-sm transition-all hover:scale-105 cursor-pointer ${t.statut==='FAIT'?'bg-green-100 border-green-200 text-green-700':'bg-white border-brand-100 text-brand-900'}`}
+                                                                >
                                                                     {t.statut==='FAIT'?<CheckSquare size={10}/>:<Square size={10}/>} {t.clientNom.split(' ')[0]} : {t.elementNom}({t.quantite})
                                                                 </div>
                                                             );
@@ -448,7 +455,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 </div>
                             </div>
 
-                            {/* HISTORIQUE DES LIVRAISONS (RESTAURÉ) */}
                             <div className="space-y-4">
                                 <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4 flex items-center gap-2"><Truck size={14}/> Historique des Livraisons</h4>
                                 <div className="bg-white rounded-3xl border border-brand-100 overflow-hidden shadow-sm">
@@ -480,7 +486,6 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                                 </div>
                             </div>
 
-                            {/* HISTORIQUE DES RÈGLEMENTS (RESTAURÉ) */}
                             <div className="space-y-4">
                                 <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4 flex items-center gap-2"><History size={14}/> Historique des Règlements</h4>
                                 <div className="bg-white rounded-3xl border border-brand-100 overflow-hidden shadow-sm">

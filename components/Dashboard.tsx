@@ -13,7 +13,6 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ commandes, employes, depenses, clients }) => {
-    // Fixed: Removed duplicate declaration of aiAdvice and setAiAdvice
     const [aiAdvice, setAiAdvice] = useState<string | null>(null);
     const [loadingAI, setLoadingAI] = useState(false);
     const [showSyncHelp, setShowSyncHelp] = useState(false);
@@ -23,8 +22,8 @@ const Dashboard: React.FC<DashboardProps> = ({ commandes, employes, depenses, cl
     const pendingOrders = commandes.filter(c => c.statut !== StatutCommande.LIVRE && c.statut !== StatutCommande.ANNULE && !c.archived && !c.isDevis).length;
     const activeTailors = employes.filter(e => e.actif !== false).length; 
     
+    // CALCUL PRÉCIS DES FLUX PAR PIÈCE (COHÉRENT AVEC L'ATELIER)
     const productionStats = useMemo(() => {
-        // CORRECTION: On compte maintenant le nombre de PIÈCES (articles) et non le nombre de commandes
         const stats = {
             attente: 0,
             coupe: 0,
@@ -35,24 +34,44 @@ const Dashboard: React.FC<DashboardProps> = ({ commandes, employes, depenses, cl
 
         commandes
             .filter(c => !c.archived && c.statut !== StatutCommande.ANNULE && !c.isDevis)
-            .forEach(c => {
-                if (c.repartitionStatuts) {
-                    // Utilisation de la répartition précise par pièce
-                    stats.attente += (c.repartitionStatuts[StatutCommande.EN_ATTENTE] || 0);
-                    stats.coupe += (c.repartitionStatuts[StatutCommande.EN_COUPE] || 0);
-                    stats.couture += (c.repartitionStatuts[StatutCommande.COUTURE] || 0);
-                    stats.finition += (c.repartitionStatuts[StatutCommande.FINITION] || 0);
-                    stats.pret += (c.repartitionStatuts[StatutCommande.PRET] || 0);
-                } else {
-                    // Fallback pour les anciennes commandes ou sans répartition détaillée
-                    const s = c.statut;
-                    const q = c.quantite || 1;
-                    if (s === StatutCommande.EN_ATTENTE) stats.attente += q;
-                    else if (s === StatutCommande.EN_COUPE) stats.coupe += q;
-                    else if (s === StatutCommande.COUTURE) stats.couture += q;
-                    else if (s === StatutCommande.FINITION) stats.finition += q;
-                    else if (s === StatutCommande.PRET) stats.pret += q;
-                }
+            .forEach(cmd => {
+                cmd.elements?.forEach(el => {
+                    const taches = (cmd.taches || []).filter(t => t.elementNom === el.nom);
+                    
+                    // Stats par étape
+                    const coupeTotal = taches.filter(t => t.action === 'COUPE').reduce((s, t) => s + t.quantite, 0);
+                    const coupeFait = taches.filter(t => t.action === 'COUPE' && t.statut === 'FAIT').reduce((s, t) => s + t.quantite, 0);
+                    const coupeAFaire = taches.filter(t => t.action === 'COUPE' && t.statut === 'A_FAIRE').reduce((s, t) => s + t.quantite, 0);
+
+                    const coutureTotal = taches.filter(t => t.action === 'COUTURE').reduce((s, t) => s + t.quantite, 0);
+                    const coutureFait = taches.filter(t => t.action === 'COUTURE' && t.statut === 'FAIT').reduce((s, t) => s + t.quantite, 0);
+                    const coutureAFaire = taches.filter(t => t.action === 'COUTURE' && t.statut === 'A_FAIRE').reduce((s, t) => s + t.quantite, 0);
+
+                    const finitionTotal = taches.filter(t => t.action === 'FINITION').reduce((s, t) => s + t.quantite, 0);
+                    const finitionFait = taches.filter(t => t.action === 'FINITION' && t.statut === 'FAIT').reduce((s, t) => s + t.quantite, 0);
+                    const finitionAFaire = taches.filter(t => t.action === 'FINITION' && t.statut === 'A_FAIRE').reduce((s, t) => s + t.quantite, 0);
+
+                    const dejaLivre = (cmd.livraisons || []).flatMap(l => l.details).filter(d => d.elementNom === el.nom).reduce((s, d) => s + d.quantite, 0);
+
+                    // 1. Attente : Pièces non encore assignées à la coupe
+                    const enAttente = el.quantiteTotal - coupeTotal;
+                    if (enAttente > 0) stats.attente += enAttente;
+
+                    // 2. En Coupe : Tâches de coupe en cours (A_FAIRE)
+                    stats.coupe += coupeAFaire;
+
+                    // 3. Couture : Coupe finie mais pas encore de couture totale assignée + Couture en cours
+                    const pretPourCouture = coupeFait - coutureTotal;
+                    stats.couture += Math.max(0, pretPourCouture) + coutureAFaire;
+
+                    // 4. Finition : Couture finie mais pas encore de finition totale + Finition en cours
+                    const pretPourFinition = coutureFait - finitionTotal;
+                    stats.finition += Math.max(0, pretPourFinition) + finitionAFaire;
+
+                    // 5. Prêt : Finition terminée mais non encore remise au client (LIVRÉ)
+                    const stockPret = finitionFait - dejaLivre;
+                    if (stockPret > 0) stats.pret += stockPret;
+                });
             });
 
         return stats;
@@ -82,28 +101,24 @@ const Dashboard: React.FC<DashboardProps> = ({ commandes, employes, depenses, cl
         }).sort((a, b) => new Date(a.dateLivraisonPrevue).getTime() - new Date(b.dateLivraisonPrevue).getTime());
     }, [commandes]);
 
-    // CALCUL DU "SANTÉ SCORE" DE L'ENTREPRISE (0-100)
     const businessHealthScore = useMemo(() => {
-        let score = 70; // Base
+        let score = 70; 
         if (urgentOrders.length > 5) score -= 20;
-        if (productionStats.pret > 5) score += 10;
-        if (pendingOrders > activeTailors * 4) score -= 15;
+        if (productionStats.pret > 10) score += 10;
+        if (productionStats.attente > 50) score -= 10;
         return Math.max(0, Math.min(100, score));
-    }, [urgentOrders, productionStats, pendingOrders, activeTailors]);
+    }, [urgentOrders, productionStats]);
 
     const handleAskAI = async () => {
         setLoadingAI(true);
         const context = JSON.stringify({
             commandesEnCours: pendingOrders,
-            piecesEnProduction: productionStats.attente + productionStats.coupe + productionStats.couture + productionStats.finition,
+            fluxAtelier: productionStats,
             commandesUrgentes: urgentOrders.length,
-            chiffreAffaires: commandes.reduce((acc, c) => acc + c.prixTotal, 0),
-            depensesTotales: depenses.reduce((acc, d) => acc + d.montant, 0),
             tailleursDisponibles: activeTailors,
-            statutPieces: productionStats,
             anniversairesProchains: upcomingBirthdays.length
         });
-        const prompt = "Analyse la performance de BY TCHICO basée sur le volume de pièces en cours. Donne moi une recommandation stratégique très courte.";
+        const prompt = "Analyse la performance de BY TCHICO basée sur le volume de pièces en cours à chaque étape. Donne moi une recommandation stratégique très courte.";
         const response = await getAIAnalysis(context, prompt);
         setAiAdvice(response);
         setLoadingAI(false);
@@ -123,7 +138,6 @@ const Dashboard: React.FC<DashboardProps> = ({ commandes, employes, depenses, cl
                 </div>
             )}
 
-            {/* HEADER LUXE AVEC SCORE DE SANTÉ */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="md:col-span-2 bg-brand-900 rounded-[2rem] p-8 text-white relative overflow-hidden shadow-2xl">
                     <div className="relative z-10">
@@ -140,8 +154,8 @@ const Dashboard: React.FC<DashboardProps> = ({ commandes, employes, depenses, cl
                                 <p className="text-2xl font-black text-orange-400">{urgentOrders.length}</p>
                             </div>
                             <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10">
-                                <p className="text-[10px] font-black uppercase text-brand-300 tracking-widest mb-1">Loyauté Or</p>
-                                <p className="text-2xl font-black text-yellow-400">{clients.length > 0 ? 'Active' : 'N/A'}</p>
+                                <p className="text-[10px] font-black uppercase text-brand-300 tracking-widest mb-1">En Stock Prêt</p>
+                                <p className="text-2xl font-black text-green-400">{productionStats.pret}</p>
                             </div>
                         </div>
                     </div>
@@ -157,7 +171,6 @@ const Dashboard: React.FC<DashboardProps> = ({ commandes, employes, depenses, cl
                     </div>
                 </div>
 
-                {/* AI ACTION CARD */}
                 <div className="bg-white rounded-[2rem] p-8 border-2 border-brand-100 shadow-xl flex flex-col justify-center items-center text-center">
                     <div className="w-16 h-16 bg-brand-50 rounded-full flex items-center justify-center mb-4 text-brand-600">
                         <Zap size={32} />
@@ -180,13 +193,14 @@ const Dashboard: React.FC<DashboardProps> = ({ commandes, employes, depenses, cl
                 </div>
             </div>
 
-            {/* FLUX ATELIER REVISITÉ - MAINTENANT BASÉ SUR LES PIÈCES REELLES */}
             <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
                 <div className="flex justify-between items-center mb-8">
                     <h3 className="font-black text-gray-800 uppercase text-xs tracking-[0.2em] flex items-center gap-2">
-                        <TrendingUp size={16} className="text-brand-600"/> Flux de Production (Nombre de pièces)
+                        <TrendingUp size={16} className="text-brand-600"/> Flux de Production Réel (Nombre de pièces)
                     </h3>
-                    <span className="text-[10px] font-black text-gray-400 uppercase bg-gray-50 px-3 py-1 rounded-full border">Total en cours : {productionStats.attente + productionStats.coupe + productionStats.couture + productionStats.finition} pcs</span>
+                    <span className="text-[10px] font-black text-gray-400 uppercase bg-gray-50 px-3 py-1 rounded-full border">
+                        Atelier actif : {productionStats.attente + productionStats.coupe + productionStats.couture + productionStats.finition} pièces
+                    </span>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                     {[
