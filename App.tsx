@@ -93,6 +93,14 @@ const App: React.FC = () => {
         }));
     };
 
+    const handleDeleteTask = (orderId: string, taskId: string) => {
+        setCommandes(prev => prev.map(c => {
+            if (c.id !== orderId) return c;
+            const updatedTaches = (c.taches || []).filter(t => t.id !== taskId);
+            return { ...c, taches: updatedTaches };
+        }));
+    };
+
     const handleGlobalAddPayment = (orderId: string, amount: number, method: any, note: string, date: string, accId?: string) => {
         const order = commandes.find(c => c.id === orderId);
         if (!order) return;
@@ -362,6 +370,7 @@ const App: React.FC = () => {
                         onDeletePayment={handleGlobalDeletePayment} 
                         onAddTask={handleAddTaskToOrder} 
                         onUpdateTask={handleUpdateTask} 
+                        onDeleteTask={handleDeleteTask}
                         onArchiveOrder={(id) => setCommandes(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))} 
                         comptes={comptes} 
                         boutiques={boutiques}
