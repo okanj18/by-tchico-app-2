@@ -13,7 +13,7 @@ interface ProductionViewProps {
     onUpdateStatus: (id: string, s: StatutCommande | string) => void;
     onCreateOrder: (o: Commande, cons: Consommation[], method: ModePaiement, accId?: string) => void;
     onUpdateOrder: (o: Commande, accId?: string) => void;
-    onAddPayment: (orderId: string, amount: number, method: ModePaiement, note: string, date: string, accId?: string) => void;
+    onAddPayment: (orderId: string, amount: number, method: ModePaiement, note: string, date: string, accountId?: string) => void;
     onUpdatePayment: (orderId: string, paymentId: string, newAmount: number, date: string, accId: string) => void;
     onDeletePayment: (orderId: string, paymentId: string, accId: string) => void;
     onAddTask: (orderId: string, task: TacheProduction) => void;
@@ -69,13 +69,22 @@ const ProductionView: React.FC<ProductionViewProps> = ({
         return commandes.find(c => c.id === selectedOrder.id) || selectedOrder;
     }, [commandes, selectedOrder]);
 
-    const tailleurs = useMemo(() => employes.filter(e => 
-        (e.role === RoleEmploye.TAILLEUR || 
-         e.role === RoleEmploye.CHEF_ATELIER || 
-         e.role === RoleEmploye.STAGIAIRE || 
-         e.role === RoleEmploye.ASSISTANT) && 
-        e.actif !== false
-    ), [employes]);
+    // --- LOGIQUE FILTRAGE ARTISANS (CORRIGÉE : Prise en compte de la casse et du filtre boutique) ---
+    const tailleurs = useMemo(() => {
+        const rolesTarget = ['TAILLEUR', 'CHEF_ATELIER', 'STAGIAIRE', 'ASSISTANT'];
+        return employes.filter(e => {
+            const roleUpper = e.role.toUpperCase();
+            const matchesRole = rolesTarget.includes(roleUpper);
+            const isNotArchived = e.actif !== false;
+            
+            // Si le manager a filtré par boutique, on n'affiche que les artisans de cette boutique
+            // SAUF si le filtre est "ALL"
+            const effectiveBoutiqueFilter = boutiqueFilter;
+            const matchesBoutique = effectiveBoutiqueFilter === 'ALL' || e.boutiqueId === effectiveBoutiqueFilter;
+
+            return matchesRole && isNotArchived && matchesBoutique;
+        });
+    }, [employes, boutiqueFilter]);
 
     const isVendeur = userRole === RoleEmploye.VENDEUR;
 
@@ -341,47 +350,59 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                         <table className="w-full border-collapse">
                             <thead><tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b"><th className="p-6 border-r text-left w-64 sticky left-0 bg-gray-50 z-20">Artisan</th>{Array.from({length:7}).map((_,i)=>{const d=new Date(agendaDate);d.setDate(agendaDate.getDate()+i);return <th key={i} className="p-6 border-r text-center">{d.toLocaleDateString('fr-FR',{weekday:'short',day:'numeric'})}</th>})}</tr></thead>
                             <tbody>
-                                {tailleurs.map(artisan => (
-                                    <tr key={artisan.id} className="border-b h-40">
-                                        <td className="p-6 border-r font-black text-gray-700 uppercase text-xs sticky left-0 bg-white z-10 shadow-sm">{artisan.nom}</td>
-                                        {Array.from({length:7}).map((_,i)=>{
-                                            const d=new Date(agendaDate);d.setDate(agendaDate.getDate()+i);const dStr=d.toISOString().split('T')[0];
-                                            const dayTasks=(commandes.flatMap(c=>(c.taches||[]).map(t=>({...t,orderId:c.id,clientNom:c.clientNom, boutiqueId: c.boutiqueId}))).filter(t=>t.tailleurId===artisan.id && t.date===dStr));
-                                            return (
-                                                <td key={i} onClick={()=>{ if(userRole !== RoleEmploye.VENDEUR) { setTaskBaseData({commandeId:'',tailleurId:artisan.id,date:dStr});setMultiTasks([{elementNom:'',action:'COUPE',quantite:1}]);setTaskModalOpen(true); } }} className={`p-2 border-r bg-gray-50/20 transition-colors ${userRole !== RoleEmploye.VENDEUR ? 'cursor-cell hover:bg-brand-50' : ''}`}>
-                                                    <div className="flex flex-col gap-1 overflow-y-auto max-h-32">
-                                                        {dayTasks.map(t=>{
-                                                            return (
-                                                                <div 
-                                                                    key={t.id} 
-                                                                    onClick={(e) => { 
-                                                                        e.stopPropagation(); 
-                                                                        if(userRole !== RoleEmploye.VENDEUR) onUpdateTask(t.orderId, t.id, t.statut === 'A_FAIRE' ? 'FAIT' : 'A_FAIRE'); 
-                                                                    }} 
-                                                                    className={`p-1.5 rounded-lg border text-[8px] font-black uppercase flex items-center justify-between gap-1.5 shadow-sm transition-all hover:scale-105 cursor-pointer ${t.statut==='FAIT'?'bg-green-100 border-green-200 text-green-700':'bg-white border-brand-100 text-brand-900'}`}
-                                                                >
-                                                                    <div className="flex items-center gap-1 truncate">
-                                                                        {t.statut==='FAIT'?<CheckSquare size={10}/>:<Square size={10}/>} 
-                                                                        <span className="truncate">{t.clientNom.split(' ')[0]} : {t.elementNom}({t.quantite})</span>
+                                {tailleurs.length === 0 ? (
+                                    <tr><td colSpan={8} className="p-20 text-center text-gray-300 font-black uppercase italic">Aucun artisan trouvé pour le filtre sélectionné.</td></tr>
+                                ) : (
+                                    tailleurs.map(artisan => (
+                                        <tr key={artisan.id} className="border-b h-40">
+                                            <td className="p-6 border-r font-black text-gray-700 uppercase text-xs sticky left-0 bg-white z-10 shadow-sm">{artisan.nom}</td>
+                                            {Array.from({length:7}).map((_,i)=>{
+                                                const d=new Date(agendaDate);d.setDate(agendaDate.getDate()+i);const dStr=d.toISOString().split('T')[0];
+                                                const todayStr = new Date().toISOString().split('T')[0];
+                                                const dayTasks=(commandes.flatMap(c=>(c.taches||[]).map(t=>({...t,orderId:c.id,clientNom:c.clientNom, boutiqueId: c.boutiqueId}))).filter(t=>t.tailleurId===artisan.id && t.date===dStr));
+                                                return (
+                                                    <td key={i} onClick={()=>{ if(userRole !== RoleEmploye.VENDEUR) { setTaskBaseData({commandeId:'',tailleurId:artisan.id,date:dStr});setMultiTasks([{elementNom:'',action:'COUPE',quantite:1}]);setTaskModalOpen(true); } }} className={`p-2 border-r bg-gray-50/20 transition-colors ${userRole !== RoleEmploye.VENDEUR ? 'cursor-cell hover:bg-brand-50' : ''}`}>
+                                                        <div className="flex flex-col gap-1 overflow-y-auto max-h-32">
+                                                            {dayTasks.map(t=>{
+                                                                const isOverdue = t.statut === 'A_FAIRE' && t.date < todayStr;
+                                                                const badgeStyle = t.statut === 'FAIT' 
+                                                                    ? 'bg-green-100 border-green-200 text-green-700' 
+                                                                    : isOverdue 
+                                                                        ? 'bg-red-100 border-red-300 text-red-700 animate-pulse' 
+                                                                        : 'bg-white border-brand-100 text-brand-900';
+                                                                
+                                                                return (
+                                                                    <div 
+                                                                        key={t.id} 
+                                                                        onClick={(e) => { 
+                                                                            e.stopPropagation(); 
+                                                                            if(userRole !== RoleEmploye.VENDEUR) onUpdateTask(t.orderId, t.id, t.statut === 'A_FAIRE' ? 'FAIT' : 'A_FAIRE'); 
+                                                                        }} 
+                                                                        className={`p-1.5 rounded-lg border text-[8px] font-black uppercase flex items-center justify-between gap-1.5 shadow-sm transition-all hover:scale-105 cursor-pointer ${badgeStyle}`}
+                                                                    >
+                                                                        <div className="flex items-center gap-1 truncate">
+                                                                            {t.statut==='FAIT'?<CheckSquare size={10}/>:<Square size={10}/>} 
+                                                                            <span className="truncate">{t.clientNom.split(' ')[0]} : {t.elementNom}({t.quantite})</span>
+                                                                        </div>
+                                                                        {!isVendeur && (
+                                                                            <button 
+                                                                                type="button"
+                                                                                onClick={(e) => { e.stopPropagation(); if(window.confirm("Supprimer cette mission ?")) onDeleteTask(t.orderId, t.id); }}
+                                                                                className="p-1.5 hover:bg-red-500 hover:text-white rounded transition-colors"
+                                                                            >
+                                                                                <Trash2 size={10}/>
+                                                                            </button>
+                                                                        )}
                                                                     </div>
-                                                                    {!isVendeur && (
-                                                                        <button 
-                                                                            type="button"
-                                                                            onClick={(e) => { e.stopPropagation(); if(window.confirm("Supprimer cette mission ?")) onDeleteTask(t.orderId, t.id); }}
-                                                                            className="p-1.5 hover:bg-red-500 hover:text-white rounded transition-colors"
-                                                                        >
-                                                                            <Trash2 size={10}/>
-                                                                        </button>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </td>
-                                            );
-                                        })}
-                                    </tr>
-                                ))}
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
+                                    ))
+                                )}
                             </tbody>
                         </table>
                     </div>
@@ -414,6 +435,9 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
             {activeNav === 'ARTISANS' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-500">
+                    {tailleurs.length === 0 && (
+                        <div className="col-span-full py-20 text-center text-gray-300 font-black uppercase text-xs">Aucun artisan trouvé pour cette boutique.</div>
+                    )}
                     {tailleurs.map(artisan => {
                         const activeTasks = (commandes.flatMap(c => c.taches || []).filter(t => t.tailleurId === artisan.id && t.statut === 'A_FAIRE'));
                         return (
@@ -558,7 +582,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
 
             {paymentModalOpen && currentSelectedOrder && (
                 <div className="fixed inset-0 bg-brand-900/80 z-[700] flex items-center justify-center p-4 backdrop-blur-md">
-                    <div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl border border-brand-100 animate-in zoom-in">
+                    <div className="bg-white rounded-[2.5rem] p-10 w-full max-sm shadow-2xl border border-brand-100 animate-in zoom-in">
                         <div className="flex justify-between items-center mb-8 border-b pb-5 shrink-0"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3"><DollarSign className="text-green-600"/> {payData.editingPaymentId ? 'Modifier Versement' : 'Encaisser Versement'}</h3><button onClick={()=>setPaymentModalOpen(false)}><X size={28} className="text-gray-400"/></button></div>
                         <div className="space-y-6">
                             {!payData.editingPaymentId && (<div className="bg-gray-50 p-6 rounded-3xl text-center border shadow-inner"><p className="text-[10px] font-black text-gray-400 uppercase mb-1">Reste à percevoir</p><p className="text-3xl font-black text-gray-900">{currentSelectedOrder.reste.toLocaleString()} F</p></div>)}
@@ -603,7 +627,7 @@ const ProductionView: React.FC<ProductionViewProps> = ({
                             <div><label className="text-[10px] font-black text-gray-400 uppercase mb-2 block ml-1">Description Globale de la Commande</label><input type="text" className="w-full p-4 border-2 border-gray-100 rounded-2xl font-bold bg-white focus:border-brand-500 outline-none transition-all shadow-sm" placeholder="Ex: Tenue de mariage..." value={newOrderData.description || ''} onChange={e => setNewOrderData({...newOrderData, description: e.target.value})} /></div>
                             <div className="bg-white p-6 rounded-[2rem] border border-brand-100 space-y-4 shadow-inner">
                                 <h4 className="text-[10px] font-black text-brand-700 uppercase tracking-widest flex items-center gap-2"><List size={14}/> Composition</h4>
-                                <div className="flex gap-2"><input type="text" placeholder="Ex: Veste" className="flex-1 p-3 border-2 border-gray-100 rounded-xl text-xs font-black uppercase" value={tempElement.nom} onChange={e=>setTempElement({...tempElement,nom:e.target.value})}/><input type="number" placeholder="Qté" className="w-20 p-3 border-2 border-gray-100 rounded-xl text-center font-black" value={tempElement.quantite} onChange={e=>setTempElement({...tempElement,quantite:parseInt(e.target.value)||1})}/><button onClick={()=>{if(!tempElement.nom)return;setNewOrderData({...newOrderData,elements:[...(newOrderData.elements||[]),{id:`EL_${Date.now()}`,nom:tempElement.nom.toUpperCase(),quantiteTotal:tempElement.quantite}]});setTempElement({nom:'',quantite:1});}} className="p-3 bg-brand-900 text-white rounded-xl hover:bg-black transition-all shadow-md"><Plus size={20}/></button></div>
+                                <div className="flex gap-2"><input type="text" placeholder="Pièce (ex: Veste)" className="flex-1 p-3 border-2 border-gray-100 rounded-xl text-xs font-black uppercase" value={tempElement.nom} onChange={e=>setTempElement({...tempElement,nom:e.target.value})}/><input type="number" placeholder="Qté" className="w-20 p-3 border-2 border-gray-100 rounded-xl text-center font-black" value={tempElement.quantite} onChange={e=>setTempElement({...tempElement,quantite:parseInt(e.target.value)||1})}/><button onClick={()=>{if(!tempElement.nom)return;setNewOrderData({...newOrderData,elements:[...(newOrderData.elements||[]),{id:`EL_${Date.now()}`,nom:tempElement.nom.toUpperCase(),quantiteTotal:tempElement.quantite}]});setTempElement({nom:'',quantite:1});}} className="p-3 bg-brand-900 text-white rounded-xl hover:bg-black transition-all shadow-md"><Plus size={20}/></button></div>
                                 <div className="flex flex-wrap gap-2">{(newOrderData.elements||[]).map(el=>(<div key={el.id} className="bg-brand-50 border border-brand-200 px-4 py-2 rounded-xl flex items-center gap-3"><span className="text-[10px] font-black text-brand-900 uppercase">{el.nom} ({el.quantiteTotal})</span><button onClick={()=>setNewOrderData({...newOrderData,elements:newOrderData.elements?.filter(x=>x.id!==el.id)})} className="text-red-300 hover:text-red-500 transition-colors"><X size={14}/></button></div>))}</div>
                             </div>
                             {userRole !== RoleEmploye.VENDEUR && (<div className="bg-orange-50/50 p-6 rounded-[2rem] border border-orange-100 space-y-4 shadow-inner"><h4 className="text-[10px] font-black text-orange-700 uppercase tracking-widest flex items-center gap-2"><Package size={14}/> Sortie Stock Matière</h4><div className="flex flex-col md:flex-row gap-2"><select className="flex-1 p-3 border-2 border-orange-100 rounded-xl text-[10px] font-black uppercase bg-white" value={tempCons.articleId} onChange={e => setTempCons({ ...tempCons, articleId: e.target.value, variante: 'Standard' })}><option value="">-- Choisir Matière --</option>{articles.filter(a => a.typeArticle === 'MATIERE_PREMIERE').map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}</select><div className="flex gap-2"><input type="text" inputMode="decimal" placeholder="Qté" className="w-20 p-3 border-2 border-orange-100 rounded-xl text-center font-black bg-white focus:border-brand-600 outline-none" value={tempCons.quantite || ''} onChange={e => { const val = e.target.value; if (val === '' || /^[0-9]+([.,][0-9]*)?$/.test(val)) { setTempCons({...tempCons, quantite: val as any}); } }} /><button onClick={handleAddConsommation} className="p-3 bg-orange-600 text-white rounded-xl hover:bg-orange-700 shadow-md transition-all active:scale-95"><Plus size={20}/></button></div></div><div className="flex flex-wrap gap-2">{(newOrderData.consommations||[]).map((c,idx)=>(<div key={idx} className="bg-white border border-orange-100 px-4 py-2 rounded-xl flex items-center gap-3 shadow-sm"><span className="text-[10px] font-black text-orange-900 uppercase">{articles.find(a=>a.id===c.articleId)?.nom} ({c.quantite})</span><button onClick={()=>setNewOrderData({...newOrderData,consommations:newOrderData.consommations?.filter((_,i)=>i!==idx)})} className="text-red-300 hover:text-red-500"><X size={14}/></button></div>))}</div></div>)}
